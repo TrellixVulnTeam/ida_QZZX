@@ -33,6 +33,7 @@ opt-einsum==3.1.0
 packaging==20.1
 pandas==1.0.1
 Pillow==7.0.0
+pkg-resources==0.0.0
 pluggy==0.13.1
 protobuf==3.11.3
 py==1.8.1
@@ -57,8 +58,8 @@ tensorflow==2.1.0
 tensorflow-estimator==2.1.0
 tensorflow-hub==0.7.0
 termcolor==1.1.0
-torch==1.4.0
-torchvision==0.5.0
+torch==1.4.0+cu92
+torchvision==0.5.0+cu92
 tqdm==4.43.0
 typeguard==2.7.1
 urllib3==1.25.8
