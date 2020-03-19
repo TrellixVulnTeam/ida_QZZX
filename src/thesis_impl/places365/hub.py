@@ -115,6 +115,18 @@ class Places365Hub:
             csv_reader = csv.reader(label_map_file, delimiter=' ')
             return {row[0]: int(row[1]) for row in csv_reader}
 
+    @cached_property
+    def train_label_map(self) -> Mapping[str, int]:
+        """
+        Returns a mapping from an image file name of the training set
+        to the id of the correct label of this image.
+        """
+        self._cache_challenge_metadata()
+
+        with self._open('places365_train_challenge.txt') as label_map_file:
+            csv_reader = csv.reader(label_map_file, delimiter=' ')
+            return {row[0]: int(row[1]) for row in csv_reader}
+
     def open_demo_image(self):
         return self._open('6.jpg', self._CSAIL_DEMO_URL, mode='rb')
 

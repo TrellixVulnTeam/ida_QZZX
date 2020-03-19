@@ -27,12 +27,17 @@ class Reorganizer:
         of the label of this image.
         Currently, this method only works for images from the validation subset.
         """
-        if subset != 'validation':
+        if subset == 'validation':
+            label_map = self.hub.validation_label_map
+        elif subset == 'train':
+            label_map = self.hub.train_label_map
+        else:
             raise NotImplementedError('Currently only images from the '
-                                      'validation subset can be reorganized.')
+                                      'validation or train subset can be '
+                                      'reorganized.')
 
         for image_path in self.images_dir.glob(glob):
-            label_id = self.hub.validation_label_map[image_path.name]
+            label_id = label_map[image_path.name]
             dest_path = self.images_dir / self.hub.all_labels[label_id] / \
                         image_path.name
             logging.info('Moving image {} to {}.'.format(image_path, dest_path))
@@ -43,6 +48,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Group images by their label '
                                                  'into different '
                                                  'subdirectories.')
+    parser.add_argument('subset', type=str, choices=['validation', 'train'],
+                        help='the subset of images to reorganize')
     parser.add_argument('images_dir', type=str,
                         help='the directory where the images are stored')
     parser.add_argument('images_glob', type=str,
@@ -63,4 +70,4 @@ if __name__ == '__main__':
     hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
     reorganizer = Reorganizer(args.images_dir, hub)
     reorganizer.create_directories()
-    reorganizer.move_image_files(args.images_glob)
+    reorganizer.move_image_files(args.images_glob, args.subset)
