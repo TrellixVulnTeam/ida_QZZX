@@ -50,6 +50,8 @@ if __name__ == '__main__':
                              'above directory should be moved')
     parser.add_argument('--debug', action='store_true',
                         help='whether to output more information for debugging')
+    parser.add_argument('--cache_dir', type=str, default=None,
+                        help='the directory where Places356 metadata is cached')
 
     args = parser.parse_args()
 
@@ -58,7 +60,7 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=logging.INFO)
 
-    hub = Places365Hub()
+    hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
     reorganizer = Reorganizer(args.images_dir, hub)
     reorganizer.create_directories()
     reorganizer.move_image_files(args.images_glob)
