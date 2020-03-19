@@ -57,8 +57,8 @@ tensorflow==2.1.0
 tensorflow-estimator==2.1.0
 tensorflow-hub==0.7.0
 termcolor==1.1.0
-torch==1.4.0+cpu
-torchvision==0.5.0+cpu
+torch==1.4.0
+torchvision==0.5.0
 tqdm==4.43.0
 typeguard==2.7.1
 urllib3==1.25.8
