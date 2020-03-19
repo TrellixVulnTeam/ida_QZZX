@@ -29,7 +29,9 @@ def test_resnet18_performance(caplog, validation_path):
 
     val = torchvision.datasets.ImageFolder(root=validation_path,
                                            transform=resnet18.transform_image)
-    val_loader = torch.utils.data.DataLoader(val, batch_size=16,
+    val_loader = torch.utils.data.DataLoader(val, batch_size=512,
+                                             num_workers=6,
+                                             pin_memory=False,
                                              shuffle=True)
 
     correct_of_label = torch.zeros(len(hub.all_labels))
@@ -42,7 +44,7 @@ def test_resnet18_performance(caplog, validation_path):
         for data in val_loader:
             images, labels = data
             probs = resnet18.predict_probabilities(images)
-            _, predicted = torch.max(probs, 1)
+            _, predicted = torch.max(probs, -1)
             c = (predicted == labels).squeeze()
 
             for img_count, label_id in enumerate(labels):
@@ -56,7 +58,7 @@ def test_resnet18_performance(caplog, validation_path):
                 .squeeze()
             logging.info('Current accuracy is {}.'.format(total_acc.item()))
 
-            if num_processed >= 100:
+            if num_processed >= 1024:
                 break
 
     acc_of_label = correct_of_label / total_of_label
