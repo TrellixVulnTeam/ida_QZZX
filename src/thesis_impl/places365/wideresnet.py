@@ -167,7 +167,6 @@ class ResNet(nn.Module):
         """
         logit = self.forward(x)
         return F.softmax(logit, 1).data.squeeze()
-        # return probs.sort(-1, True)
 
 
 def resnet18(pre_trained=False, **kwargs):
