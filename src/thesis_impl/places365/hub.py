@@ -27,6 +27,9 @@ class Places365Hub:
 
     _CSAIL_DEMO_URL = 'http://places.csail.mit.edu/demo/'
 
+    _GITHUB_DOWNLOAD_URL = 'https://github.com/CSAILVision/places365/raw/' \
+                           '6f4647534a09374acf1f5d702566071b96c9a1b8/'
+
     _LABEL_RE = re.compile(r'/[a-z]/(.*)')
 
     def __init__(self, cache_dir='~/.cache/places-365'):
@@ -89,19 +92,27 @@ class Places365Hub:
             csv_reader = csv.reader(all_labels_file, delimiter=' ')
             return [self._prettify_label(row[0]) for row in csv_reader]
 
+    def label_name(self, label_id):
+        return self.all_labels[label_id]
+
     @cached_property
     def indoor_outdoor_map(self) -> [bool]:
         """
         Returns a list of boolean values `l`.
         If `l[i]` is `True`, then the label with id `i`
-        denotes an indoor scene.
-        If `l[i]` is `False`, the label with id `i` denotes an outdoor scene.
+        denotes an outdoor scene.
+        If `l[i]` is `False`, the label with id `i` denotes an indoor scene.
         """
-        self._cache_challenge_metadata()
+        with self._open('IO_places365.txt',
+                        self._GITHUB_DOWNLOAD_URL) as labels_io_file:
+            csv_reader = csv.reader(labels_io_file, delimiter=' ')
+            return [bool(int(row[1]) - 1) for row in csv_reader]
 
-        with self._open('categories_places365.txt') as all_labels_file:
-            csv_reader = csv.reader(all_labels_file, delimiter=' ')
-            return [bool(row[1] - 1) for row in csv_reader]
+    def is_outdoor(self, label_id) -> bool:
+        """
+        Returns `True` iff the label with `label_id` denotes an outdoor scene.
+        """
+        return self.indoor_outdoor_map[label_id]
 
     @cached_property
     def validation_label_map(self) -> Mapping[str, int]:
