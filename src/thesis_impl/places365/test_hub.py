@@ -36,6 +36,7 @@ def resnet18_evaluation(validation_url, batch_size):
 
 def _evaluate_on_validation_set(caplog, hub, val_loader, method):
     outer_level = logging.getLogger().level
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     with caplog.at_level(logging.INFO):
         correct_of_label = torch.zeros(len(hub.all_labels))
@@ -46,8 +47,10 @@ def _evaluate_on_validation_set(caplog, hub, val_loader, method):
 
         try:
             with torch.no_grad():
-                for data in val_loader:
-                    images, labels = data
+                for batch in val_loader:
+                    images = batch['image'].to(device)
+                    labels = batch['label_id'].to(device)
+
                     num_processed += images.size()[0]
 
                     with caplog.at_level(outer_level):
