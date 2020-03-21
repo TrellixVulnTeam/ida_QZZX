@@ -97,6 +97,13 @@ class Bottleneck(nn.Module):
         return out
 
 
+IMAGE_TRANSFORM = trn.Compose([
+    trn.Resize((224, 224)),
+    trn.ToTensor(),
+    trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000):
@@ -121,13 +128,6 @@ class ResNet(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-
-        self.transform_image = trn.Compose([
-            trn.ToPILImage(),
-            trn.Resize((224, 224)),
-            trn.ToTensor(),
-            trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None

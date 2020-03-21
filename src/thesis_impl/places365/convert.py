@@ -5,6 +5,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
 from petastorm.codecs import ScalarCodec, CompressedImageCodec
 
 from petastorm.etl.dataset_metadata import materialize_dataset
@@ -12,6 +13,7 @@ from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType
 
+from thesis_impl.places365 import wideresnet
 from thesis_impl.places365.hub import Places365Hub
 
 
@@ -34,8 +36,8 @@ class Converter:
         self.hub = hub
 
     def convert(self, glob='*.jpg', subset='validation', output_url=None,
-                row_group_size_mb=1024, spark_driver_memory='8g',
-                spark_master='local[8]'):
+                transform=None, row_group_size_mb=1024,
+                spark_driver_memory='8g', spark_master='local[8]'):
         if subset == 'validation':
             label_map = self.hub.validation_label_map
         elif subset == 'train':
@@ -61,12 +63,12 @@ class Converter:
             image_id = int(_RE_IMAGE_ID.search(image_file_name).group())
             label_id = label_map[image_file_name]
 
-            image = cv2.imread(str(image_path.absolute()))
-            # petastorm expects a rgb array, but cv2 produces bgr by default
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image = Image.open(image_path)
+            if transform == 'resnet18':
+                image = wideresnet.IMAGE_TRANSFORM(image)
 
             return {'image_id': image_id,
-                    'image': image,
+                    'image': np.asarray(image),
                     'label_id': label_id}
 
         with materialize_dataset(spark, output_url, _Places365SupervisedSchema,
@@ -77,7 +79,7 @@ class Converter:
                 .map(lambda x: dict_to_spark_row(_Places365SupervisedSchema, x))
 
             spark_schema = _Places365SupervisedSchema.as_spark_schema()
-            df = spark.createDataFrame(rows_rdd, spark_schema) \
+            spark.createDataFrame(rows_rdd, spark_schema) \
                 .coalesce(10) \
                 .write \
                 .mode('overwrite') \
@@ -95,6 +97,9 @@ if __name__ == '__main__':
     parser.add_argument('images_glob', type=str,
                         help='glob expression specifying which images in the '
                              'above directory should be converted')
+    parser.add_argument('--transform', type=str, default=None,
+                        help='Set to "resnet18" to transform the images as '
+                             'required by the pretrained resnet18.')
     parser.add_argument('--output_url', type=str, default=None,
                         help='URL where to store the dataset')
     parser.add_argument('--debug', action='store_true',
@@ -111,4 +116,5 @@ if __name__ == '__main__':
 
     hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
     converter = Converter(args.images_dir, hub)
-    converter.convert(args.images_glob, args.subset, args.output_url)
+    converter.convert(args.images_glob, args.subset, args.output_url,
+                      args.transform)
