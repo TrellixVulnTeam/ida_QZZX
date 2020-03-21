@@ -84,8 +84,8 @@ def test_resnet18_top_k_accuracy(caplog, resnet18_evaluation, k=5):
     hub, resnet18, val_loader = resnet18_evaluation
 
     def _eval(images, labels):
-        images_transformed = torch.tensor(resnet18.transform_image(img)
-                                          for img in images)
+        images_transformed = torch.tensor([resnet18.transform_image(image_tensor)
+                                          for img_tensor in images])
         probs = resnet18.predict_probabilities(images_transformed)
         _, predicted_labels = torch.topk(probs, k, -1)
         true_labels = labels.unsqueeze(-1).expand_as(predicted_labels)
@@ -101,8 +101,8 @@ def test_resnet18_indoor_outdoor_accuracy(caplog, resnet18_evaluation, k=10):
     hub, resnet18, val_loader = resnet18_evaluation
 
     def _eval(images_batch, labels_batch):
-        images_transformed = torch.tensor(resnet18.transform_image(img)
-                                          for img in images_batch)
+        images_transformed = torch.tensor([resnet18.transform_image(img_tensor)
+                                           for img_tensor in images_batch])
         probs_batch = resnet18.predict_probabilities(images_transformed)
         _, k_predicted_labels_batch = torch.topk(probs_batch, k, -1)
 
