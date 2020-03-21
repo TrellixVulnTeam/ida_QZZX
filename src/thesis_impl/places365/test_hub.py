@@ -1,8 +1,9 @@
 import logging
 
 import pytest
-import torchvision
 import torch
+from petastorm import make_reader
+from petastorm.pytorch import DataLoader
 from torch.autograd import Variable as V
 from PIL import Image
 
@@ -23,16 +24,13 @@ def test_that_resnet18_works():
 
 
 @pytest.fixture
-def resnet18_evaluation(validation_path, batch_size):
+def resnet18_evaluation(validation_parquet_url, batch_size):
     hub = Places365Hub()
     resnet18 = hub.resnet18()
-
-    val = torchvision.datasets.ImageFolder(root=validation_path,
-                                           transform=resnet18.transform_image)
-    val_loader = torch.utils.data.DataLoader(val, batch_size=batch_size,
-                                             num_workers=6,
-                                             pin_memory=False,
-                                             shuffle=True)
+    reader = make_reader(validation_parquet_url,
+                         num_epochs=1,
+                         shuffle_row_groups=False)
+    val_loader = DataLoader(reader, batch_size=batch_size)
     return hub, resnet18, val_loader
 
 
@@ -83,7 +81,9 @@ def test_resnet18_top_k_accuracy(caplog, resnet18_evaluation, k=5):
     hub, resnet18, val_loader = resnet18_evaluation
 
     def _eval(images, labels):
-        probs = resnet18.predict_probabilities(images)
+        images_transformed = torch.tensor(resnet18.transform_image(img)
+                                          for img in images)
+        probs = resnet18.predict_probabilities(images_transformed)
         _, predicted_labels = torch.topk(probs, k, -1)
         true_labels = labels.unsqueeze(-1).expand_as(predicted_labels)
         success = (predicted_labels == true_labels).sum(-1)
@@ -98,7 +98,9 @@ def test_resnet18_indoor_outdoor_accuracy(caplog, resnet18_evaluation, k=10):
     hub, resnet18, val_loader = resnet18_evaluation
 
     def _eval(images_batch, labels_batch):
-        probs_batch = resnet18.predict_probabilities(images_batch)
+        images_transformed = torch.tensor(resnet18.transform_image(img)
+                                          for img in images_batch)
+        probs_batch = resnet18.predict_probabilities(images_transformed)
         _, k_predicted_labels_batch = torch.topk(probs_batch, k, -1)
 
         for true_label_id, k_predicted_labels \
