@@ -46,7 +46,7 @@ class Converter:
                                       'converted.')
 
         if output_url is None:
-            output_url = 'file://' + str(self.images_dir.absolute() / subset /
+            output_url = 'file://' + str(self.images_dir.absolute() /
                                          '{}.parquet'.format(subset))
 
         spark = SparkSession.builder\
