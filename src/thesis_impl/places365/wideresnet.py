@@ -123,6 +123,7 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
         self.transform_image = trn.Compose([
+            trn.ToPILImage(),
             trn.Resize((224, 224)),
             trn.ToTensor(),
             trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
