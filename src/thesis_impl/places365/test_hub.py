@@ -24,10 +24,10 @@ def test_that_resnet18_works():
 
 
 @pytest.fixture
-def resnet18_evaluation(validation_parquet_url, batch_size):
+def resnet18_evaluation(validation_url, batch_size):
     hub = Places365Hub()
     resnet18 = hub.resnet18()
-    reader = make_reader(validation_parquet_url,
+    reader = make_reader(validation_url,
                          num_epochs=1,
                          shuffle_row_groups=False)
     val_loader = DataLoader(reader, batch_size=batch_size)
