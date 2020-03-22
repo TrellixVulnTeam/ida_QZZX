@@ -5,9 +5,14 @@ import torch
 from petastorm import make_reader
 from petastorm.pytorch import DataLoader
 from torch.autograd import Variable as V
+import torchvision
 from PIL import Image
 
 from thesis_impl.places365.hub import Places365Hub
+
+
+_DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+logging.info('Torch is using device {}.'.format(_DEVICE))
 
 
 def test_that_resnet18_works():
@@ -26,17 +31,17 @@ def test_that_resnet18_works():
 @pytest.fixture
 def resnet18_evaluation(validation_url, batch_size):
     hub = Places365Hub()
-    resnet18 = hub.resnet18()
+    resnet18 = hub.resnet18().to(_DEVICE)
+    resnet18.eval()
     reader = make_reader(validation_url,
                          num_epochs=1,
-                         shuffle_row_groups=False)
+                         shuffle_row_groups=True)
     val_loader = DataLoader(reader, batch_size=batch_size)
     return hub, resnet18, val_loader
 
 
 def _evaluate_on_validation_set(caplog, hub, val_loader, method):
     outer_level = logging.getLogger().level
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     with caplog.at_level(logging.INFO):
         correct_of_label = torch.zeros(len(hub.all_labels))
@@ -48,8 +53,9 @@ def _evaluate_on_validation_set(caplog, hub, val_loader, method):
         try:
             with torch.no_grad():
                 for batch in val_loader:
-                    images = batch['image'].to(device)
-                    labels = batch['label_id'].to(device)
+                    images = batch['image'].to(_DEVICE, torch.float)
+                    images = images.permute(0, 3, 1, 2)  # pytorch expects channels before width/height
+                    labels = batch['label_id'].to(_DEVICE, torch.uint8)
 
                     num_processed += images.size()[0]
 
@@ -84,6 +90,7 @@ def test_resnet18_top_k_accuracy(caplog, resnet18_evaluation, k=5):
     hub, resnet18, val_loader = resnet18_evaluation
 
     def _eval(images, labels):
+        images = _normalize(images)
         probs = resnet18.predict_probabilities(images)
         _, predicted_labels = torch.topk(probs, k, -1)
         true_labels = labels.unsqueeze(-1).expand_as(predicted_labels)
@@ -95,10 +102,18 @@ def test_resnet18_top_k_accuracy(caplog, resnet18_evaluation, k=5):
     _evaluate_on_validation_set(caplog, hub, val_loader, _eval)
 
 
+def _normalize(images):
+    r_norm = images[:,0].add(-0.485).div(0.229)
+    g_norm = images[:,1].add(-0.456).div(0.224)
+    b_norm = images[:,2].add(-0.406).div(0.225)
+    return torch.stack([r_norm, g_norm, b_norm], dim=1)
+
+
 def test_resnet18_indoor_outdoor_accuracy(caplog, resnet18_evaluation, k=10):
     hub, resnet18, val_loader = resnet18_evaluation
 
     def _eval(images_batch, labels_batch):
+        images_batch = _normalize(images_batch)
         probs_batch = resnet18.predict_probabilities(images_batch)
         _, k_predicted_labels_batch = torch.topk(probs_batch, k, -1)
 
