@@ -65,8 +65,7 @@ class Converter:
             image_id = int(_RE_IMAGE_ID.search(image_file_name).group())
             label_id = label_map[image_file_name]
 
-            image = Image.open(image_path)
-            image.resize(image_size)
+            image = Image.open(image_path).resize(image_size)
 
             return {'image_id': image_id,
                     'image': np.asarray(image),
@@ -120,8 +119,11 @@ if __name__ == '__main__':
         raise ValueError('Format of --resize parameter must be '
                          '"[width]x[height]".')
     width, height = args.size.split('x')
+    size = int(width), int(height)
+
+    logging.warn('Size: {}'.format(size))
 
     hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
     converter = Converter(args.images_dir, hub)
-    converter.convert((width, height), args.images_glob, args.subset,
+    converter.convert(size, args.images_glob, args.subset,
                       args.output_url)
