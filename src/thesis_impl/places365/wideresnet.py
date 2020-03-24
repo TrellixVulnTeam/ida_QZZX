@@ -1,5 +1,5 @@
 # This is the official ResNet implementation from the Places365 challenge.
-
+import torch
 import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
@@ -97,16 +97,10 @@ class Bottleneck(nn.Module):
         return out
 
 
-IMAGE_TRANSFORM = trn.Compose([
-    trn.Resize((224, 224)),
-    trn.ToTensor(),
-    trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
-
-
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000):
+    def __init__(self, block, layers, num_classes=1000,
+                 normalize_channels=None):
         self.in_planes = 64
         super(ResNet, self).__init__()
         
@@ -129,6 +123,12 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
+        if normalize_channels:
+            means, sds = normalize_channels
+            self.normalize_channels = torch.tensor(means), torch.tensor(sds)
+        else:
+            self.normalize_channels = None
+
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.in_planes != planes * block.expansion:
@@ -145,7 +145,21 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def _normalize_(self, images):
+        """
+        Takes in a batch of *images* of shape (C, H, W) with value range [0, 1].
+        Normalizes the values of *images* in place according to
+        `self.normalize_channels`.
+        """
+        if self.normalize_channels:
+            means, sds = self.normalize_channels
+            means_nested = means[None, :, None, None]
+            sds_nested = sds[None, :, None, None]
+            images.sub_(means_nested).div_(sds_nested)
+
     def forward(self, x):
+        self._normalize_(x)
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

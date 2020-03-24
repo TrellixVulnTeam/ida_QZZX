@@ -163,7 +163,9 @@ class Places365Hub:
 
         with self._open('wideresnet18_places365_converted',
                         mode='rb') as model_file:
-            model = wideresnet.resnet18(num_classes=365)
+            model = wideresnet.resnet18(num_classes=365,
+                                        normalize_channels=((.485, .456, .406),
+                                                            (.229, .224, .225)))
             checkpoint = torch.load(model_file,
                                     map_location=lambda storage, loc: storage)
             state_dict = {str.replace(k, 'module.', ''): v
