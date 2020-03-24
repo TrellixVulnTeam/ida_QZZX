@@ -103,7 +103,7 @@ class ResNet(nn.Module):
                  normalize_channels=None):
         self.in_planes = 64
         super(ResNet, self).__init__()
-        
+
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -151,10 +151,11 @@ class ResNet(nn.Module):
         Normalizes the values of *images* in place according to
         `self.normalize_channels`.
         """
+        device = next(self.parameters()).device
         if self.normalize_channels:
             means, sds = self.normalize_channels
-            means_nested = means[None, :, None, None]
-            sds_nested = sds[None, :, None, None]
+            means_nested = means[None, :, None, None].to(device)
+            sds_nested = sds[None, :, None, None].to(device)
             images.sub_(means_nested).div_(sds_nested)
 
     def forward(self, x):
