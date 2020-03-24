@@ -17,9 +17,7 @@ from thesis_impl.places365.hub import Places365Hub
 
 def _get_schema(image_width: int, image_height: int):
     return Unischema('Places365SupervisedSchema',
-                     [UnischemaField('image_id', np.int32, (),
-                                     ScalarCodec(IntegerType()), False),
-                      UnischemaField('image', np.uint8, (image_width,
+                     [UnischemaField('image', np.uint8, (image_width,
                                                          image_height, 3),
                                      CompressedImageCodec('png'), False),
                       UnischemaField('label_id', np.int16, (),
@@ -62,15 +60,13 @@ class Converter:
 
         def generate_row(image_path: Path):
             image_file_name = image_path.name
-            image_id = int(_RE_IMAGE_ID.search(image_file_name).group())
             label_id = label_map[image_file_name]
 
             image = Image.open(image_path).resize(image_size)
             if image.mode != 'RGB':
                 image = image.convert('RGB')
 
-            return {'image_id': image_id,
-                    'image': np.asarray(image),
+            return {'image': np.asarray(image),
                     'label_id': label_id}
 
         schema = _get_schema(*image_size)
