@@ -35,13 +35,22 @@ class Converter:
         assert self.images_dir.exists()
         self.hub = hub
 
+    def _lookup_validation_label(self, image_path):
+        image_file_name = image_path.name
+        return self.hub.validation_label_map[image_file_name]
+
+    def _lookup_train_label(self, image_path):
+        two_parents = image_path.parents[2]
+        image_file_name = str(image_path.relative_to(two_parents))
+        return self.hub.train_label_map[image_file_name]
+
     def convert(self, image_size, glob='*.jpg', subset='validation',
                 output_url=None, row_group_size_mb=1024,
                 spark_driver_memory='8g', spark_master='local[8]'):
         if subset == 'validation':
-            label_map = self.hub.validation_label_map
+            lookup_label = self._lookup_validation_label
         elif subset == 'train':
-            label_map = self.hub.train_label_map
+            lookup_label = self._lookup_train_label
         else:
             raise NotImplementedError('Currently only images from the '
                                       'validation or train subset can be '
@@ -59,9 +68,7 @@ class Converter:
         sc = spark.sparkContext
 
         def generate_row(image_path: Path):
-            image_file_name = image_path.name
-            label_id = label_map[image_file_name]
-
+            label_id = lookup_label(image_path)
             image = Image.open(image_path).resize(image_size)
             if image.mode != 'RGB':
                 image = image.convert('RGB')
