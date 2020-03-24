@@ -22,7 +22,7 @@ def _get_schema(image_width: int, image_height: int):
                       UnischemaField('image', np.uint8, (image_width,
                                                          image_height, 3),
                                      CompressedImageCodec('png'), False),
-                      UnischemaField('label_id', np.uint8, (),
+                      UnischemaField('label_id', np.int16, (),
                                      ScalarCodec(IntegerType()), False)])
 
 
@@ -38,8 +38,8 @@ class Converter:
         self.hub = hub
 
     def convert(self, image_size, glob='*.jpg', subset='validation',
-                output_url=None, row_group_size_mb=1024,
-                spark_driver_memory='8g', spark_master='local[8]'):
+                output_url=None, row_group_size_mb=128,
+                spark_driver_memory='6g', spark_master='local[4]'):
         if subset == 'validation':
             label_map = self.hub.validation_label_map
         elif subset == 'train':
@@ -66,6 +66,8 @@ class Converter:
             label_id = label_map[image_file_name]
 
             image = Image.open(image_path).resize(image_size)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
 
             return {'image_id': image_id,
                     'image': np.asarray(image),
@@ -75,7 +77,6 @@ class Converter:
 
         with materialize_dataset(spark, output_url, schema,
                                  row_group_size_mb):
-
             rows_rdd = sc.parallelize(self.images_dir.glob(glob)) \
                 .map(generate_row) \
                 .map(lambda x: dict_to_spark_row(schema, x))
@@ -121,9 +122,9 @@ if __name__ == '__main__':
     width, height = args.size.split('x')
     size = int(width), int(height)
 
-    logging.warn('Size: {}'.format(size))
+    images_dir = args.images_dir.replace('\'', '')
+    images_glob = args.images_glob.replace('\'', '')
 
     hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
-    converter = Converter(args.images_dir, hub)
-    converter.convert(size, args.images_glob, args.subset,
-                      args.output_url)
+    converter = Converter(images_dir, hub)
+    converter.convert(size, images_glob, args.subset, args.output_url)
