@@ -38,8 +38,8 @@ class Converter:
         self.hub = hub
 
     def convert(self, image_size, glob='*.jpg', subset='validation',
-                output_url=None, row_group_size_mb=128,
-                spark_driver_memory='6g', spark_master='local[4]'):
+                output_url=None, row_group_size_mb=1024,
+                spark_driver_memory='8g', spark_master='local[8]'):
         if subset == 'validation':
             label_map = self.hub.validation_label_map
         elif subset == 'train':
