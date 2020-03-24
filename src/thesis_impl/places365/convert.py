@@ -41,7 +41,7 @@ class Converter:
 
     def _lookup_train_label(self, image_path):
         two_parents = image_path.parents[2]
-        image_file_name = str(image_path.relative_to(two_parents))
+        image_file_name = '/' + str(image_path.relative_to(two_parents))
         return self.hub.train_label_map[image_file_name]
 
     def convert(self, image_size, glob='*.jpg', subset='validation',
