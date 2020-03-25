@@ -4,7 +4,6 @@ import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
 from torch.nn import functional as F
-from torchvision import transforms as trn
 
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
