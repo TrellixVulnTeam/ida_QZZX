@@ -3,6 +3,7 @@ import argparse
 import logging
 import re
 from collections import Counter
+from contextlib import suppress
 from typing import Callable
 
 import numpy as np
@@ -14,6 +15,7 @@ from petastorm.etl.dataset_metadata import materialize_dataset
 from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType
+from torch.nn import DataParallel
 from torchvision.transforms.functional import to_pil_image
 
 from thesis_impl.places365.hub import Places365Hub
@@ -48,6 +50,12 @@ class ImageToImageDummyTranslator(Translator):
             yield {self._field.name: image_arr}
 
 
+def _wrap_parallel(model):
+    if torch.cuda.device_count() > 1:
+        return DataParallel(model)
+    return model
+
+
 class ImageToPlaces365SceneNameTranslator(Translator):
 
     def __init__(self, model, hub: Places365Hub, top_k=1):
@@ -71,15 +79,16 @@ class ImageToPlaces365SceneNameTranslator(Translator):
     @staticmethod
     def with_resnet18(device=cfg.Torch.DEFAULT_DEVICE, top_k=5, **kwargs):
         hub = Places365Hub(**kwargs)
-        model = hub.resnet18().to(device).eval()
+        model = _wrap_parallel(hub.resnet18().to(device).eval())
         return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
     def __call__(self, image_tensors):
-        probs = self.model(image_tensors)
-        _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
-        for predicted_labels in predicted_labels_batch:
-            yield {self._get_field_name(i): predicted_labels[i].item()
-                   for i in range(self._top_k)}
+        with torch.no_grad():
+            probs = self.model(image_tensors)
+            _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
+            for predicted_labels in predicted_labels_batch:
+                yield {self._get_field_name(i): predicted_labels[i].item()
+                       for i in range(self._top_k)}
 
 
 class ImageToCocoObjectNamesTranslator(Translator):
@@ -116,10 +125,10 @@ class ImageToCocoObjectNamesTranslator(Translator):
 
     @staticmethod
     def with_faster_r_cnn(device=cfg.Torch.DEFAULT_DEVICE):
-        model = torchvision.models.detection \
-            .fasterrcnn_resnet50_fpn(pretrained=True) \
-            .to(device)\
-            .eval()
+        model = _wrap_parallel(torchvision.models.detection
+                               .fasterrcnn_resnet50_fpn(pretrained=True)
+                               .to(device)
+                               .eval())
         return ImageToCocoObjectNamesTranslator(model)
 
     def get_object_names_counts(self, counts_array):
@@ -131,11 +140,14 @@ class ImageToCocoObjectNamesTranslator(Translator):
                 for obj_id, count in counts_array.items() if count > 0}
 
     def __call__(self, image_tensors):
-        for result in self.model(image_tensors):
-            obj_counts = Counter(obj_id.item() for obj_id in result['labels'])
-            counts_arr = np.array([obj_counts.get(obj_id, 0)
-                                   for obj_id in range(len(self.OBJECT_NAMES))])
-            yield {self._field.name: counts_arr}
+        with torch.no_grad():
+            for result in self.model(image_tensors):
+                obj_counts = Counter(obj_id.item()
+                                     for obj_id in result['labels'])
+                obj_ids = range(len(self.OBJECT_NAMES))
+                counts_arr = np.array([obj_counts.get(obj_id, 0)
+                                       for obj_id in obj_ids])
+                yield {self._field.name: counts_arr}
 
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
@@ -190,17 +202,6 @@ def translate_images(input_url, output_url, schema_name,
     try:
         loader = unsupervised_loader(input_url)
 
-        def translation_iterators(images_batch):
-            for t in translators:
-                yield t(images_batch)
-
-        def data_gen(images_batch):
-            for result_row_dicts in zip(*translation_iterators(images_batch)):
-                merged_row = {}
-                for row_dict in result_row_dicts:
-                    merged_row.update(row_dict)
-                yield merged_row
-
         spark = SparkSession.builder \
             .config('spark.driver.memory',
                     cfg.Petastorm.Write.spark_driver_memory) \
@@ -209,14 +210,33 @@ def translate_images(input_url, output_url, schema_name,
 
         sc = spark.sparkContext
 
+        def translation_iterators(images_batch):
+            for t in translators:
+                yield t(images_batch)
+
+        def generate_translations(images_batch):
+            for result_row_dicts in zip(*translation_iterators(images_batch)):
+                merged_row = {}
+                for row_dict in result_row_dicts:
+                    merged_row.update(row_dict)
+                yield merged_row
+
+        def create_rdd(images_batch):
+            translations_batch = list(generate_translations(images_batch))
+            return sc.parallelize(translations_batch) \
+                .map(lambda x: dict_to_spark_row(schema, x))
+
+        with suppress(StopIteration):
+            images_batch = next(loader)
+            translations_rdd = create_rdd(images_batch)
+
+        for images_batch in loader:
+            translations_rdd = translations_rdd.union(create_rdd(images_batch))
+
         with materialize_dataset(spark, output_url, schema,
                                  cfg.Petastorm.Write.row_group_size_mb):
-            with torch.no_grad():
-                rows_rdd = sc.parallelize(loader) \
-                    .map(data_gen) \
-                    .map(lambda x: dict_to_spark_row(schema, x))
-
-                spark.createDataFrame(rows_rdd, schema.as_spark_schema()) \
+                spark.createDataFrame(translations_rdd,
+                                      schema.as_spark_schema()) \
                     .coalesce(10) \
                     .write \
                     .mode('overwrite') \
