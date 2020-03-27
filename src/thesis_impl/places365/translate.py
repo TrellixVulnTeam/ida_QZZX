@@ -71,7 +71,7 @@ class ImageToPlaces365SceneNameTranslator(Translator):
     @staticmethod
     def with_resnet18(device=cfg.Torch.DEFAULT_DEVICE, top_k=5, **kwargs):
         hub = Places365Hub(**kwargs)
-        model = hub.resnet18().to(device)
+        model = hub.resnet18().to(device).eval()
         return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
     def __call__(self, image_tensors):
@@ -118,8 +118,8 @@ class ImageToCocoObjectNamesTranslator(Translator):
     def with_faster_r_cnn(device=cfg.Torch.DEFAULT_DEVICE):
         model = torchvision.models.detection \
             .fasterrcnn_resnet50_fpn(pretrained=True) \
-            .to(device)
-        model.eval()
+            .to(device)\
+            .eval()
         return ImageToCocoObjectNamesTranslator(model)
 
     def get_object_names_counts(self, counts_array):
@@ -211,15 +211,16 @@ def translate_images(input_url, output_url, schema_name,
 
         with materialize_dataset(spark, output_url, schema,
                                  cfg.Petastorm.Write.row_group_size_mb):
-            rows_rdd = sc.parallelize(loader) \
-                .map(data_gen) \
-                .map(lambda x: dict_to_spark_row(schema, x))
+            with torch.no_grad():
+                rows_rdd = sc.parallelize(loader) \
+                    .map(data_gen) \
+                    .map(lambda x: dict_to_spark_row(schema, x))
 
-            spark.createDataFrame(rows_rdd, schema.as_spark_schema()) \
-                .coalesce(10) \
-                .write \
-                .mode('overwrite') \
-                .parquet(output_url)
+                spark.createDataFrame(rows_rdd, schema.as_spark_schema()) \
+                    .coalesce(10) \
+                    .write \
+                    .mode('overwrite') \
+                    .parquet(output_url)
 
     except KeyboardInterrupt:
         logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
