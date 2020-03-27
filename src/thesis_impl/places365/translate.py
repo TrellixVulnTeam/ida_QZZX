@@ -144,9 +144,14 @@ class ImageToCocoObjectNamesTranslator(Translator):
             for result in self.model(image_tensors):
                 obj_counts = Counter(obj_id.item()
                                      for obj_id in result['labels'])
+
+                # uint8 must be smaller than 256
+                assert max(*obj_counts.values()) < 256
+
                 obj_ids = range(len(self.OBJECT_NAMES))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
-                                       for obj_id in obj_ids])
+                                       for obj_id in obj_ids],
+                                      dtype=np.uint8)
                 yield {self._field.name: counts_arr}
 
 
