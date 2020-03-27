@@ -3,12 +3,61 @@ import logging
 import pytest
 import torch
 
-from thesis_impl.places365.tests.evaluate import evaluate_on_validation_set
+from thesis_impl.places365.hub import Places365Hub
+from thesis_impl.places365.io import supervised_loader
 
 
-@pytest.mark.usefixtures('resnet18_evaluation')
+@pytest.fixture
+def resnet18_evaluation(supervised_url):
+    hub = Places365Hub()
+    resnet18 = hub.resnet18()
+    return hub, resnet18, supervised_loader(supervised_url)
+
+
+def evaluate_accuracy(caplog, hub, loader, method):
+    outer_level = logging.getLogger().level
+
+    with caplog.at_level(logging.INFO):
+        correct_of_label = torch.zeros(len(hub.all_labels))
+        total_of_label = torch.zeros(len(hub.all_labels))
+
+        num_processed = 0
+        total_acc = 0
+
+        try:
+            with torch.no_grad():
+                for images, labels in loader:
+                    num_processed += images.size()[0]
+
+                    with caplog.at_level(outer_level):
+                        for label_id, prediction_is_correct \
+                                in method(images, labels):
+                            if prediction_is_correct:
+                                correct_of_label[label_id] += 1
+                            total_of_label[label_id] += 1
+
+                    logging.info('Processed {} images so far.'
+                                 .format(num_processed))
+                    total_acc = (correct_of_label.sum() / total_of_label.sum())\
+                        .squeeze()
+                    logging.info('Current accuracy is {}.'.format(total_acc.item()))
+        except KeyboardInterrupt:
+            logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
+        else:
+            logging.info('----- Finished -----')
+
+        acc_of_label = correct_of_label / total_of_label
+        acc_of_label_names = '\n'.join(['{}: {}'.format(l, acc.item())
+                                       for l, acc in zip(hub.all_labels,
+                                                         acc_of_label)])
+
+        logging.info('Accuracy of individual labels:\n{}'
+                     .format(acc_of_label_names))
+        logging.info('Total accuracy: {}'.format(total_acc.item()))
+
+
 def test_top_k_accuracy(caplog, resnet18_evaluation, k=5):
-    hub, resnet18, val_loader = resnet18_evaluation
+    hub, resnet18, loader = resnet18_evaluation
 
     def _eval(images, labels):
         probs = resnet18.predict_probabilities(images)
@@ -19,12 +68,11 @@ def test_top_k_accuracy(caplog, resnet18_evaluation, k=5):
         for pred_no, label_id in enumerate(labels):
             yield label_id, bool(success[pred_no].item())
 
-    evaluate_on_validation_set(caplog, hub, val_loader, _eval)
+    evaluate_accuracy(caplog, hub, loader, _eval)
 
 
-@pytest.mark.usefixtures('resnet18_evaluation')
 def test_indoor_outdoor_accuracy(caplog, resnet18_evaluation, k=10):
-    hub, resnet18, val_loader = resnet18_evaluation
+    hub, resnet18, loader = resnet18_evaluation
 
     def _eval(images_batch, labels_batch):
         probs_batch = resnet18.predict_probabilities(images_batch)
@@ -41,4 +89,4 @@ def test_indoor_outdoor_accuracy(caplog, resnet18_evaluation, k=10):
 
             yield true_label_id, predict_outdoor == is_outdoor
 
-    evaluate_on_validation_set(caplog, hub, val_loader, _eval)
+    evaluate_accuracy(caplog, hub, loader, _eval)
