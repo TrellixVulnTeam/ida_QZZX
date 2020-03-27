@@ -44,7 +44,7 @@ class ImageToImageDummyTranslator(Translator):
         return [self._field]
 
     def __call__(self, image_tensors):
-        for image_tensor in image_tensors:
+        for image_tensor in image_tensors.cpu():
             image_arr = np.asarray(to_pil_image(image_tensor, 'RGB')
                                    .resize((self._width, self._height)))
             yield {self._field.name: image_arr}
