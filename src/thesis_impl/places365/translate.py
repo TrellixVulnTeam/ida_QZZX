@@ -231,7 +231,12 @@ def translate_images(input_url, output_url, schema_name,
             translations_rdd = create_rdd(images_batch)
 
         for images_batch in loader:
-            translations_rdd = translations_rdd.union(create_rdd(images_batch))
+            batch_rdd = create_rdd(images_batch)
+            translations_rdd = translations_rdd.union(batch_rdd)
+            logging.info('created new rdd. first item: {}'.
+                         format(batch_rdd.take(1)))
+            logging.info('current memory usage:\n{}'
+                         .format(torch.cuda.memory_summary()))
 
         with materialize_dataset(spark, output_url, schema,
                                  cfg.Petastorm.Write.row_group_size_mb):
