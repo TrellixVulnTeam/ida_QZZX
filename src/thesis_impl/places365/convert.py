@@ -12,6 +12,7 @@ from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType
 
+from thesis_impl.places365 import config as cfg
 from thesis_impl.places365.hub import Places365Hub
 
 
@@ -45,8 +46,7 @@ class Converter:
         return self.hub.train_label_map[image_file_name]
 
     def convert(self, image_size, glob='*.jpg', subset='validation',
-                output_url=None, row_group_size_mb=1024,
-                spark_driver_memory='8g', spark_master='local[8]'):
+                output_url=None):
         if subset == 'validation':
             lookup_label = self._lookup_validation_label
         elif subset == 'train':
@@ -61,8 +61,9 @@ class Converter:
                                          '{}.parquet'.format(subset))
 
         spark = SparkSession.builder\
-            .config('spark.driver.memory', spark_driver_memory)\
-            .master(spark_master)\
+            .config('spark.driver.memory',
+                    cfg.Petastorm.Write.spark_driver_memory)\
+            .master(cfg.Petastorm.Write.spark_master)\
             .getOrCreate()
 
         sc = spark.sparkContext
@@ -79,7 +80,7 @@ class Converter:
         schema = _get_schema(*image_size)
 
         with materialize_dataset(spark, output_url, schema,
-                                 row_group_size_mb):
+                                 cfg.Petastorm.Write.row_group_size_mb):
             rows_rdd = sc.parallelize(self.images_dir.glob(glob)) \
                 .map(generate_row) \
                 .map(lambda x: dict_to_spark_row(schema, x))
