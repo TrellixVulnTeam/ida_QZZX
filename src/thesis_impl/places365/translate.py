@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 import torchvision
-from petastorm.codecs import ScalarCodec, CompressedImageCodec
+from petastorm.codecs import ScalarCodec, CompressedImageCodec, NdarrayCodec
 from petastorm.etl.dataset_metadata import materialize_dataset
 from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
 from pyspark.sql import SparkSession
@@ -116,8 +116,8 @@ class ImageToCocoObjectNamesTranslator(Translator):
         self.model = model
 
         num_ints = int(len(self.OBJECT_NAMES) / 8) + 1
-        self._field = UnischemaField('coco_object_counts', np.uint8, (num_ints,),
-                                     ScalarCodec(IntegerType()), False)
+        self._field = UnischemaField('coco_object_counts', np.uint8,
+                                     (num_ints,), NdarrayCodec(), False)
 
     @property
     def fields(self):
