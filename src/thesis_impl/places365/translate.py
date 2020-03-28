@@ -232,7 +232,9 @@ def translate_images(input_url, output_url, schema_name,
                 yield merged_row
 
         def create_rdd(images_batch):
+            logging.info('Generating new batch of translations...')
             translations_batch = list(generate_translations(images_batch))
+            logging.info('Done!')
             return sc.parallelize(translations_batch) \
                 .map(lambda x: dict_to_spark_row(schema, x))
 
@@ -250,12 +252,16 @@ def translate_images(input_url, output_url, schema_name,
 
         with materialize_dataset(spark, output_url, schema,
                                  cfg.Petastorm.Write.row_group_size_mb):
-                spark.createDataFrame(translations_rdd,
+            logging.info('Finished translations. Storing dataset...')
+
+            spark.createDataFrame(translations_rdd,
                                       schema.as_spark_schema()) \
                     .coalesce(10) \
                     .write \
                     .mode('overwrite') \
                     .parquet(output_url)
+
+            logging.info('Done!')
 
     except KeyboardInterrupt:
         logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
