@@ -92,7 +92,7 @@ class ImageToPlaces365SceneNameTranslator(Translator):
                 yield {self._get_field_name(i): predicted_labels[i].cpu().item()
                        for i in range(self._top_k)}
 
-        logging.info('   [DONE]')
+        logging.info('-- [DONE]')
 
 
 class ImageToCocoObjectNamesTranslator(Translator):
@@ -157,7 +157,7 @@ class ImageToCocoObjectNamesTranslator(Translator):
                                       dtype=np.uint8)
                 yield {self._field.name: counts_arr}
 
-        logging.info('   [DONE]')
+        logging.info('-- [DONE]')
 
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
@@ -283,7 +283,7 @@ if __name__ == '__main__':
     peta_read_group = parser.add_argument_group('Settings for reading the '
                                                 'input dataset')
     cfg.PetastormReadConfig.setup_parser(peta_read_group,
-                                         default_batch_size=32)
+                                         default_batch_size=16)
 
     peta_write_group = parser.add_argument_group('Settings for writing the '
                                                  'output dataset')
