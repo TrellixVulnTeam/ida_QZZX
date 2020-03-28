@@ -115,7 +115,7 @@ class ImageToCocoObjectNamesTranslator(Translator):
     def __init__(self, model):
         self.model = model
 
-        num_ints = int(len(self.OBJECT_NAMES) / 8) + 1
+        num_ints = len(self.OBJECT_NAMES)
         self._field = UnischemaField('coco_object_counts', np.uint8,
                                      (num_ints,), NdarrayCodec(), False)
 
@@ -140,6 +140,11 @@ class ImageToCocoObjectNamesTranslator(Translator):
                 for obj_id, count in counts_array.items() if count > 0}
 
     def __call__(self, image_tensors):
+        logging.warning('Predicting coco objects!')
+        model_device = self.model.parameters().device()
+        logging.warning('Model is on {}. Tensors are on {}.'
+                        .format(model_device, image_tensors.device()))
+
         with torch.no_grad():
             for result in self.model(image_tensors):
                 obj_counts = Counter(obj_id.item()
