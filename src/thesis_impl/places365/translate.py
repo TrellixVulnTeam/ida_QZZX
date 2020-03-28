@@ -198,12 +198,13 @@ def translator_factory(t_name: str, device: torch.device):
 
 
 def translate_images(input_url, output_url, schema_name,
-                     translators: [Translator], read_cfg, write_cfg):
+                     translators: [Translator], device: torch.device,
+                     read_cfg, write_cfg):
     schema = Unischema(schema_name,
                        [f for t in translators for f in t.fields])
 
     try:
-        loader = iter(unsupervised_loader(input_url, read_cfg))
+        loader = iter(unsupervised_loader(input_url, read_cfg, device))
 
         spark = SparkSession.builder \
             .config('spark.driver.memory',
@@ -302,9 +303,8 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=logging.INFO)
 
-    with torch_cfg.set_device():
-        translators = [translator_factory(t_name, torch_cfg.device)
-                       for t_name in args.translators]
+    translators = [translator_factory(t_name, torch_cfg.device)
+                   for t_name in args.translators]
 
-        translate_images(args.input_url, args.output_url, args.schema_name,
-                         translators, read_cfg, write_cfg)
+    translate_images(args.input_url, args.output_url, args.schema_name,
+                     translators, torch_cfg.device, read_cfg, write_cfg)
