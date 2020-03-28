@@ -51,8 +51,8 @@ class ImageToImageDummyTranslator(Translator):
 
 
 def _wrap_parallel(model):
-    # if torch.cuda.device_count() > 1:
-    #     return DataParallel(model)
+    if torch.cuda.device_count() > 1:
+        return DataParallel(model)
     return model
 
 
@@ -125,10 +125,10 @@ class ImageToCocoObjectNamesTranslator(Translator):
 
     @staticmethod
     def with_faster_r_cnn(device=cfg.Torch.DEFAULT_DEVICE):
-        model = _wrap_parallel(torchvision.models.detection
-                               .fasterrcnn_resnet50_fpn(pretrained=True)
-                               .to(device)
-                               .eval())
+        model = torchvision.models.detection\
+            .fasterrcnn_resnet50_fpn(pretrained=True)\
+            .to(device)\
+            .eval()
         return ImageToCocoObjectNamesTranslator(model)
 
     def get_object_names_counts(self, counts_array):
@@ -150,11 +150,11 @@ class ImageToCocoObjectNamesTranslator(Translator):
                 obj_counts = Counter(obj_id.cpu().item()
                                      for obj_id in result['labels'])
 
-                logging.info('Object counter value: {}'
-                             .format(type(obj_counts.values())))
-                logging.info('Object counts: {}'.format(obj_counts))
-                # uint8 must be smaller than 256
-                assert max(*obj_counts.values()) < 256
+                # logging.info('Object counter value: {}'
+                #              .format(type(obj_counts.values())))
+                # logging.info('Object counts: {}'.format(obj_counts))
+                # # uint8 must be smaller than 256
+                # assert max(*obj_counts.values()) < 256
 
                 obj_ids = range(len(self.OBJECT_NAMES))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
@@ -241,10 +241,6 @@ def translate_images(input_url, output_url, schema_name,
         for images_batch in loader:
             batch_rdd = create_rdd(images_batch)
             translations_rdd = translations_rdd.union(batch_rdd)
-            logging.info('created new rdd. first item: {}'.
-                         format(batch_rdd.take(1)))
-            logging.info('current memory usage:\n{}'
-                         .format(torch.cuda.memory_summary()))
 
         logging.info('Finished translations. Storing dataset...')
 
