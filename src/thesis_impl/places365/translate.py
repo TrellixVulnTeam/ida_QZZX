@@ -83,7 +83,7 @@ class ImageToPlaces365SceneNameTranslator(Translator):
         return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
     def __call__(self, image_tensors):
-        logging.info('# Predicting scenes...')
+        logging.info('-- <Predicting scenes>')
 
         with torch.no_grad():
             probs = self.model(image_tensors)
@@ -92,7 +92,7 @@ class ImageToPlaces365SceneNameTranslator(Translator):
                 yield {self._get_field_name(i): predicted_labels[i].cpu().item()
                        for i in range(self._top_k)}
 
-        logging.info('-- [DONE]')
+        logging.info('-- <done>')
 
 
 class ImageToCocoObjectNamesTranslator(Translator):
@@ -144,7 +144,7 @@ class ImageToCocoObjectNamesTranslator(Translator):
                 for obj_id, count in counts_array.items() if count > 0}
 
     def __call__(self, image_tensors):
-        logging.info('# Predicting coco objects!')
+        logging.info('-- <Predicting coco objects>')
 
         with torch.no_grad():
             for result in self.model(image_tensors):
@@ -157,7 +157,7 @@ class ImageToCocoObjectNamesTranslator(Translator):
                                       dtype=np.uint8)
                 yield {self._field.name: counts_arr}
 
-        logging.info('-- [DONE]')
+        logging.info('-- <done>')
 
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
@@ -226,9 +226,9 @@ def translate_images(input_url, output_url, schema_name,
                 yield merged_row
 
         def create_rdd(images_batch):
-            logging.info('Generating new batch of translations...')
+            logging.info('<Generating new batch of translations...>')
             translations_batch = list(generate_translations(images_batch))
-            logging.info('Done!')
+            logging.info('<...new batch done>')
             return sc.parallelize(translations_batch) \
                 .map(lambda x: dict_to_spark_row(schema, x))
 
