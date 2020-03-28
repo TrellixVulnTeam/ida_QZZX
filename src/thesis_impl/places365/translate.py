@@ -234,12 +234,14 @@ def translate_images(input_url, output_url, schema_name,
 
         with suppress(StopIteration):
             images_batch = next(loader)
-            translations_rdd = create_rdd(images_batch)
+            translations = [create_rdd(images_batch)]
             del images_batch  # free memory of tensors
 
         for images_batch in loader:
             batch_rdd = create_rdd(images_batch)
-            translations_rdd = translations_rdd.union(batch_rdd)
+            translations.append(batch_rdd)
+
+        translations_rdd = sc.union(translations)
 
         logging.info('Finished translations. Storing dataset...')
 
