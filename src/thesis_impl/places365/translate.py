@@ -77,9 +77,9 @@ class ImageToPlaces365SceneNameTranslator(Translator):
         return self._fields
 
     @staticmethod
-    def with_resnet18(top_k=5, **kwargs):
+    def with_resnet18(device: torch.device, top_k=5, **kwargs):
         hub = Places365Hub(**kwargs)
-        model = _wrap_parallel(hub.resnet18().eval())
+        model = _wrap_parallel(hub.resnet18().to(device).eval())
         return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
     def __call__(self, image_tensors):
@@ -128,9 +128,10 @@ class ImageToCocoObjectNamesTranslator(Translator):
         return [self._field]
 
     @staticmethod
-    def with_faster_r_cnn():
+    def with_faster_r_cnn(device: torch.device):
         model = torchvision.models.detection\
             .fasterrcnn_resnet50_fpn(pretrained=True)\
+            .to(device)\
             .eval()
         return ImageToCocoObjectNamesTranslator(model)
 
@@ -164,7 +165,7 @@ _RE_PLACES365 = re.compile(r'places365_scenes\[(?P<model>.*)\](\@(?P<k>\d))?')
 _RE_COCO = re.compile(r'coco_objects\[(?P<model>.*)\]')
 
 
-def translator_factory(t_name):
+def translator_factory(t_name: str, device: torch.device):
     image_match = _RE_IMAGE.fullmatch(t_name)
     if image_match:
         d = image_match.groupdict()
@@ -178,7 +179,8 @@ def translator_factory(t_name):
         params = {'top_k': int(d['k'])} if 'k' in d else {}
 
         if model in ['default', 'resnet18']:
-            return ImageToPlaces365SceneNameTranslator.with_resnet18(**params)
+            return ImageToPlaces365SceneNameTranslator\
+                .with_resnet18(device, **params)
 
         raise ValueError('Unknown model: {}'.format(model))
 
@@ -188,7 +190,7 @@ def translator_factory(t_name):
         model = d['model']
 
         if model in ['default', 'faster_r_cnn']:
-            return ImageToCocoObjectNamesTranslator.with_faster_r_cnn()
+            return ImageToCocoObjectNamesTranslator.with_faster_r_cnn(device)
 
         raise ValueError('Unknown model: {}'.format(model))
 
@@ -301,7 +303,7 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.INFO)
 
     with torch_cfg.set_device():
-        translators = [translator_factory(t_name)
+        translators = [translator_factory(t_name, torch_cfg.device)
                        for t_name in args.translators]
 
         translate_images(args.input_url, args.output_url, args.schema_name,
