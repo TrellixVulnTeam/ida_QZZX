@@ -51,8 +51,8 @@ class ImageToImageDummyTranslator(Translator):
 
 
 def _wrap_parallel(model):
-    if torch.cuda.device_count() > 1:
-        return DataParallel(model)
+    # if torch.cuda.device_count() > 1:
+    #     return DataParallel(model)
     return model
 
 
@@ -87,7 +87,7 @@ class ImageToPlaces365SceneNameTranslator(Translator):
             probs = self.model(image_tensors)
             _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
             for predicted_labels in predicted_labels_batch:
-                yield {self._get_field_name(i): predicted_labels[i].item()
+                yield {self._get_field_name(i): predicted_labels[i].cpu().item()
                        for i in range(self._top_k)}
 
 
@@ -140,16 +140,19 @@ class ImageToCocoObjectNamesTranslator(Translator):
                 for obj_id, count in counts_array.items() if count > 0}
 
     def __call__(self, image_tensors):
-        logging.warning('Predicting coco objects!')
+        logging.info('Predicting coco objects!')
         model_device = next(self.model.parameters()).device
-        logging.warning('Model is on {}. Tensors are on {}.'
-                        .format(model_device, image_tensors.device))
+        logging.info('Model is on {}. Tensors are on {}.'
+                     .format(model_device, image_tensors.device))
 
         with torch.no_grad():
             for result in self.model(image_tensors):
-                obj_counts = Counter(obj_id.item()
+                obj_counts = Counter(obj_id.cpu().item()
                                      for obj_id in result['labels'])
 
+                logging.info('Object counter value: {}'
+                             .format(type(obj_counts.values())))
+                logging.info('Object counts: {}'.format(obj_counts))
                 # uint8 must be smaller than 256
                 assert max(*obj_counts.values()) < 256
 
@@ -201,14 +204,6 @@ def translate_images(input_url, output_url, schema_name,
     schema = Unischema(schema_name,
                        [f for t in translators for f in t.fields])
 
-    # hub = Places365Hub()
-    # with hub.open_demo_image() as demo_file:
-    #     image = Image.open(demo_file).resize((224, 224))
-    #     image_tensor = to_tensor(image).unsqueeze(0)
-    #
-    #     for d in data_gen(image_tensor):
-    #         logging.info(d)
-
     try:
         loader = iter(unsupervised_loader(input_url))
 
@@ -241,6 +236,7 @@ def translate_images(input_url, output_url, schema_name,
         with suppress(StopIteration):
             images_batch = next(loader)
             translations_rdd = create_rdd(images_batch)
+            del images_batch  # free memory of tensors
 
         for images_batch in loader:
             batch_rdd = create_rdd(images_batch)
@@ -255,7 +251,7 @@ def translate_images(input_url, output_url, schema_name,
         with materialize_dataset(spark, output_url, schema,
                                  cfg.Petastorm.Write.row_group_size_mb):
             spark.createDataFrame(translations_rdd,
-                                      schema.as_spark_schema()) \
+                                  schema.as_spark_schema()) \
                     .coalesce(10) \
                     .write \
                     .mode('overwrite') \
