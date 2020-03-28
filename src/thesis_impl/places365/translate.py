@@ -210,7 +210,7 @@ def translate_images(input_url, output_url, schema_name,
     #         logging.info(d)
 
     try:
-        loader = unsupervised_loader(input_url)
+        loader = iter(unsupervised_loader(input_url))
 
         spark = SparkSession.builder \
             .config('spark.driver.memory',
@@ -250,10 +250,10 @@ def translate_images(input_url, output_url, schema_name,
             logging.info('current memory usage:\n{}'
                          .format(torch.cuda.memory_summary()))
 
+        logging.info('Finished translations. Storing dataset...')
+
         with materialize_dataset(spark, output_url, schema,
                                  cfg.Petastorm.Write.row_group_size_mb):
-            logging.info('Finished translations. Storing dataset...')
-
             spark.createDataFrame(translations_rdd,
                                       schema.as_spark_schema()) \
                     .coalesce(10) \
