@@ -141,9 +141,9 @@ class ImageToCocoObjectNamesTranslator(Translator):
 
     def __call__(self, image_tensors):
         logging.warning('Predicting coco objects!')
-        model_device = self.model.parameters().device()
+        model_device = next(self.model.parameters()).device
         logging.warning('Model is on {}. Tensors are on {}.'
-                        .format(model_device, image_tensors.device()))
+                        .format(model_device, image_tensors.device))
 
         with torch.no_grad():
             for result in self.model(image_tensors):
