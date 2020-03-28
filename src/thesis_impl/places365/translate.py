@@ -77,18 +77,22 @@ class ImageToPlaces365SceneNameTranslator(Translator):
         return self._fields
 
     @staticmethod
-    def with_resnet18(device=cfg.Torch.DEFAULT_DEVICE, top_k=5, **kwargs):
+    def with_resnet18(top_k=5, **kwargs):
         hub = Places365Hub(**kwargs)
-        model = _wrap_parallel(hub.resnet18().to(device).eval())
+        model = _wrap_parallel(hub.resnet18().eval())
         return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
     def __call__(self, image_tensors):
+        logging.info('# Predicting scenes...')
+
         with torch.no_grad():
             probs = self.model(image_tensors)
             _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
             for predicted_labels in predicted_labels_batch:
                 yield {self._get_field_name(i): predicted_labels[i].cpu().item()
                        for i in range(self._top_k)}
+
+        logging.info('   [DONE]')
 
 
 class ImageToCocoObjectNamesTranslator(Translator):
@@ -124,10 +128,9 @@ class ImageToCocoObjectNamesTranslator(Translator):
         return [self._field]
 
     @staticmethod
-    def with_faster_r_cnn(device=cfg.Torch.DEFAULT_DEVICE):
+    def with_faster_r_cnn():
         model = torchvision.models.detection\
             .fasterrcnn_resnet50_fpn(pretrained=True)\
-            .to(device)\
             .eval()
         return ImageToCocoObjectNamesTranslator(model)
 
@@ -140,27 +143,20 @@ class ImageToCocoObjectNamesTranslator(Translator):
                 for obj_id, count in counts_array.items() if count > 0}
 
     def __call__(self, image_tensors):
-        logging.info('Predicting coco objects!')
-        model_device = next(self.model.parameters()).device
-        logging.info('Model is on {}. Tensors are on {}.'
-                     .format(model_device, image_tensors.device))
+        logging.info('# Predicting coco objects!')
 
         with torch.no_grad():
             for result in self.model(image_tensors):
                 obj_counts = Counter(obj_id.cpu().item()
                                      for obj_id in result['labels'])
 
-                # logging.info('Object counter value: {}'
-                #              .format(type(obj_counts.values())))
-                # logging.info('Object counts: {}'.format(obj_counts))
-                # # uint8 must be smaller than 256
-                # assert max(*obj_counts.values()) < 256
-
                 obj_ids = range(len(self.OBJECT_NAMES))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
                                        for obj_id in obj_ids],
                                       dtype=np.uint8)
                 yield {self._field.name: counts_arr}
+
+        logging.info('   [DONE]')
 
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
@@ -200,17 +196,17 @@ def translator_factory(t_name):
 
 
 def translate_images(input_url, output_url, schema_name,
-                     translators: [Translator]):
+                     translators: [Translator], read_cfg, write_cfg):
     schema = Unischema(schema_name,
                        [f for t in translators for f in t.fields])
 
     try:
-        loader = iter(unsupervised_loader(input_url))
+        loader = iter(unsupervised_loader(input_url, read_cfg))
 
         spark = SparkSession.builder \
             .config('spark.driver.memory',
-                    cfg.Petastorm.Write.spark_driver_memory) \
-            .master(cfg.Petastorm.Write.spark_master) \
+                    write_cfg.spark_driver_memory) \
+            .master(write_cfg.spark_master) \
             .getOrCreate()
 
         sc = spark.sparkContext
@@ -245,7 +241,7 @@ def translate_images(input_url, output_url, schema_name,
         logging.info('Finished translations. Storing dataset...')
 
         with materialize_dataset(spark, output_url, schema,
-                                 cfg.Petastorm.Write.row_group_size_mb):
+                                 write_cfg.row_group_size_mb):
             spark.createDataFrame(translations_rdd,
                                   schema.as_spark_schema()) \
                     .coalesce(10) \
@@ -262,12 +258,12 @@ def translate_images(input_url, output_url, schema_name,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Translate images to low'
-                                                 'dimensional and interpretable'
-                                                 'kinds of data.')
-    parser.add_argument('-i', '--input_url', type=str,
+    parser = argparse.ArgumentParser(description='Translate images to low '
+                                                 'dimensional and '
+                                                 'interpretable kinds of data.')
+    parser.add_argument('-i', '--input_url', type=str, required=True,
                         help='input URL for the images')
-    parser.add_argument('-o', '--output_url', type=str,
+    parser.add_argument('-o', '--output_url', type=str, required=True,
                         help='output URL for the translations of the images')
     parser.add_argument('-s','--schema_name', type=str,
                         default='ImageTranslationSchema',
@@ -278,7 +274,26 @@ if __name__ == '__main__':
     parser.add_argument('translators', type=str, nargs='+',
                         help='one or more translators to apply to the images')
 
+    torch_group = parser.add_argument_group('Torch settings')
+    cfg.TorchConfig.setup_parser(torch_group)
+
+    peta_read_group = parser.add_argument_group('Settings for reading the '
+                                                'input dataset')
+    cfg.PetastormReadConfig.setup_parser(peta_read_group,
+                                         default_batch_size=32)
+
+    peta_write_group = parser.add_argument_group('Settings for writing the '
+                                                 'output dataset')
+    cfg.PetastormWriteConfig.setup_parser(peta_write_group,
+                                          default_spark_master='local[20]',
+                                          default_spark_memory='40g',
+                                          default_row_size='1024')
+
     args = parser.parse_args()
+
+    torch_cfg = cfg.TorchConfig.from_args(args)
+    read_cfg = cfg.PetastormReadConfig.from_args(args)
+    write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
@@ -286,5 +301,7 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.INFO)
 
     translators = [translator_factory(t_name) for t_name in args.translators]
-    translate_images(args.input_url, args.output_url, args.schema_name,
-                     translators)
+
+    with torch_cfg.set_device():
+        translate_images(args.input_url, args.output_url, args.schema_name,
+                         translators, read_cfg, write_cfg)

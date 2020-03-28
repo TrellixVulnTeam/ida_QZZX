@@ -8,7 +8,6 @@ import tarfile
 
 import torch
 
-import thesis_impl.places365.config as cfg
 from thesis_impl.util.functools import cached_property
 from thesis_impl.places365 import wideresnet
 
@@ -173,7 +172,6 @@ class Places365Hub:
                           for k, v in checkpoint['state_dict'].items()}
             model.load_state_dict(state_dict)
             model.eval()
-            model.to(cfg.Torch.DEFAULT_DEVICE)
             return model
 
     def vote_indoor_outdoor(self, label_ids):

@@ -31,10 +31,12 @@ _RE_SIZE = re.compile(r'^[0-9]*x[0-9]*$')
 
 class Converter:
 
-    def __init__(self, images_dir: str, hub: Places365Hub):
+    def __init__(self, images_dir: str, hub: Places365Hub,
+                 write_cfg: cfg.PetastormWriteConfig):
         self.images_dir = Path(images_dir)
         assert self.images_dir.exists()
         self.hub = hub
+        self.write_cfg = write_cfg
 
     def _lookup_validation_label(self, image_path):
         image_file_name = image_path.name
@@ -62,8 +64,8 @@ class Converter:
 
         spark = SparkSession.builder\
             .config('spark.driver.memory',
-                    cfg.Petastorm.Write.spark_driver_memory)\
-            .master(cfg.Petastorm.Write.spark_master)\
+                    self.write_cfg.spark_driver_memory)\
+            .master(self.write_cfg.spark_master)\
             .getOrCreate()
 
         sc = spark.sparkContext
@@ -80,7 +82,7 @@ class Converter:
         schema = _get_schema(*image_size)
 
         with materialize_dataset(spark, output_url, schema,
-                                 cfg.Petastorm.Write.row_group_size_mb):
+                                 self.write_cfg.row_group_size_mb):
             rows_rdd = sc.parallelize(self.images_dir.glob(glob)) \
                 .map(generate_row) \
                 .map(lambda x: dict_to_spark_row(schema, x))
@@ -103,15 +105,30 @@ if __name__ == '__main__':
     parser.add_argument('images_glob', type=str,
                         help='glob expression specifying which images in the '
                              'above directory should be converted')
-    parser.add_argument('--size', type=str,
+    parser.add_argument('--size', type=str, required=True,
                         help='Specify in which size the images are stored '
                              'as a string "[width]x[height]"')
-    parser.add_argument('--output_url', type=str, default=None,
+    parser.add_argument('-o', '--output_url', type=str, default=None,
                         help='URL where to store the dataset')
     parser.add_argument('--debug', action='store_true',
                         help='whether to output more information for debugging')
     parser.add_argument('--cache_dir', type=str, default=None,
                         help='the directory where Places356 metadata is cached')
+
+    torch_group = parser.add_argument_group('Torch settings')
+    cfg.TorchConfig.setup_parser(torch_group)
+
+    peta_write_group = parser.add_argument_group('Settings for writing the '
+                                                 'output dataset')
+    cfg.PetastormWriteConfig.setup_parser(peta_write_group,
+                                          default_spark_master='local[8]',
+                                          default_spark_memory='40g',
+                                          default_row_size='1024')
+
+    args = parser.parse_args()
+
+    torch_cfg = cfg.TorchConfig.from_args(args)
+    write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
     args = parser.parse_args()
 
@@ -130,5 +147,7 @@ if __name__ == '__main__':
     images_glob = args.images_glob.replace('\'', '')
 
     hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
-    converter = Converter(images_dir, hub)
-    converter.convert(size, images_glob, args.subset, args.output_url)
+    converter = Converter(images_dir, hub, write_cfg)
+
+    with torch_cfg.set_device():
+        converter.convert(size, images_glob, args.subset, args.output_url)
