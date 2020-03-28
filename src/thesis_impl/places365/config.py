@@ -68,9 +68,9 @@ class PetastormWriteConfig:
 
     @staticmethod
     def from_args(write_args):
-        return PetastormReadConfig(write_args.spark_master,
-                                   write_args.spark_memory,
-                                   write_args.row_size)
+        return PetastormWriteConfig(write_args.spark_master,
+                                    write_args.spark_memory,
+                                    write_args.row_size)
 
     @staticmethod
     def setup_parser(parser, default_spark_master='local[8]',
