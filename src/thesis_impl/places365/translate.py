@@ -300,8 +300,9 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=logging.INFO)
 
-    translators = [translator_factory(t_name) for t_name in args.translators]
-
     with torch_cfg.set_device():
+        translators = [translator_factory(t_name)
+                       for t_name in args.translators]
+
         translate_images(args.input_url, args.output_url, args.schema_name,
                          translators, read_cfg, write_cfg)
