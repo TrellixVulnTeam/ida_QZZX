@@ -122,8 +122,8 @@ if __name__ == '__main__':
                                                  'output dataset')
     cfg.PetastormWriteConfig.setup_parser(peta_write_group,
                                           default_spark_master='local[8]',
-                                          default_spark_memory='40g',
-                                          default_row_size='1024')
+                                          default_spark_driver_memory='40g',
+                                          default_row_size=1024)
 
     args = parser.parse_args()
 

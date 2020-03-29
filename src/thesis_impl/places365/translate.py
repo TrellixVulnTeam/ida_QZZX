@@ -240,20 +240,23 @@ def translate_images(input_url, output_url, schema_name,
             translations.append(batch_rdd)
             del images_batch
 
-        logging.info('<Finished translations. Mapping to spark rows...>')
+        logging.info('<Finished translations. Postprocessing...>')
 
-        # distribute all translations evenly in partitions,
-        # then map to spark rows
-        translations_rdd = sc.union(translations)\
-            .repartition() \
-            .map(lambda x: dict_to_spark_row(schema, x))
+        logging.info('-- <Unionizing RDDs>')
+        t_rdd = sc.union(translations)
+
+        logging.info('-- <Repartitioning RDDs>')
+        t_rdd = t_rdd.repartition(write_cfg.num_partitions)
+
+        logging.info('-- <Mapping to Spark Rows>')
+        t_rdd = t_rdd.map(lambda x: dict_to_spark_row(schema, x))
 
         logging.info('<done>')
 
         with materialize_dataset(spark, output_url, schema,
                                  write_cfg.row_group_size_mb):
             logging.info('<Creating dataframe..>')
-            df = spark.createDataFrame(translations_rdd,
+            df = spark.createDataFrame(t_rdd,
                                        schema.as_spark_schema())
             logging.info('<done>')
 
@@ -298,8 +301,9 @@ if __name__ == '__main__':
                                                  'output dataset')
     cfg.PetastormWriteConfig.setup_parser(peta_write_group,
                                           default_spark_master='local[*]',
-                                          default_spark_driver_memory='5g',
-                                          default_spark_exec_memory='10g',
+                                          default_spark_driver_memory='40g',
+                                          default_spark_exec_memory='20g',
+                                          default_num_partitions=64 * 3,
                                           default_row_size='1024')
 
     args = parser.parse_args()
