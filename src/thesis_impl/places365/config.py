@@ -61,27 +61,33 @@ class PetastormWriteConfig:
 
     @typechecked
     def __init__(self, spark_master: str, spark_driver_memory: str,
-                 row_group_size_mb: int):
+                 spark_exec_memory: str, row_group_size_mb: int):
         self.spark_master = spark_master
         self.spark_driver_memory = spark_driver_memory
+        self.spark_exec_memory = spark_exec_memory
         self.row_group_size_mb = row_group_size_mb
 
     @staticmethod
     def from_args(write_args):
         return PetastormWriteConfig(write_args.spark_master,
-                                    write_args.spark_memory,
+                                    write_args.spark_driver_memory,
+                                    write_args.spark_exec_memory,
                                     write_args.row_size)
 
     @staticmethod
     def setup_parser(parser, default_spark_master='local[8]',
-                     default_spark_memory='8g', default_row_size=1024):
+                     default_spark_driver_memory='1g',
+                     default_spark_exec_memory='40g',
+                     default_row_size=1024):
         """
         Adds all arguments to `parser that are necessary to construct
         a `PetastormWriteConfig`.
         """
         parser.add_argument('--spark-master', type=str,
                             default=default_spark_master)
-        parser.add_argument('--spark-memory', type=str,
-                            default=default_spark_memory)
+        parser.add_argument('--spark-driver-memory', type=str,
+                            default=default_spark_driver_memory)
+        parser.add_argument('--spark-exec-memory', type=str,
+                            default=default_spark_exec_memory)
         parser.add_argument('--row-size', type=int,
                             default=default_row_size)
