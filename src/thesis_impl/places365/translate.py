@@ -195,7 +195,8 @@ def translator_factory(t_name: str, device: torch.device):
 
 def translate_images(input_url, output_url, schema_name,
                      translators: [Translator], device: torch.device,
-                     read_cfg, write_cfg):
+                     read_cfg: cfg.PetastormReadConfig,
+                     write_cfg: cfg.PetastormWriteConfig):
     schema = Unischema(schema_name,
                        [f for t in translators for f in t.fields])
 
@@ -205,6 +206,8 @@ def translate_images(input_url, output_url, schema_name,
         spark = SparkSession.builder \
             .config('spark.driver.memory',
                     write_cfg.spark_driver_memory) \
+            .config('spark.executor.memory',
+                    write_cfg.spark_exec_memory) \
             .master(write_cfg.spark_master) \
             .getOrCreate()
 
@@ -225,8 +228,7 @@ def translate_images(input_url, output_url, schema_name,
             logging.info('<Generating new batch of translations...>')
             translations_batch = list(generate_translations(images_batch))
             logging.info('<done>')
-            return sc.parallelize(translations_batch) \
-                .map(lambda x: dict_to_spark_row(schema, x))
+            return sc.parallelize(translations_batch)
 
         with suppress(StopIteration):
             images_batch = next(loader)
@@ -238,20 +240,28 @@ def translate_images(input_url, output_url, schema_name,
             translations.append(batch_rdd)
             del images_batch
 
-        translations_rdd = sc.union(translations)
+        logging.info('<Finished translations. Mapping to spark rows...>')
 
-        logging.info('Finished translations. Storing dataset...')
+        # distribute all translations evenly in partitions,
+        # then map to spark rows
+        translations_rdd = sc.union(translations)\
+            .repartition() \
+            .map(lambda x: dict_to_spark_row(schema, x))
+
+        logging.info('<done>')
 
         with materialize_dataset(spark, output_url, schema,
                                  write_cfg.row_group_size_mb):
-            spark.createDataFrame(translations_rdd,
-                                  schema.as_spark_schema()) \
-                    .coalesce(10) \
-                    .write \
-                    .mode('overwrite') \
-                    .parquet(output_url)
+            logging.info('<Creating dataframe..>')
+            df = spark.createDataFrame(translations_rdd,
+                                       schema.as_spark_schema())
+            logging.info('<done>')
 
-            logging.info('Done!')
+            logging.info('<Writing to parquet store..>')
+            df.write\
+                .mode('overwrite')\
+                .parquet(output_url)
+            logging.info('<done>')
 
     except KeyboardInterrupt:
         logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
@@ -287,23 +297,24 @@ if __name__ == '__main__':
     peta_write_group = parser.add_argument_group('Settings for writing the '
                                                  'output dataset')
     cfg.PetastormWriteConfig.setup_parser(peta_write_group,
-                                          default_spark_master='local[20]',
-                                          default_spark_memory='40g',
+                                          default_spark_master='local[*]',
+                                          default_spark_driver_memory='5g',
+                                          default_spark_exec_memory='10g',
                                           default_row_size='1024')
 
     args = parser.parse_args()
 
-    torch_cfg = cfg.TorchConfig.from_args(args)
-    read_cfg = cfg.PetastormReadConfig.from_args(args)
-    write_cfg = cfg.PetastormWriteConfig.from_args(args)
+    _torch_cfg = cfg.TorchConfig.from_args(args)
+    _read_cfg = cfg.PetastormReadConfig.from_args(args)
+    _write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
 
-    translators = [translator_factory(t_name, torch_cfg.device)
-                   for t_name in args.translators]
+    _translators = [translator_factory(t_name, _torch_cfg.device)
+                    for t_name in args.translators]
 
     translate_images(args.input_url, args.output_url, args.schema_name,
-                     translators, torch_cfg.device, read_cfg, write_cfg)
+                     _translators, _torch_cfg.device, _read_cfg, _write_cfg)
