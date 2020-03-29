@@ -92,8 +92,6 @@ class ImageToPlaces365SceneNameTranslator(Translator):
                 yield {self._get_field_name(i): predicted_labels[i].cpu().item()
                        for i in range(self._top_k)}
 
-        logging.info('-- <done>')
-
 
 class ImageToCocoObjectNamesTranslator(Translator):
 
@@ -156,8 +154,6 @@ class ImageToCocoObjectNamesTranslator(Translator):
                                        for obj_id in obj_ids],
                                       dtype=np.uint8)
                 yield {self._field.name: counts_arr}
-
-        logging.info('-- <done>')
 
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
@@ -228,7 +224,7 @@ def translate_images(input_url, output_url, schema_name,
         def create_rdd(images_batch):
             logging.info('<Generating new batch of translations...>')
             translations_batch = list(generate_translations(images_batch))
-            logging.info('<...new batch done>')
+            logging.info('<done>')
             return sc.parallelize(translations_batch) \
                 .map(lambda x: dict_to_spark_row(schema, x))
 
@@ -240,6 +236,7 @@ def translate_images(input_url, output_url, schema_name,
         for images_batch in loader:
             batch_rdd = create_rdd(images_batch)
             translations.append(batch_rdd)
+            del images_batch
 
         translations_rdd = sc.union(translations)
 
