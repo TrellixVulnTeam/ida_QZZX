@@ -152,8 +152,8 @@ class ImageToCocoObjectNamesTranslator(Translator):
             for result in self.model(image_tensors):
                 obj_ids, scores = result['labels'], result['scores']
                 obj_counts = Counter(obj_id.cpu().detach().item()
-                                     for obj_id in obj_ids
-                                     if scores[obj_id] > self.threshold)
+                                     for i, obj_id in enumerate(obj_ids)
+                                     if scores[i] > self.threshold)
 
                 obj_ids = range(len(self.OBJECT_NAMES))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
