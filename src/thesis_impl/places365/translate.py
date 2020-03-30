@@ -163,7 +163,7 @@ class ImageToCocoObjectNamesTranslator(Translator):
 
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
-_RE_PLACES365 = re.compile(r'places365_scenes\[(?P<model>.*)\](\@(?P<k>\d))?')
+_RE_PLACES365 = re.compile(r'places365_scenes\[(?P<model>.*)\](\@(?P<k>\d+))?')
 _RE_COCO = re.compile(r'coco_objects\[(?P<model>.*)\](\@(?P<t>0?\.\d+))?')
 
 
