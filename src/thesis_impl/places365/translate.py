@@ -77,8 +77,8 @@ class ImageToPlaces365SceneNameTranslator(Translator):
         return self._fields
 
     @staticmethod
-    def with_resnet18(device: torch.device, top_k=5, **kwargs):
-        hub = Places365Hub(**kwargs)
+    def with_resnet18(device: torch.device, top_k=5):
+        hub = Places365Hub()  # todo: allow to specify cache_dir
         model = _wrap_parallel(hub.resnet18().to(device).eval())
         return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
@@ -114,8 +114,11 @@ class ImageToCocoObjectNamesTranslator(Translator):
         'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
     ]
 
-    def __init__(self, model):
+    def __init__(self, model, threshold: float):
         self.model = model
+
+        assert 0 <= threshold < 1
+        self.threshold = threshold
 
         num_ints = len(self.OBJECT_NAMES)
         self._field = UnischemaField('coco_object_counts', np.uint8,
@@ -126,28 +129,31 @@ class ImageToCocoObjectNamesTranslator(Translator):
         return [self._field]
 
     @staticmethod
-    def with_faster_r_cnn(device: torch.device):
+    def with_faster_r_cnn(device: torch.device, threshold=.5):
         model = torchvision.models.detection\
             .fasterrcnn_resnet50_fpn(pretrained=True)\
             .to(device)\
             .eval()
-        return ImageToCocoObjectNamesTranslator(model)
+        return ImageToCocoObjectNamesTranslator(model, threshold=threshold)
 
-    def get_object_names_counts(self, counts_array):
+    @staticmethod
+    def get_object_names_counts(counts_array):
         """
         Returns a mapping from object names to counts,
         as encoded in *counts_array*.
         """
-        return {self.OBJECT_NAMES[obj_id]: count
-                for obj_id, count in counts_array.items() if count > 0}
+        return {ImageToCocoObjectNamesTranslator.OBJECT_NAMES[obj_id]: count
+                for obj_id, count in enumerate(counts_array) if count > 0}
 
     def __call__(self, image_tensors):
         logging.info('-- <Predicting coco objects>')
 
         with torch.no_grad():
             for result in self.model(image_tensors):
-                obj_counts = Counter(obj_id.cpu().item()
-                                     for obj_id in result['labels'])
+                obj_ids, scores = result['labels'], result['scores']
+                obj_counts = Counter(obj_id.cpu().detach().item()
+                                     for obj_id in obj_ids
+                                     if scores[obj_id] > self.threshold)
 
                 obj_ids = range(len(self.OBJECT_NAMES))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
@@ -158,7 +164,7 @@ class ImageToCocoObjectNamesTranslator(Translator):
 
 _RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
 _RE_PLACES365 = re.compile(r'places365_scenes\[(?P<model>.*)\](\@(?P<k>\d))?')
-_RE_COCO = re.compile(r'coco_objects\[(?P<model>.*)\]')
+_RE_COCO = re.compile(r'coco_objects\[(?P<model>.*)\](\@(?P<t>0?\.\d+))?')
 
 
 def translator_factory(t_name: str, device: torch.device):
@@ -172,7 +178,7 @@ def translator_factory(t_name: str, device: torch.device):
     if places365_match:
         d = places365_match.groupdict()
         model = d['model']
-        params = {'top_k': int(d['k'])} if 'k' in d else {}
+        params = {'top_k': int(d['k'])} if d['k'] else {}
 
         if model in ['default', 'resnet18']:
             return ImageToPlaces365SceneNameTranslator\
@@ -184,9 +190,11 @@ def translator_factory(t_name: str, device: torch.device):
     if coco_match:
         d = coco_match.groupdict()
         model = d['model']
+        params = {'threshold': float(d['t'])} if d['t'] else {}
 
         if model in ['default', 'faster_r_cnn']:
-            return ImageToCocoObjectNamesTranslator.with_faster_r_cnn(device)
+            return ImageToCocoObjectNamesTranslator\
+                .with_faster_r_cnn(device, **params)
 
         raise ValueError('Unknown model: {}'.format(model))
 
