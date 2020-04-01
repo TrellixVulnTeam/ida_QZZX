@@ -84,11 +84,11 @@ class Converter:
         with materialize_dataset(spark, output_url, schema,
                                  self.write_cfg.row_group_size_mb):
             rows_rdd = sc.parallelize(self.images_dir.glob(glob)) \
+                .repartition(self.write_cfg.num_partitions) \
                 .map(generate_row) \
                 .map(lambda x: dict_to_spark_row(schema, x))
 
             spark.createDataFrame(rows_rdd, schema.as_spark_schema()) \
-                .coalesce(10) \
                 .write \
                 .mode('overwrite') \
                 .parquet(output_url)
@@ -123,6 +123,7 @@ if __name__ == '__main__':
     cfg.PetastormWriteConfig.setup_parser(peta_write_group,
                                           default_spark_master='local[8]',
                                           default_spark_driver_memory='40g',
+                                          default_num_partitions=64 * 3,
                                           default_row_size=1024)
 
     args = parser.parse_args()
