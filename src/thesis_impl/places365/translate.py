@@ -19,7 +19,7 @@ from torch.nn import DataParallel
 from torchvision.transforms.functional import to_pil_image
 
 from thesis_impl.places365.hub import Places365Hub
-from thesis_impl.places365.io import unsupervised_loader
+from thesis_impl.places365.io import supervised_loader
 import thesis_impl.places365.config as cfg
 
 
@@ -209,7 +209,7 @@ def translate_images(input_url, output_url, schema_name,
                        [f for t in translators for f in t.fields])
 
     try:
-        loader = iter(unsupervised_loader(input_url, read_cfg, device))
+        loader = iter(supervised_loader(input_url, read_cfg, device))
 
         spark = SparkSession.builder \
             .config('spark.driver.memory',
@@ -221,32 +221,39 @@ def translate_images(input_url, output_url, schema_name,
 
         sc = spark.sparkContext
 
-        def translation_iterators(images_batch):
+        def translation_iterators(images_batch, labels_batch):
+            yield ({'label': label_id} for label_id in labels_batch)
+
             for t in translators:
                 yield t(images_batch)
 
-        def generate_translations(images_batch):
-            for result_row_dicts in zip(*translation_iterators(images_batch)):
+        def generate_translations(images_batch,
+                                  labels_batch):
+            for result_row_dicts in zip(*translation_iterators(images_batch,
+                                                               labels_batch)):
                 merged_row = {}
                 for row_dict in result_row_dicts:
                     merged_row.update(row_dict)
                 yield merged_row
 
-        def create_rdd(images_batch):
+        def create_rdd(images_batch, labels_batch):
             logging.info('<Generating new batch of translations...>')
-            translations_batch = list(generate_translations(images_batch))
+            translations_batch = list(generate_translations(images_batch,
+                                                            labels_batch))
             logging.info('<done>')
             return sc.parallelize(translations_batch)
 
         with suppress(StopIteration):
-            images_batch = next(loader)
-            translations = [create_rdd(images_batch)]
-            del images_batch  # free memory of tensors
+            _images_batch, _labels_batch = next(loader)
+            translations = [create_rdd(_images_batch, _labels_batch)]
+            del _images_batch  # free memory of tensors
+            del _labels_batch
 
-        for images_batch in loader:
-            batch_rdd = create_rdd(images_batch)
+        for _images_batch, _labels_batch in loader:
+            batch_rdd = create_rdd(_images_batch, _labels_batch)
             translations.append(batch_rdd)
-            del images_batch
+            del _images_batch
+            del _labels_batch
 
         logging.info('<Finished translations. Postprocessing...>')
 
@@ -281,8 +288,8 @@ def translate_images(input_url, output_url, schema_name,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Translate images to low '
-                                                 'dimensional and '
+    parser = argparse.ArgumentParser(description='Translate Places365 images '
+                                                 'to low dimensional and '
                                                  'interpretable kinds of data.')
     parser.add_argument('-i', '--input_url', type=str, required=True,
                         help='input URL for the images')
