@@ -58,11 +58,15 @@ if __name__ == '__main__':
                         help='glob expression specifying which images in the '
                              'above directory should be moved')
 
+    log_group = parser.add_argument_group('Logging settings')
+    cfg.LoggingConfig.setup_parser(log_group)
+
     cache_group = parser.add_argument_group('Cache settings')
     cfg.WebCacheConfig.setup_parser(cache_group)
 
     args = parser.parse_args()
 
+    cfg.LoggingConfig.set_from_args(args)
     _cache = WebCache(cfg.WebCacheConfig.from_args(args))
     _hub = Places365Hub(_cache)
 

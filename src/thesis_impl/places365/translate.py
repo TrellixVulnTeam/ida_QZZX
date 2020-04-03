@@ -230,7 +230,6 @@ class ToOIV4ObjectNameTranslator(Translator):
 
     def __call__(self, image_tensors):
         results = self.model(image_tensors)
-        logging.info(results)
         obj_ids_batches, scores_batches = results['detection_classes'].numpy(),\
                                           results['detection_scores'].numpy()
         for obj_ids, scores in zip(obj_ids_batches, scores_batches):
@@ -424,17 +423,18 @@ class TranslationProcessor:
         return tensor_iter()
 
     def translate(self):
-        spark_session = SparkSession.builder \
-            .config('spark.driver.memory',
-                    self.write_cfg.spark_driver_memory) \
-            .config('spark.executor.memory',
-                    self.write_cfg.spark_exec_memory) \
-            .master(self.write_cfg.spark_master) \
-            .getOrCreate()
-
-        spark_ctx = spark_session.sparkContext
-
         try:
+            spark_session = SparkSession.builder \
+                .config('spark.driver.memory',
+                        self.write_cfg.spark_driver_memory) \
+                .config('spark.executor.memory',
+                        self.write_cfg.spark_exec_memory) \
+                .master(self.write_cfg.spark_master) \
+                .getOrCreate()
+
+            spark_ctx = spark_session.sparkContext
+
+
             dfs = [self._translate_to_df(spark_session, spark_ctx,
                                          t_type, t_list)
                    for t_type, t_list in self.translators_by_type.items()]
@@ -463,7 +463,7 @@ class TranslationProcessor:
                             break
 
         except KeyboardInterrupt:
-            logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
+            logging.error('---- ! Stopping due to KeyboardInterrupt ! ----')
         else:
             logging.info('----- Finished -----')
 
@@ -482,6 +482,9 @@ if __name__ == '__main__':
                              'translations')
     parser.add_argument('translators', type=str, nargs='+',
                         help='one or more translators to apply to the images')
+
+    log_group = parser.add_argument_group('Logging settings')
+    cfg.LoggingConfig.setup_parser(log_group)
 
     cache_group = parser.add_argument_group('Cache settings')
     cfg.WebCacheConfig.setup_parser(cache_group)
@@ -505,6 +508,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    cfg.LoggingConfig.set_from_args(args)
     _torch_cfg = cfg.TorchConfig.from_args(args)
     _read_cfg = cfg.PetastormReadConfig.from_args(args)
     _write_cfg = cfg.PetastormWriteConfig.from_args(args)

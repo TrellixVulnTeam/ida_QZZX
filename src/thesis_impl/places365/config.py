@@ -1,5 +1,26 @@
+import logging
+
 import torch
 from typeguard import typechecked
+
+
+class LoggingConfig:
+
+    @staticmethod
+    def set_from_args(log_args):
+        if log_args.debug:
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.INFO)
+
+    @staticmethod
+    def setup_parser(parser, default_cache_dir='~/.cache/places-365'):
+        """
+        Adds an argument to `parser to specify a `cache_dir`.
+        """
+        parser.add_argument('--debug', action='store_true',
+                            help='whether to output more information '
+                                 'for debugging')
 
 
 class WebCacheConfig:

@@ -112,6 +112,9 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output_url', type=str, default=None,
                         help='URL where to store the dataset')
 
+    log_group = parser.add_argument_group('Logging settings')
+    cfg.LoggingConfig.setup_parser(log_group)
+
     cache_group = parser.add_argument_group('Cache settings')
     cfg.WebCacheConfig.setup_parser(cache_group)
 
@@ -125,6 +128,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    cfg.LoggingConfig.set_from_args(args)
     _cache_dir = cfg.WebCacheConfig.from_args(args)
     _write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
