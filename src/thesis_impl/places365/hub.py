@@ -1,15 +1,12 @@
 import csv
-import logging
 import re
-from pathlib import Path
-from typing import Mapping
-from urllib.request import urlretrieve
-import tarfile
+from typing import Mapping, Optional
 
 import torch
 
 from thesis_impl.util.functools import cached_property
 from thesis_impl.places365 import wideresnet
+from thesis_impl.util.webcache import WebCache
 
 
 class Places365Hub:
@@ -32,41 +29,13 @@ class Places365Hub:
 
     _LABEL_RE = re.compile(r'/[a-z]/(.*)')
 
-    def __init__(self, cache_dir='~/.cache/places-365'):
+    def __init__(self, cache: Optional[WebCache]=None):
         """
-        :param cache_dir: where to cache downloaded files
+        :param cache: cache to use for downloading files
         """
-        self._cache_dir = Path(cache_dir).expanduser()
-
-    def _download(self, file_name: str, download_url: str):
-        target_url = download_url + file_name
-        logging.info('Downloading {}...'.format(target_url))
-        urlretrieve(target_url, str(self._cache_dir / file_name))
-
-    def _cache(self, file_name: str, download_url: str,
-               is_archive=False):
-        """
-        If not yet cached, download `file_name` from `download_url`.
-        If `is_archive` is `True`, attempt to extract contents with tar.
-        Returns `True` iff there was already a file called `file_name`
-        in the cache.
-        """
-        self._cache_dir.mkdir(exist_ok=True)
-        file_path = self._cache_dir / file_name
-        if not file_path.exists():
-            self._download(file_name, download_url)
-            if is_archive:
-                with tarfile.open(file_path) as archive_file:
-                    archive_file.extractall(self._cache_dir)
-                    file_path.unlink()
-                    file_path.touch()  # leave proof that archive was extracted
-            return False
-        return True
-
-    def _open(self, file_name: str, download_url: str=None, *args, **kwargs):
-        if download_url is not None:
-            self._cache(file_name, download_url)
-        return (self._cache_dir / file_name).open(*args, **kwargs)
+        if cache is None:
+            cache = WebCache('~/.cache/places-365')
+        self.cache = cache
 
     def _prettify_label(self, label: str):
         label = self._LABEL_RE.fullmatch(label).group(1)
@@ -74,9 +43,9 @@ class Places365Hub:
         return label
 
     def _cache_challenge_metadata(self):
-        self._cache('filelist_places365-challenge.tar',
-                    self._CSAIL_DOWNLOAD_URL,
-                    is_archive=True)
+        self.cache.cache('filelist_places365-challenge.tar',
+                         self._CSAIL_DOWNLOAD_URL,
+                         is_archive=True)
 
     @cached_property
     def all_labels(self) -> [str]:
@@ -88,7 +57,7 @@ class Places365Hub:
         """
         self._cache_challenge_metadata()
 
-        with self._open('categories_places365.txt') as all_labels_file:
+        with self.cache.open('categories_places365.txt') as all_labels_file:
             csv_reader = csv.reader(all_labels_file, delimiter=' ')
             return [self._prettify_label(row[0]) for row in csv_reader]
 
@@ -103,8 +72,8 @@ class Places365Hub:
         denotes an outdoor scene.
         If `l[i]` is `False`, the label with id `i` denotes an indoor scene.
         """
-        with self._open('IO_places365.txt',
-                        self._GITHUB_DOWNLOAD_URL) as labels_io_file:
+        with self.cache.open('IO_places365.txt',
+                             self._GITHUB_DOWNLOAD_URL) as labels_io_file:
             csv_reader = csv.reader(labels_io_file, delimiter=' ')
             return [bool(int(row[1]) - 1) for row in csv_reader]
 
@@ -122,7 +91,7 @@ class Places365Hub:
         """
         self._cache_challenge_metadata()
 
-        with self._open('places365_val.txt') as label_map_file:
+        with self.cache.open('places365_val.txt') as label_map_file:
             csv_reader = csv.reader(label_map_file, delimiter=' ')
             return {row[0]: int(row[1]) for row in csv_reader}
 
@@ -134,25 +103,26 @@ class Places365Hub:
         """
         self._cache_challenge_metadata()
 
-        with self._open('places365_train_challenge.txt') as label_map_file:
+        with self.cache.open('places365_train_challenge.txt') as label_map_file:
             csv_reader = csv.reader(label_map_file, delimiter=' ')
             return {row[0]: int(row[1]) for row in csv_reader}
 
     def open_demo_image(self):
-        return self._open('6.jpg', self._CSAIL_DEMO_URL, mode='rb')
+        return self.cache.open('6.jpg', self._CSAIL_DEMO_URL, mode='rb')
 
     def _convert_and_cache_resnet18(self):
         legacy_file_name = 'wideresnet18_places365.pth.tar'
-        new_file_path = self._cache_dir / 'wideresnet18_places365_converted'
+        new_path = self.cache.cache_dir / 'wideresnet18_places365_converted'
 
-        if not new_file_path.exists():
-            with self._open(legacy_file_name,
-                            self._CSAIL_MODELS_URL, 'rb') as legacy_tar_file:
+        if not new_path.exists():
+            with self.cache.open(legacy_file_name,
+                                 self._CSAIL_MODELS_URL, 'rb')\
+                    as legacy_tar_file:
                 model = torch.load(legacy_tar_file,
                                    map_location=lambda storage, loc: storage,
                                    encoding='latin1')
-                torch.save(model, new_file_path)
-                (self._cache_dir / legacy_file_name).unlink()
+                torch.save(model, new_path)
+                (self.cache.cache_dir / legacy_file_name).unlink()
 
     def resnet18(self):
         """
@@ -161,8 +131,8 @@ class Places365Hub:
         """
         self._convert_and_cache_resnet18()
 
-        with self._open('wideresnet18_places365_converted',
-                        mode='rb') as model_file:
+        with self.cache.open('wideresnet18_places365_converted', mode='rb')\
+                as model_file:
             model = wideresnet.resnet18(num_classes=365,
                                         normalize_channels=((.485, .456, .406),
                                                             (.229, .224, .225)))

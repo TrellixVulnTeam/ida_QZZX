@@ -2,6 +2,21 @@ import torch
 from typeguard import typechecked
 
 
+class WebCacheConfig:
+
+    @staticmethod
+    def from_args(cache_args):
+        return cache_args.cache_dir
+
+    @staticmethod
+    def setup_parser(parser, default_cache_dir='~/.cache/places-365'):
+        """
+        Adds an argument to `parser to specify a `cache_dir`.
+        """
+        parser.add_argument('--cache-dir', type=str, default=default_cache_dir,
+                            help='where to cache files downloaded from the web')
+
+
 class TorchConfig:
 
     @typechecked

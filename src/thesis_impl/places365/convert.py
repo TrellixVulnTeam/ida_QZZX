@@ -14,6 +14,7 @@ from pyspark.sql.types import IntegerType
 
 from thesis_impl.places365 import config as cfg
 from thesis_impl.places365.hub import Places365Hub
+from thesis_impl.util.webcache import WebCache
 
 
 def _get_schema(image_width: int, image_height: int):
@@ -110,13 +111,9 @@ if __name__ == '__main__':
                              'as a string "[width]x[height]"')
     parser.add_argument('-o', '--output_url', type=str, default=None,
                         help='URL where to store the dataset')
-    parser.add_argument('--debug', action='store_true',
-                        help='whether to output more information for debugging')
-    parser.add_argument('--cache_dir', type=str, default=None,
-                        help='the directory where Places356 metadata is cached')
 
-    torch_group = parser.add_argument_group('Torch settings')
-    cfg.TorchConfig.setup_parser(torch_group)
+    cache_group = parser.add_argument_group('Cache settings')
+    cfg.WebCacheConfig.setup_parser(cache_group)
 
     peta_write_group = parser.add_argument_group('Settings for writing the '
                                                  'output dataset')
@@ -128,27 +125,22 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    torch_cfg = cfg.TorchConfig.from_args(args)
-    write_cfg = cfg.PetastormWriteConfig.from_args(args)
+    _cache_dir = cfg.WebCacheConfig.from_args(args)
+    _write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
     args = parser.parse_args()
-
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
 
     if _RE_SIZE.match(args.size) is None:
         raise ValueError('Format of --resize parameter must be '
                          '"[width]x[height]".')
     width, height = args.size.split('x')
-    size = int(width), int(height)
+    _size = int(width), int(height)
 
-    images_dir = args.images_dir.replace('\'', '')
-    images_glob = args.images_glob.replace('\'', '')
+    _images_dir = args.images_dir.replace('\'', '')
+    _images_glob = args.images_glob.replace('\'', '')
 
-    hub = Places365Hub(args.cache_dir) if args.cache_dir else Places365Hub()
-    converter = Converter(images_dir, hub, write_cfg)
+    _cache = WebCache(cfg.WebCacheConfig.from_args(args))
+    _hub = Places365Hub(_cache)
 
-    with torch_cfg.set_device():
-        converter.convert(size, images_glob, args.subset, args.output_url)
+    converter = Converter(_images_dir, _hub, _write_cfg)
+    converter.convert(_size, _images_glob, args.subset, args.output_url)
