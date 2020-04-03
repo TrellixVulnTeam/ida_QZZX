@@ -1,29 +1,43 @@
 import abc
 import argparse
+import csv
 import logging
 import re
 from collections import Counter
-from contextlib import suppress
+from contextlib import suppress, contextmanager
+from functools import reduce, partial
 from typing import Callable
 
 import numpy as np
 import torch
-
 import torchvision
-from petastorm.codecs import ScalarCodec, CompressedImageCodec, NdarrayCodec
-from petastorm.etl.dataset_metadata import materialize_dataset
-from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
-from pyspark.sql import SparkSession
-from pyspark.sql.types import IntegerType
 from torch.nn import DataParallel
 from torchvision.transforms.functional import to_pil_image
+
+
+from petastorm import make_reader
+from petastorm.codecs import ScalarCodec, CompressedImageCodec, NdarrayCodec
+from petastorm.etl.dataset_metadata import materialize_dataset
+from petastorm.tf_utils import make_petastorm_dataset
+from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
+
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql.types import IntegerType
+
+import tensorflow as tf
 
 from thesis_impl.places365.hub import Places365Hub
 from thesis_impl.places365.io import unsupervised_loader
 import thesis_impl.places365.config as cfg
+from thesis_impl.util.webcache import WebCache
 
 
 class Translator(Callable, abc.ABC):
+
+    def __init__(self, tensor_type: str, output_type_name: str):
+        assert tensor_type in ['torch', 'tf']
+        self.tensor_type = tensor_type
+        self.output_type_name = output_type_name
 
     @property
     @abc.abstractmethod
@@ -31,9 +45,10 @@ class Translator(Callable, abc.ABC):
         pass
 
 
-class ImageToImageDummyTranslator(Translator):
+class ToImageDummyTranslator(Translator):
 
     def __init__(self, width: int, height: int):
+        super().__init__('torch', 'the untouched original image')
         self._field = UnischemaField('image', np.uint8, (width, height, 3),
                                      CompressedImageCodec('png'), False)
         self._width = width
@@ -56,9 +71,10 @@ def _wrap_parallel(model):
     return model
 
 
-class ImageToPlaces365SceneNameTranslator(Translator):
+class ToPlaces365SceneNameTranslator(Translator):
 
     def __init__(self, model, hub: Places365Hub, top_k=1):
+        super().__init__('torch', 'scene names from the Places365 set')
         self.model = model
         self.hub = hub
         self._top_k = top_k
@@ -77,14 +93,12 @@ class ImageToPlaces365SceneNameTranslator(Translator):
         return self._fields
 
     @staticmethod
-    def with_resnet18(device: torch.device, top_k=5):
-        hub = Places365Hub()  # todo: allow to specify cache_dir
+    def with_resnet18(device: torch.device, cache=None, top_k=5):
+        hub = Places365Hub(cache)
         model = _wrap_parallel(hub.resnet18().to(device).eval())
-        return ImageToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
+        return ToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
 
     def __call__(self, image_tensors):
-        logging.info('-- <Predicting scenes>')
-
         with torch.no_grad():
             probs = self.model(image_tensors)
             _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
@@ -93,9 +107,9 @@ class ImageToPlaces365SceneNameTranslator(Translator):
                        for i in range(self._top_k)}
 
 
-class ImageToCocoObjectNamesTranslator(Translator):
+class ToCocoObjectNamesTranslator(Translator):
 
-    OBJECT_NAMES = [
+    _OBJECT_NAMES = [
         '__background__', 'person', 'bicycle', 'car', 'motorcycle', 'airplane',
         'bus', 'train', 'truck', 'boat',
         'traffic light', 'fire hydrant', 'N/A', 'stop sign', 'parking meter',
@@ -115,12 +129,13 @@ class ImageToCocoObjectNamesTranslator(Translator):
     ]
 
     def __init__(self, model, threshold: float):
+        super().__init__('torch', 'detected objects from the COCO set')
         self.model = model
 
         assert 0 <= threshold < 1
         self.threshold = threshold
 
-        num_ints = len(self.OBJECT_NAMES)
+        num_ints = len(self.object_names())
         self._field = UnischemaField('coco_object_counts', np.uint8,
                                      (num_ints,), NdarrayCodec(), False)
 
@@ -129,12 +144,16 @@ class ImageToCocoObjectNamesTranslator(Translator):
         return [self._field]
 
     @staticmethod
+    def object_names():
+        return ToCocoObjectNamesTranslator._OBJECT_NAMES
+
+    @staticmethod
     def with_faster_r_cnn(device: torch.device, threshold=.5):
         model = torchvision.models.detection\
             .fasterrcnn_resnet50_fpn(pretrained=True)\
             .to(device)\
             .eval()
-        return ImageToCocoObjectNamesTranslator(model, threshold=threshold)
+        return ToCocoObjectNamesTranslator(model, threshold=threshold)
 
     @staticmethod
     def get_object_names_counts(counts_array):
@@ -142,12 +161,10 @@ class ImageToCocoObjectNamesTranslator(Translator):
         Returns a mapping from object names to counts,
         as encoded in *counts_array*.
         """
-        return {ImageToCocoObjectNamesTranslator.OBJECT_NAMES[obj_id]: count
+        return {ToCocoObjectNamesTranslator.object_names()[obj_id]: count
                 for obj_id, count in enumerate(counts_array) if count > 0}
 
     def __call__(self, image_tensors):
-        logging.info('-- <Predicting coco objects>')
-
         with torch.no_grad():
             for result in self.model(image_tensors):
                 obj_ids, scores = result['labels'], result['scores']
@@ -155,129 +172,300 @@ class ImageToCocoObjectNamesTranslator(Translator):
                                      for i, obj_id in enumerate(obj_ids)
                                      if scores[i] > self.threshold)
 
-                obj_ids = range(len(self.OBJECT_NAMES))
+                obj_ids = range(len(self.object_names()))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
                                        for obj_id in obj_ids],
                                       dtype=np.uint8)
                 yield {self._field.name: counts_arr}
 
 
-_RE_IMAGE = re.compile(r'images\[(?P<width>\d+),\s?(?P<height>\d+)\]')
-_RE_PLACES365 = re.compile(r'places365_scenes\[(?P<model>.*)\](\@(?P<k>\d+))?')
-_RE_COCO = re.compile(r'coco_objects\[(?P<model>.*)\](\@(?P<t>0?\.\d+))?')
+class ToOIV4ObjectNameTranslator(Translator):
+
+    _MODELS_URL = 'http://download.tensorflow.org/models/object_detection/'
+
+    _LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
+
+    def __init__(self, model_name: str, threshold: float, cache: WebCache):
+        super().__init__('tf', 'detected objects from the OpenImages set')
+
+        assert 0 <= threshold < 1
+        self.threshold = threshold
+
+        self.cache = cache
+
+        num_ints = len(self.object_names())
+        self._field = UnischemaField('oi_object_counts', np.uint8,
+                                     (num_ints,), NdarrayCodec(), False)
+
+        self._load_model(model_name)
+
+    def _load_model(self, model_name: str):
+        self.model_name = model_name
+        model_file_name = model_name + '.tar.gz'
+
+        self.cache.cache(model_file_name, self._MODELS_URL, is_archive=True)
+        model_dir = self.cache.get_absolute_path(model_name) \
+            / "saved_model"
+
+        self.dist_strategy = tf.distribute.MirroredStrategy()
+        with self.dist_strategy.scope():
+            model = tf.saved_model.load(str(model_dir))
+            self.model = model.signatures['serving_default']
+
+    def object_names(self):
+        return self.object_names_from_cache(self.cache)
+
+    @staticmethod
+    def object_names_from_cache(cache: WebCache):
+        url = ToOIV4ObjectNameTranslator._LABELS_URL
+
+        with cache.open('class-descriptions-boxable.csv', url)\
+                as object_names_file:
+            csv_reader = csv.reader(object_names_file, delimiter=',')
+            return ['__background__'] + [row[1] for row in csv_reader]
+
+    @property
+    def fields(self) -> [UnischemaField]:
+        return [self._field]
+
+    def __call__(self, image_tensors):
+        results = self.model(image_tensors)
+        logging.info(results)
+        obj_ids_batches, scores_batches = results['detection_classes'].numpy(),\
+                                          results['detection_scores'].numpy()
+        for obj_ids, scores in zip(obj_ids_batches, scores_batches):
+            obj_counts = Counter(obj_id for i, obj_id in enumerate(obj_ids)
+                                 if scores[i] > self.threshold)
+
+            obj_ids = range(len(self.object_names()))
+            counts_arr = np.array([obj_counts.get(obj_id, 0)
+                                   for obj_id in obj_ids],
+                                  dtype=np.uint8)
+            yield {self._field.name: counts_arr}
 
 
-def translator_factory(t_name: str, device: torch.device):
-    image_match = _RE_IMAGE.fullmatch(t_name)
-    if image_match:
-        d = image_match.groupdict()
-        width, height = int(d['width']), int(d['height'])
-        return ImageToImageDummyTranslator(width, height)
-
-    places365_match = _RE_PLACES365.fullmatch(t_name)
-    if places365_match:
-        d = places365_match.groupdict()
-        model = d['model']
-        params = {'top_k': int(d['k'])} if d['k'] else {}
-
-        if model in ['default', 'resnet18']:
-            return ImageToPlaces365SceneNameTranslator\
-                .with_resnet18(device, **params)
-
-        raise ValueError('Unknown model: {}'.format(model))
-
-    coco_match = _RE_COCO.fullmatch(t_name)
-    if coco_match:
-        d = coco_match.groupdict()
-        model = d['model']
-        params = {'threshold': float(d['t'])} if d['t'] else {}
-
-        if model in ['default', 'faster_r_cnn']:
-            return ImageToCocoObjectNamesTranslator\
-                .with_faster_r_cnn(device, **params)
-
-        raise ValueError('Unknown model: {}'.format(model))
-
-    raise ValueError('Unknown translator: {}'.format(t_name))
+_RE_IMAGE = re.compile(r'(?P<name>images)\[(?P<width>\d+),\s?(?P<height>\d+)\]')
+_RE_PLACES365 = re.compile(r'(?P<name>places365_scenes)\[(?P<model>.*)\]'
+                           r'(@(?P<k>\d+))?')
+_RE_COCO = re.compile(r'(?P<name>coco_objects)\[(?P<model>.*)\]'
+                      r'(@(?P<t>0?\.\d+))?')
+_RE_OI = re.compile(r'(?P<name>oi_objects)\[(?P<model>.*)\]'
+                    r'(@(?P<t>0?\.\d+))?')
 
 
-def translate_images(input_url, output_url, schema_name,
-                     translators: [Translator], device: torch.device,
-                     read_cfg: cfg.PetastormReadConfig,
-                     write_cfg: cfg.PetastormWriteConfig):
-    schema = Unischema(schema_name,
-                       [f for t in translators for f in t.fields])
+class TranslationProcessor:
+    def __init__(self, input_url, output_url, schema_name,
+                 translator_specs: [str], cache: WebCache,
+                 torch_device: torch.device, read_cfg: cfg.PetastormReadConfig,
+                 write_cfg: cfg.PetastormWriteConfig):
+        self.input_url, self.output_url = input_url, output_url
+        self.cache = cache
+        self.torch_device = torch_device
+        self.read_cfg, self.write_cfg = read_cfg, write_cfg
 
-    try:
-        loader = iter(unsupervised_loader(input_url, read_cfg, device))
+        self.translators_by_type = {'torch': [], 'tf': []}
+        translator_fields = []
 
-        spark = SparkSession.builder \
+        for t_spec in translator_specs:
+            t = self._create_translator(t_spec)
+            self.translators_by_type[t.tensor_type].append(t)
+            for f in t.fields:
+                translator_fields.append(f)
+
+        self._id_field = UnischemaField('translation_id', np.int64, (),
+                                        ScalarCodec(IntegerType()), False)
+        self.schema = Unischema(schema_name,
+                                [self._id_field] + translator_fields)
+
+        self._log_nesting = 0
+
+    def _log(self, msg):
+        prefix = '--' * self._log_nesting + ' ' if self._log_nesting else ''
+        logging.info(prefix + msg)
+
+    def _log_item(self, msg):
+        self._log('<{}/>'.format(msg))
+
+    def _log_group_start(self, msg):
+        self._log_item(msg)
+        self._log_nesting += 1
+
+    def _log_group_end(self):
+        self._log_nesting -= 1
+        self._log('<done/>')
+
+    @contextmanager
+    def _log_task(self, msg):
+        self._log_group_start(msg)
+        try:
+            yield None
+        finally:
+            self._log_group_end()
+
+    def _create_translator(self, t_spec):
+        def _raise_unknown_model(_model, _translator):
+            raise ValueError('Unknown model {} for translator {}'
+                             .format(_model, _translator))
+
+        image_match = _RE_IMAGE.fullmatch(t_spec)
+        if image_match:
+            d = image_match.groupdict()
+            width, height = int(d['width']), int(d['height'])
+            return ToImageDummyTranslator(width, height)
+
+        places365_match = _RE_PLACES365.fullmatch(t_spec)
+        if places365_match:
+            d = places365_match.groupdict()
+            model = d['model']
+            params = {'top_k': int(d['k'])} if d['k'] else {}
+
+            if model in ['default', 'resnet18']:
+                return ToPlaces365SceneNameTranslator \
+                    .with_resnet18(self.torch_device, **params)
+
+            _raise_unknown_model(model, d['name'])
+
+        coco_match = _RE_COCO.fullmatch(t_spec)
+        if coco_match:
+            d = coco_match.groupdict()
+            model = d['model']
+            params = {'threshold': float(d['t'])} if d['t'] else {}
+
+            if model in ['default', 'faster_r_cnn']:
+                return ToCocoObjectNamesTranslator \
+                    .with_faster_r_cnn(self.torch_device, **params)
+
+            _raise_unknown_model(model, d['name'])
+
+        oi_match = _RE_OI.fullmatch(t_spec)
+        if oi_match:
+            d = oi_match.groupdict()
+            model_short = d['model']
+            params = {'threshold': float(d['t'])} if d['t'] else {}
+
+            model_full = {'inception_resnet': 'faster_rcnn_inception_resnet_v2'
+                                              '_atrous_oid_v4_2018_12_12',
+                          'mobilenet': 'ssd_mobilenet_v2_oid_v4_2018_12_12'}
+            model_full['default'] = model_full['inception_resnet']
+
+            try:
+                model = model_full[model_short]
+            except KeyError:
+                _raise_unknown_model(model_short, d['name'])
+            else:
+                return ToOIV4ObjectNameTranslator(model, cache=self.cache,
+                                                  **params)
+
+        raise ValueError('Unknown translator: {}'.format(t_spec))
+
+    def _translate_to_df(self, spark_session, spark_ctx, tensor_type,
+                         translators):
+        with self._log_task('Generating translations based on {} tensors'
+                            .format(tensor_type)):
+            batches_iter = {'torch': self._get_torch_loader,
+                            'tf': self._get_tf_loader}[tensor_type]()
+
+            translator_fields = [f for t in translators for f in t.fields]
+            partial_schema = Unischema(tensor_type, [self._id_field] +
+                                       translator_fields)
+            partial_spark_schema = partial_schema.as_spark_schema()
+
+            def translation_iterators(images_batch):
+                for t in translators:
+                    def log_then_call():
+                        self._log_item('Translating to: {}'
+                                       .format(t.output_type_name))
+                        yield from t(images_batch)
+
+                    yield log_then_call()
+
+            def generate_translations(images_batch):
+                stream = zip(*translation_iterators(images_batch))
+
+                for t_id, result_row_dicts in enumerate(stream):
+                    merged_row = {self._id_field.name: t_id}
+                    for row_dict in result_row_dicts:
+                        merged_row.update(row_dict)
+                    yield dict_to_spark_row(partial_schema, merged_row)
+
+            def create_df(images_batch):
+                with self._log_task('Generating new batch of translations'):
+                    t_batch = list(generate_translations(images_batch))
+                    return spark_session.createDataFrame(t_batch,
+                                                         partial_spark_schema)
+
+            with suppress(StopIteration):
+                _images_batch = next(batches_iter)
+                translations = [create_df(_images_batch)]
+                del _images_batch  # free memory of tensors
+
+            for _images_batch in batches_iter:
+                translations.append(create_df(_images_batch))
+                del _images_batch
+
+            self._log_item('Unionizing dataframes')
+            return reduce(DataFrame.union, translations)
+
+    def _get_torch_loader(self):
+        return unsupervised_loader(self.input_url, self.read_cfg,
+                                   self.torch_device)
+
+    def _get_tf_loader(self):
+        shuffle = self.read_cfg.shuffle_row_groups
+        reader = make_reader(self.input_url, schema_fields=['image'],
+                             shuffle_row_groups=shuffle)
+        peta_dataset = make_petastorm_dataset(reader)\
+            .batch(self.read_cfg.batch_size)
+
+        def tensor_iter():
+            for schema_view in iter(peta_dataset):
+                yield schema_view.image
+
+        return tensor_iter()
+
+    def translate(self):
+        spark_session = SparkSession.builder \
             .config('spark.driver.memory',
-                    write_cfg.spark_driver_memory) \
+                    self.write_cfg.spark_driver_memory) \
             .config('spark.executor.memory',
-                    write_cfg.spark_exec_memory) \
-            .master(write_cfg.spark_master) \
+                    self.write_cfg.spark_exec_memory) \
+            .master(self.write_cfg.spark_master) \
             .getOrCreate()
 
-        sc = spark.sparkContext
+        spark_ctx = spark_session.sparkContext
 
-        def translation_iterators(images_batch):
-            for t in translators:
-                yield t(images_batch)
+        try:
+            dfs = [self._translate_to_df(spark_session, spark_ctx,
+                                         t_type, t_list)
+                   for t_type, t_list in self.translators_by_type.items()]
 
-        def generate_translations(images_batch):
-            for result_row_dicts in zip(*translation_iterators(images_batch)):
-                merged_row = {}
-                for row_dict in result_row_dicts:
-                    merged_row.update(row_dict)
-                yield merged_row
+            with materialize_dataset(spark_session, self.output_url, self.schema,
+                                     self.write_cfg.row_group_size_mb):
+                with self._log_task('Joining the dataframes of all '
+                                    'translators'):
+                    final_df = reduce(partial(DataFrame.join,
+                                              on=self._id_field.name,
+                                              how='inner'), dfs)
+                with self._log_task('Writing to parquet store'):
+                    while True:
+                        try:
+                            final_df.write.mode('error')\
+                                .parquet(self.output_url)
+                        except Exception as e:
+                            self._log('Encountered exception: {}'.format(e))
+                            other_url = input('To retry, enter another '
+                                              'output URL and press <Enter>.'
+                                              'To exit, just press <Enter>.')
+                            self.output_url = other_url
+                            if not other_url:
+                                raise e
+                        else:
+                            break
 
-        def create_rdd(images_batch):
-            logging.info('<Generating new batch of translations...>')
-            translations_batch = list(generate_translations(images_batch))
-            logging.info('<done>')
-            return sc.parallelize(translations_batch)
-
-        with suppress(StopIteration):
-            images_batch = next(loader)
-            translations = [create_rdd(images_batch)]
-            del images_batch  # free memory of tensors
-
-        for images_batch in loader:
-            batch_rdd = create_rdd(images_batch)
-            translations.append(batch_rdd)
-            del images_batch
-
-        logging.info('<Finished translations. Postprocessing...>')
-
-        logging.info('-- <Unionizing RDDs>')
-        t_rdd = sc.union(translations)
-
-        logging.info('-- <Repartitioning RDDs>')
-        t_rdd = t_rdd.repartition(write_cfg.num_partitions)
-
-        logging.info('-- <Mapping to Spark Rows>')
-        t_rdd = t_rdd.map(lambda x: dict_to_spark_row(schema, x))
-
-        logging.info('<done>')
-
-        with materialize_dataset(spark, output_url, schema,
-                                 write_cfg.row_group_size_mb):
-            logging.info('<Creating dataframe..>')
-            df = spark.createDataFrame(t_rdd,
-                                       schema.as_spark_schema())
-            logging.info('<done>')
-
-            logging.info('<Writing to parquet store..>')
-            df.write\
-                .mode('overwrite')\
-                .parquet(output_url)
-            logging.info('<done>')
-
-    except KeyboardInterrupt:
-        logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
-    else:
-        logging.info('----- Finished -----')
+        except KeyboardInterrupt:
+            logging.info('---- ! Stopping due to KeyboardInterrupt ! ----')
+        else:
+            logging.info('----- Finished -----')
 
 
 if __name__ == '__main__':
@@ -292,10 +480,11 @@ if __name__ == '__main__':
                         default='ImageTranslationSchema',
                         help='how to name the data schema of the output'
                              'translations')
-    parser.add_argument('-d', '--debug', action='store_true',
-                        help='whether to output more information for debugging')
     parser.add_argument('translators', type=str, nargs='+',
                         help='one or more translators to apply to the images')
+
+    cache_group = parser.add_argument_group('Cache settings')
+    cfg.WebCacheConfig.setup_parser(cache_group)
 
     torch_group = parser.add_argument_group('Torch settings')
     cfg.TorchConfig.setup_parser(torch_group)
@@ -320,13 +509,9 @@ if __name__ == '__main__':
     _read_cfg = cfg.PetastormReadConfig.from_args(args)
     _write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
-
-    _translators = [translator_factory(t_name, _torch_cfg.device)
-                    for t_name in args.translators]
-
-    translate_images(args.input_url, args.output_url, args.schema_name,
-                     _translators, _torch_cfg.device, _read_cfg, _write_cfg)
+    _cache = WebCache(cfg.WebCacheConfig.from_args(args))
+    processor = TranslationProcessor(args.input_url, args.output_url,
+                                     args.schema_name, args.translators,
+                                     _cache, _torch_cfg.device, _read_cfg,
+                                     _write_cfg)
+    processor.translate()
