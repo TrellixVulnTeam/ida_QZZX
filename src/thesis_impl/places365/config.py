@@ -14,9 +14,9 @@ class LoggingConfig:
             logging.basicConfig(level=logging.INFO)
 
     @staticmethod
-    def setup_parser(parser, default_cache_dir='~/.cache/places-365'):
+    def setup_parser(parser):
         """
-        Adds an argument to `parser to specify a `cache_dir`.
+        Adds an argument to `parser that enables more debugging info.
         """
         parser.add_argument('--debug', action='store_true',
                             help='whether to output more information '
