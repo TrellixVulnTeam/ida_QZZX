@@ -34,7 +34,7 @@ class Converter:
 
     def __init__(self, images_dir: str, hub: Places365Hub,
                  write_cfg: cfg.PetastormWriteConfig):
-        self.images_dir = Path(images_dir)
+        self.images_dir = Path(images_dir).expanduser()
         assert self.images_dir.exists()
         self.hub = hub
         self.write_cfg = write_cfg
