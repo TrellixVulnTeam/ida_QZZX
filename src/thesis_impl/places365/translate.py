@@ -27,6 +27,7 @@ from pyspark.sql.types import IntegerType, FloatType
 from thesis_impl.places365.hub import Places365Hub
 from thesis_impl.places365.io import unsupervised_loader
 import thesis_impl.places365.config as cfg
+from thesis_impl.util.functools import cached_property
 from thesis_impl.util.webcache import WebCache
 
 import tensorflow as tf
@@ -133,12 +134,24 @@ def _wrap_parallel(model):
     return model
 
 
-class ToPlaces365SceneNameTranslator(Translator):
+class ModelBasedTranslator(Translator, abc.ABC):
 
-    def __init__(self, model, hub: Places365Hub, top_k=1):
-        super().__init__('torch', 'scene names from the Places365 set')
-        self.model = model
-        self.hub = hub
+    def __init__(self, tensor_type: str, output_type_name: str,
+                 create_model_func):
+        super().__init__(tensor_type, output_type_name)
+        self._create_model = create_model_func
+        self._model = None
+
+    @cached_property
+    def model(self):
+        return self._create_model()
+
+
+class ToPlaces365SceneNameTranslator(ModelBasedTranslator):
+
+    def __init__(self, create_model_func, top_k=1):
+        super().__init__('torch', 'scene names from the Places365 set',
+                         create_model_func)
         self._top_k = top_k
         self._fields = [UnischemaField(self._get_field_name(i),
                                        np.uint8, (),
@@ -155,10 +168,11 @@ class ToPlaces365SceneNameTranslator(Translator):
         return self._fields
 
     @staticmethod
-    def with_resnet18(device: torch.device, cache=None, top_k=5):
-        hub = Places365Hub(cache)
-        model = _wrap_parallel(hub.resnet18().to(device).eval())
-        return ToPlaces365SceneNameTranslator(model, hub=hub, top_k=top_k)
+    def with_resnet18(device: torch.device, cache: WebCache, top_k: int=5):
+        def create_model():
+            hub = Places365Hub(cache)
+            return _wrap_parallel(hub.resnet18().to(device).eval())
+        return ToPlaces365SceneNameTranslator(create_model, top_k=top_k)
 
     def __call__(self, image_tensors):
         image_tensors = image_tensors.clone().detach()
@@ -171,7 +185,7 @@ class ToPlaces365SceneNameTranslator(Translator):
                        for i, f in enumerate(self._fields)}
 
 
-class ToCocoObjectNamesTranslator(Translator):
+class ToCocoObjectNamesTranslator(ModelBasedTranslator):
 
     _OBJECT_NAMES = [
         '__background__', 'person', 'bicycle', 'car', 'motorcycle', 'airplane',
@@ -192,9 +206,9 @@ class ToCocoObjectNamesTranslator(Translator):
         'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
     ]
 
-    def __init__(self, model, threshold: float):
-        super().__init__('torch', 'detected objects from the COCO set')
-        self.model = model
+    def __init__(self, create_model_func, threshold: float):
+        super().__init__('torch', 'detected objects from the COCO set',
+                         create_model_func)
 
         assert 0 <= threshold < 1
         self.threshold = threshold
@@ -212,12 +226,13 @@ class ToCocoObjectNamesTranslator(Translator):
         return ToCocoObjectNamesTranslator._OBJECT_NAMES
 
     @staticmethod
-    def with_faster_r_cnn(device: torch.device, threshold=.5):
-        model = torchvision.models.detection\
-            .fasterrcnn_resnet50_fpn(pretrained=True)\
-            .to(device)\
-            .eval()
-        return ToCocoObjectNamesTranslator(model, threshold=threshold)
+    def with_faster_r_cnn(device: torch.device, threshold: float=.5):
+        def create_model():
+            return torchvision.models.detection\
+                .fasterrcnn_resnet50_fpn(pretrained=True)\
+                .to(device)\
+                .eval()
+        return ToCocoObjectNamesTranslator(create_model, threshold=threshold)
 
     @staticmethod
     def get_object_names_counts(counts_array):
@@ -245,14 +260,15 @@ class ToCocoObjectNamesTranslator(Translator):
                 yield {self._field.name: counts_arr}
 
 
-class ToOIV4ObjectNameTranslator(Translator):
+class ToOIV4ObjectNameTranslator(ModelBasedTranslator):
 
-    _MODELS_URL = 'http://download.tensorflow.org/models/object_detection/'
+    MODELS_URL = 'http://download.tensorflow.org/models/object_detection/'
 
-    _LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
+    LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
 
-    def __init__(self, model_name: str, threshold: float, cache: WebCache):
-        super().__init__('tf', 'detected objects from the OpenImages set')
+    def __init__(self, create_model_func, threshold: float, cache: WebCache):
+        super().__init__('tf', 'detected objects from the OpenImages set',
+                         create_model_func)
 
         assert 0 <= threshold < 1
         self.threshold = threshold
@@ -263,27 +279,12 @@ class ToOIV4ObjectNameTranslator(Translator):
         self._field = UnischemaField('oi_object_counts', np.uint8,
                                      (num_ints,), NdarrayCodec(), False)
 
-        self._load_model(model_name)
-
-    def _load_model(self, model_name: str):
-        self.model_name = model_name
-        model_file_name = model_name + '.tar.gz'
-
-        self.cache.cache(model_file_name, self._MODELS_URL, is_archive=True)
-        model_dir = self.cache.get_absolute_path(model_name) \
-            / "saved_model"
-
-        self.dist_strategy = tf.distribute.MirroredStrategy()
-        with self.dist_strategy.scope():
-            model = tf.saved_model.load(str(model_dir))
-            self.model = model.signatures['serving_default']
-
     def object_names(self):
         return self.object_names_from_cache(self.cache)
 
     @staticmethod
     def object_names_from_cache(cache: WebCache):
-        url = ToOIV4ObjectNameTranslator._LABELS_URL
+        url = ToOIV4ObjectNameTranslator.LABELS_URL
 
         with cache.open('class-descriptions-boxable.csv', url)\
                 as object_names_file:
@@ -293,6 +294,23 @@ class ToOIV4ObjectNameTranslator(Translator):
     @property
     def fields(self) -> [UnischemaField]:
         return [self._field]
+
+    @staticmethod
+    def with_pretrained_model(model_name: str, cache: WebCache,
+                              threshold: float=.5):
+        def create_model():
+            model_file_name = model_name + '.tar.gz'
+            url = ToOIV4ObjectNameTranslator.MODELS_URL
+
+            cache.cache(model_file_name, url, is_archive=True)
+            model_dir = cache.get_absolute_path(model_name) / "saved_model"
+
+            dist_strategy = tf.distribute.MirroredStrategy()
+            with dist_strategy.scope():
+                model = tf.saved_model.load(str(model_dir))
+                return model.signatures['serving_default']
+
+        return ToOIV4ObjectNameTranslator(create_model, threshold, cache)
 
     def __call__(self, image_tensors):
         results = self.model(image_tensors)
@@ -393,7 +411,8 @@ class TranslationProcessor:
 
             if model in ['default', 'resnet18']:
                 return ToPlaces365SceneNameTranslator \
-                    .with_resnet18(self.torch_device, **params)
+                    .with_resnet18(self.torch_device, cache=self.cache,
+                                   **params)
 
             _raise_unknown_model(model, d['name'])
 
@@ -425,8 +444,8 @@ class TranslationProcessor:
             except KeyError:
                 _raise_unknown_model(model_short, d['name'])
             else:
-                return ToOIV4ObjectNameTranslator(model, cache=self.cache,
-                                                  **params)
+                return ToOIV4ObjectNameTranslator\
+                    .with_pretrained_model(model, cache=self.cache, **params)
 
         raise ValueError('Unknown translator: {}'.format(t_spec))
 
@@ -474,6 +493,8 @@ class TranslationProcessor:
             for _images_batch in batches_iter:
                 translations.append(create_df(_images_batch))
                 del _images_batch
+
+            del translators  # free memory of models used by translators
 
             self._log_item('Unionizing dataframes')
             return reduce(DataFrame.union, translations)
