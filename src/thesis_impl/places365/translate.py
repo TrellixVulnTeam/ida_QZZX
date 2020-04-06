@@ -297,6 +297,7 @@ class ToOIV4ObjectNameTranslator(ModelBasedTranslator):
 
     @staticmethod
     def with_pretrained_model(model_name: str, cache: WebCache,
+                              dist_strategy: tf.distribute.Strategy,
                               threshold: float=.5):
         def create_model():
             model_file_name = model_name + '.tar.gz'
@@ -305,11 +306,9 @@ class ToOIV4ObjectNameTranslator(ModelBasedTranslator):
             cache.cache(model_file_name, url, is_archive=True)
             model_dir = cache.get_absolute_path(model_name) / "saved_model"
 
-            # According to https://github.com/tensorflow/serving/issues/311
-            # there is currently no simple way to use multiple GPUs
-            # for inference with saved models
-            model = tf.saved_model.load(str(model_dir))
-            return model.signatures['serving_default']
+            with dist_strategy.scope():
+                model = tf.saved_model.load(str(model_dir))
+                return model.signatures['serving_default']
 
         return ToOIV4ObjectNameTranslator(create_model, threshold, cache)
 
@@ -339,6 +338,7 @@ _RE_OI = re.compile(r'(?P<name>oi_objects)\[(?P<model>.*)\]'
 
 
 class TranslationProcessor:
+
     def __init__(self, input_url, output_url, schema_name,
                  translator_specs: [str], cache: WebCache,
                  torch_device: torch.device, read_cfg: cfg.PetastormReadConfig,
@@ -346,6 +346,7 @@ class TranslationProcessor:
         self.input_url, self.output_url = input_url, output_url
         self.cache = cache
         self.torch_device = torch_device
+        self.tf_dist_strategy = tf.distribute.MirroredStrategy()
         self.read_cfg, self.write_cfg = read_cfg, write_cfg
 
         self.translators_by_type = {'torch': [], 'tf': []}
@@ -510,6 +511,8 @@ class TranslationProcessor:
                              shuffle_row_groups=shuffle)
         peta_dataset = make_petastorm_dataset(reader)\
             .batch(self.read_cfg.batch_size)
+        peta_dataset = self.tf_dist_strategy\
+            .experimental_distribute_dataset(peta_dataset)
 
         def tensor_iter():
             for schema_view in iter(peta_dataset):
