@@ -305,10 +305,11 @@ class ToOIV4ObjectNameTranslator(ModelBasedTranslator):
             cache.cache(model_file_name, url, is_archive=True)
             model_dir = cache.get_absolute_path(model_name) / "saved_model"
 
-            dist_strategy = tf.distribute.MirroredStrategy()
-            with dist_strategy.scope():
-                model = tf.saved_model.load(str(model_dir))
-                return model.signatures['serving_default']
+            # According to https://github.com/tensorflow/serving/issues/311
+            # there is currently no simple way to use multiple GPUs
+            # for inference with saved models
+            model = tf.saved_model.load(str(model_dir))
+            return model.signatures['serving_default']
 
         return ToOIV4ObjectNameTranslator(create_model, threshold, cache)
 
@@ -530,7 +531,8 @@ class TranslationProcessor:
 
         dfs = [self._translate_to_df(spark_session, spark_ctx,
                                      t_type, t_list)
-               for t_type, t_list in self.translators_by_type.items()]
+               for t_type, t_list in self.translators_by_type.items()
+               if len(t_list) > 0]
 
         with materialize_dataset(spark_session, self.output_url, self.schema,
                                  self.write_cfg.row_group_size_mb):
