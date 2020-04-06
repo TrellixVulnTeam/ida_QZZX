@@ -447,7 +447,9 @@ class TranslationProcessor:
                 _raise_unknown_model(model_short, d['name'])
             else:
                 return ToOIV4ObjectNameTranslator\
-                    .with_pretrained_model(model, cache=self.cache, **params)
+                    .with_pretrained_model(model, cache=self.cache,
+                                           dist_strategy=self.tf_dist_strategy,
+                                           **params)
 
         raise ValueError('Unknown translator: {}'.format(t_spec))
 
