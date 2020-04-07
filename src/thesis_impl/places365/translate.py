@@ -6,6 +6,7 @@ import multiprocessing as mp
 import os
 import queue
 import re
+import time
 from collections import Counter
 from contextlib import contextmanager
 from functools import reduce, partial
@@ -108,9 +109,17 @@ class DictBasedDataGenerator(DataGenerator):
                             .format(self.output_description)):
             rows = []
 
+            last_time = time.time()
+
             for row_id, row_dict in enumerate(self.translate()):
                 row_dict[self.id_field.name] = row_id
                 rows.append(dict_to_spark_row(self.schema, row_dict))
+
+                current_time = time.time()
+                if current_time - last_time > 5:
+                    self._log_item('Translated {} rows so far.'
+                                   .format(row_id + 1))
+                    last_time = current_time
 
             spark_schema = self.schema.as_spark_schema()
             df = self.spark_session.createDataFrame(rows, spark_schema)
