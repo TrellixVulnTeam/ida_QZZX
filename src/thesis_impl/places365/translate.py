@@ -702,7 +702,7 @@ def main(args):
     while True:
         try:
             with materialize_dataset(spark_session, output_url,
-                                     out_df.schema,
+                                     data_gen.schema,
                                      write_cfg.row_group_size_mb):
                 out_df.write.mode('error').parquet(args.output_url)
         except Exception as e:
