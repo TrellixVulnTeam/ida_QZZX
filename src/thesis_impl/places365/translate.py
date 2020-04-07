@@ -156,12 +156,18 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
     def translate_batch(self, batch) -> Iterable[RowDict]:
         pass
 
+    def cleanup(self):
+        """
+        Can be overridden to clean up more stuff.
+        """
+        torch.cuda.empty_cache()  # release all memory that can be released
+
     def translate(self):
         with torch.no_grad():
             for batch in self.batch_iter():
                 yield from self.translate_batch(batch)
 
-        torch.cuda.empty_cache()  # release all memory that can be released
+        self.cleanup()
 
 
 class ToImageDummyTranslator(TorchTranslator):
@@ -279,10 +285,14 @@ class TorchModelTranslator(TorchTranslator, abc.ABC):
         self._create_model = create_model_func
         self.model = None
 
+    def cleanup(self):
+        del self.model
+        super().cleanup()
+
     def __call__(self):
         with torch.no_grad():
             # allocate model before tensors
-            self.model = self._create_model().to(self.device).eval()
+            self.model = self._create_model()
         return super().__call__()
 
 
@@ -320,7 +330,7 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
                       cache: WebCache, top_k: int=5):
         def create_model():
             hub = Places365Hub(cache)
-            return _wrap_parallel(hub.resnet18())
+            return _wrap_parallel(hub.resnet18().to(device).eval())
         return ToPlaces365SceneLabelTranslator(spark_session, input_url,
                                                read_cfg, device, create_model,
                                                top_k=top_k)
