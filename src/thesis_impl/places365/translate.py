@@ -579,12 +579,9 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
 
     def translate(self):
         for results in self.result_iter():
-            logging.info('OI results: {}'.format(results))
             obj_ids_batches = results['detection_classes'].numpy()
             scores_batches = results['detection_scores'].numpy()
 
-            logging.info(obj_ids_batches)
-            logging.info(scores_batches)
             for obj_ids, scores in zip(obj_ids_batches, scores_batches):
                 obj_counts = Counter(obj_id for i, obj_id in enumerate(obj_ids)
                                      if scores[i] > self.threshold)
@@ -613,11 +610,8 @@ class JoinDataGenerator(DataGenerator):
     def __call__(self):
         with self._log_task('Joining multiple data generators...'):
             dfs = [g() for g in self.generators]
-            for df in dfs:
-                logging.info('DF:')
-                logging.info(df)
-                logging.info(df.take(1))
-            op = partial(DataFrame.join, on=self.id_field.name, how='inner')
+            # use outer join in case there are missing values
+            op = partial(DataFrame.join, on=self.id_field.name, how='outer')
             return reduce(op, dfs)
 
 
@@ -755,7 +749,8 @@ def main(args):
     translators = [factory.create(t_spec) for t_spec in args.translators]
     data_gen = JoinDataGenerator(translators)
     out_df = data_gen()
-    logging.info('Out df: {}'.format(out_df.take(1)))
+
+    logging.info('Writing dataframe. First row: {}'.format(out_df.take(1)))
 
     output_url = args.output_url
 
