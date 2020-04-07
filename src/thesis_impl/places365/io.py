@@ -9,7 +9,9 @@ def peta_loader(data_url, schema_fields,
                 read_cfg: cfg.PetastormReadConfig):
     reader = make_reader(data_url,
                          schema_fields=schema_fields,
-                         shuffle_row_groups=read_cfg.shuffle_row_groups)
+                         shuffle_row_groups=read_cfg.shuffle_row_groups,
+                         reader_pool_type=read_cfg.reader_pool_type,
+                         workers_count=read_cfg.reader_workers_count)
     return DataLoader(reader, batch_size=read_cfg.batch_size)
 
 

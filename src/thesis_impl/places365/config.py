@@ -73,14 +73,19 @@ class TorchConfig:
 class PetastormReadConfig:
 
     @typechecked
-    def __init__(self, batch_size: int, shuffle_row_groups: bool):
+    def __init__(self, batch_size: int, shuffle_row_groups: bool,
+                 pool_type: str, workers_count):
         self.batch_size = batch_size
         self.shuffle_row_groups = shuffle_row_groups
+        self.pool_type = pool_type
+        self.workers_count = workers_count
 
     @staticmethod
     def from_args(read_args):
         return PetastormReadConfig(read_args.batch_size,
-                                   not read_args.no_shuffle)
+                                   not read_args.no_shuffle,
+                                   read_args.pool_type,
+                                   read_args.workers_count)
 
     @staticmethod
     def setup_parser(parser, default_batch_size=512):
@@ -91,6 +96,9 @@ class PetastormReadConfig:
         parser.add_argument('--batch-size', type=int,
                             default=default_batch_size)
         parser.add_argument('--no-shuffle', action='store_true')
+        parser.add_argument('--pool-type', choices=['thread', 'process'],
+                            default='thread')
+        parser.add_argument('--workers-count', type=int, default=10)
 
 
 class PetastormWriteConfig:
