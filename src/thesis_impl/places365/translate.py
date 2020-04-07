@@ -7,7 +7,7 @@ import os
 import queue
 import re
 from collections import Counter
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from functools import reduce, partial
 from typing import Optional, Any, Dict, Iterable
 
@@ -449,13 +449,14 @@ class TFObjectDetectionProcess(mp.Process):
         self.gpu_id = gpu_id
 
     def run(self):
-        if self.gpu_id:
+        if self.gpu_id is not None:
             # set GPU id before importing tensorflow
             os.environ['CUDA_VISIBLE_DEVICES'] = '{}'.format(self.gpu_id)
 
+        # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
         # import tensorflow locally in the process
         import tensorflow as tf
-        logging.info('devices: {}'.format(tf.config.experimental.list_physical_devices('GPU')))
 
         model_file_name = self.model_name + '.tar.gz'
         url = ToOIV4ObjectNamesTranslator.MODELS_URL
