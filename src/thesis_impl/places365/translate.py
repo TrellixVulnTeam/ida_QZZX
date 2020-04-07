@@ -3,7 +3,6 @@ import argparse
 import csv
 import logging
 import multiprocessing as mp
-import os
 import queue
 import re
 from collections import Counter
@@ -449,12 +448,15 @@ class TFObjectDetectionProcess(mp.Process):
         self.gpu_id = gpu_id
 
     def run(self):
+        import os
+
         if self.gpu_id:
             # set GPU id before importing tensorflow
             os.environ['CUDA_VISIBLE_DEVICES'] = '{}'.format(self.gpu_id)
 
         # import tensorflow locally in the process
         import tensorflow as tf
+        logging.info('devices: {}'.format(tf.config.experimental.list_physical_devices('GPU')))
 
         model_file_name = self.model_name + '.tar.gz'
         url = ToOIV4ObjectNamesTranslator.MODELS_URL
@@ -553,30 +555,36 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
         for p in self.processes:
             p.start()
 
+        pending_count = 0
         for batch in self.batch_iter():
             self.in_queue.put(batch)  # blocks until a slot is free
+            pending_count += 1
 
-            with suppress(queue.Empty):
+            try:
                 yield self.out_queue.get_nowait()
+            except queue.Empty:
+                pass
+            else:
+                pending_count -= 1
 
         for _ in self.processes:
             self.in_queue.put(None)
         self.in_queue.join()  # wait until all results are there
 
-        while True:
-            try:
-                yield self.out_queue.get_nowait()
-            except queue.Empty:
-                break
+        for _ in range(pending_count):
+            yield self.out_queue.get()
 
         for p in self.processes:
             p.join()
 
     def translate(self):
         for results in self.result_iter():
+            logging.info('OI results: {}'.format(results))
             obj_ids_batches = results['detection_classes'].numpy()
             scores_batches = results['detection_scores'].numpy()
 
+            logging.info(obj_ids_batches)
+            logging.info(scores_batches)
             for obj_ids, scores in zip(obj_ids_batches, scores_batches):
                 obj_counts = Counter(obj_id for i, obj_id in enumerate(obj_ids)
                                      if scores[i] > self.threshold)
@@ -605,6 +613,10 @@ class JoinDataGenerator(DataGenerator):
     def __call__(self):
         with self._log_task('Joining multiple data generators...'):
             dfs = [g() for g in self.generators]
+            for df in dfs:
+                logging.info('DF:')
+                logging.info(df)
+                logging.info(df.take(1))
             op = partial(DataFrame.join, on=self.id_field.name, how='inner')
             return reduce(op, dfs)
 
@@ -720,6 +732,8 @@ class TranslatorFactory:
 
 
 def main(args):
+    mp.set_start_method('spawn')
+
     cfg.LoggingConfig.set_from_args(args)
     torch_cfg = cfg.TorchConfig.from_args(args)
     read_cfg = cfg.PetastormReadConfig.from_args(args)
@@ -741,6 +755,7 @@ def main(args):
     translators = [factory.create(t_spec) for t_spec in args.translators]
     data_gen = JoinDataGenerator(translators)
     out_df = data_gen()
+    logging.info('Out df: {}'.format(out_df.take(1)))
 
     output_url = args.output_url
 
