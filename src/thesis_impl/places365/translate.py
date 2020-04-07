@@ -3,6 +3,7 @@ import argparse
 import csv
 import logging
 import multiprocessing as mp
+import os
 import queue
 import re
 from collections import Counter
@@ -448,8 +449,6 @@ class TFObjectDetectionProcess(mp.Process):
         self.gpu_id = gpu_id
 
     def run(self):
-        import os
-
         if self.gpu_id:
             # set GPU id before importing tensorflow
             os.environ['CUDA_VISIBLE_DEVICES'] = '{}'.format(self.gpu_id)
