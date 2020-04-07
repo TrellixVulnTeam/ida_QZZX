@@ -115,8 +115,7 @@ class BatchedTranslator(DataGenerator, abc.ABC):
             item_count = 0
 
             for batch in self.batch_iter():
-                self._log_item('Processing batch of items {}-{}'
-                               .format(item_count, item_count + len(batch) - 1))
+                prev_count = item_count
 
                 rows = []
                 for row_dict in self.translate(batch):
@@ -127,6 +126,9 @@ class BatchedTranslator(DataGenerator, abc.ABC):
                 df = self.spark_session\
                     .createDataFrame(rows, self.schema.as_spark_schema())
                 dfs.append(df)
+
+                self._log_item('Processed batch of items {}-{}'
+                               .format(item_count, prev_count, item_count - 1))
 
             return reduce(DataFrame.union, dfs)
 
