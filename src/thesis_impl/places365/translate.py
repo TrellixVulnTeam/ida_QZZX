@@ -428,7 +428,6 @@ class TFTranslator(BatchedTranslator, abc.ABC):
 
         self.input_url = input_url
         self.read_cfg = read_cfg
-        self.tf_dist_strategy = tf.distribute.MirroredStrategy()
 
     def batch_iter(self):
         shuffle = self.read_cfg.shuffle_row_groups
@@ -436,15 +435,14 @@ class TFTranslator(BatchedTranslator, abc.ABC):
                              shuffle_row_groups=shuffle)
         peta_dataset = make_petastorm_dataset(reader) \
             .batch(self.read_cfg.batch_size)
-        peta_dataset = self.tf_dist_strategy \
-            .experimental_distribute_dataset(peta_dataset)
+        # peta_dataset = self.tf_dist_strategy \  # TODO: not working yet
+        #     .experimental_distribute_dataset(peta_dataset)
 
         for schema_view in peta_dataset:
             yield schema_view.image
 
     def __call__(self):
-        with self.tf_dist_strategy.scope():
-            return super().__call__()
+        return super().__call__()
 
 
 class TFModelTranslator(TFTranslator, abc.ABC):
@@ -462,8 +460,9 @@ class TFModelTranslator(TFTranslator, abc.ABC):
         self.model = None
 
     def __call__(self):
-        with self.tf_dist_strategy.scope():
-            self.model = self._create_model()  # allocate model before tensors
+        # self.tf_dist_strategy = tf.distribute.MirroredStrategy()
+        # with self.tf_dist_strategy.scope():  # TODO: not working yet
+        self.model = self._create_model()  # allocate model before tensors
         return super().__call__()
 
 
@@ -530,6 +529,7 @@ class ToOIV4ObjectNameTranslator(TFModelTranslator):
 
     def translate(self, image_tensors):
         results = self.model(image_tensors)
+
         obj_ids_batches, scores_batches = results['detection_classes'].numpy(),\
                                           results['detection_scores'].numpy()
         for obj_ids, scores in zip(obj_ids_batches, scores_batches):
