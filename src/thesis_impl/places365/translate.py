@@ -105,7 +105,7 @@ class DictBasedDataGenerator(DataGenerator):
         Generate a dataframe with a schema conforming to `self.schema`.
         """
         with self._log_task('Translating to: {}'
-                                    .format(self.output_description)):
+                            .format(self.output_description)):
             rows = []
 
             for row_id, row_dict in enumerate(self.translate()):
@@ -151,6 +151,8 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         with torch.no_grad():
             for batch in self.batch_iter():
                 yield from self.translate_batch(batch)
+
+        torch.cuda.empty_cache()  # release all memory that can be released
 
 
 class ToImageDummyTranslator(TorchTranslator):
