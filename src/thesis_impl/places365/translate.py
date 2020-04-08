@@ -477,10 +477,6 @@ class TFObjectDetectionProcess(mp.Process):
         # import tensorflow locally in the process
         import tensorflow as tf
 
-        model_file_name = self.model_name + '.tar.gz'
-        url = ToOIV4ObjectNamesTranslator.MODELS_URL
-
-        self.cache.cache(model_file_name, url, is_archive=True)
         model_dir = self.cache.get_absolute_path(self.model_name) \
                     / 'saved_model'
 
@@ -506,7 +502,6 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
     """
 
     MODELS_URL = 'http://download.tensorflow.org/models/object_detection/'
-
     LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
 
     def __init__(self, spark_session: SparkSession, input_url: str,
@@ -514,6 +509,8 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
                  threshold: float, cache: WebCache):
         super().__init__(spark_session, input_url,
                          'detected objects from the OpenImages set', read_cfg)
+
+        cache.cache(model_name + '.tar.gz', self.MODELS_URL, is_archive=True)
 
         num_gpus = torch.cuda.device_count()
         gpus = range(num_gpus) if num_gpus > 0 else (None,)
