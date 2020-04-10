@@ -15,9 +15,9 @@ from typing import Optional, Any, Dict, Iterable
 import numpy as np
 import torch
 import torchvision
+from PIL import Image, ImageDraw
 from torch.nn import DataParallel
 from torchvision.transforms.functional import to_pil_image
-
 
 from petastorm import make_reader
 from petastorm.codecs import ScalarCodec, CompressedImageCodec, NdarrayCodec
@@ -190,7 +190,7 @@ class ToImageDummyTranslator(TorchTranslator):
         return [self._field]
 
     def translate_batch(self, image_tensors):
-        for image_tensor in image_tensors.cpu():
+        for image_tensor in image_tensors.cpu().permute(0, 3, 1, 2):
             image_arr = np.asarray(to_pil_image(image_tensor, 'RGB')
                                    .resize((self._width, self._height)))
             yield {self._field.name: image_arr}
@@ -245,7 +245,7 @@ class ToColorDistributionTranslator(TorchTranslator):
         return self._fields
 
     def translate_batch(self, image_tensors):
-        for image_tensor in image_tensors.cpu():
+        for image_tensor in image_tensors.cpu().permute(0, 3, 1, 2):
             image = to_pil_image(image_tensor, 'RGB')\
                 .resize((self._resize_to, self._resize_to))\
                 .convert('HSV')
@@ -336,6 +336,8 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
                                                top_k=top_k)
 
     def translate_batch(self, image_tensors):
+        image_tensors = image_tensors.permute(0, 3, 1, 2)
+
         probs = self.model(image_tensors)
         _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
         for predicted_labels in predicted_labels_batch:
@@ -370,7 +372,8 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
 
     def __init__(self, spark_session: SparkSession, input_url: str,
                  read_cfg: cfg.PetastormReadConfig,
-                 device: torch.device, create_model_func, threshold: float):
+                 device: torch.device, create_model_func, threshold: float,
+                 debug: bool=False):
         super().__init__(spark_session, input_url,
                          'detected objects from the COCO set',
                          read_cfg, device, create_model_func)
@@ -381,6 +384,8 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
         num_ints = len(self.object_names())
         self._field = UnischemaField('coco_object_counts', np.uint8,
                                      (num_ints,), NdarrayCodec(), False)
+
+        self.debug = debug
 
     @property
     def fields(self):
@@ -393,14 +398,14 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
     @staticmethod
     def with_faster_r_cnn(spark_session: SparkSession, input_url: str,
                           read_cfg: cfg.PetastormReadConfig,
-                          device: torch.device, threshold: float=.5):
+                          device: torch.device, **kwargs):
         def create_model():
             return torchvision.models.detection\
                 .fasterrcnn_resnet50_fpn(pretrained=True)\
                 .to(device)\
                 .eval()
         return ToCocoObjectNamesTranslator(spark_session, input_url, read_cfg,
-                                           device, create_model, threshold)
+                                           device, create_model, **kwargs)
 
     @staticmethod
     def get_object_names_counts(counts_array):
@@ -412,16 +417,35 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
                 for obj_id, count in enumerate(counts_array) if count > 0}
 
     def translate_batch(self, image_tensors):
-        for result in self.model(image_tensors):
+        # transform (H, W, C) images to (C, H, W) images
+        image_tensors = image_tensors.permute(0, 3, 1, 2)
+
+        for image_tensor, result in zip(image_tensors,
+                                        self.model(image_tensors)):
             obj_ids, scores = result['labels'], result['scores']
             obj_counts = Counter(obj_id.cpu().item()
-                                 for i, obj_id in enumerate(obj_ids)
-                                 if scores[i] > self.threshold)
+                                 for score, obj_id in zip(scores, obj_ids)
+                                 if score > self.threshold)
 
-            obj_ids = range(len(self.object_names()))
+            obj_id_gen = range(len(self.object_names()))
             counts_arr = np.array([obj_counts.get(obj_id, 0)
-                                   for obj_id in obj_ids],
+                                   for obj_id in obj_id_gen],
                                   dtype=np.uint8)
+
+            if self.debug:
+                boxes = result['boxes'].tolist()
+
+                image = to_pil_image(image_tensor, 'RGB')
+                draw = ImageDraw.Draw(image)
+                for obj_id, box, score in zip(obj_ids, boxes, scores):
+                    if score > self.threshold:
+                        draw.rectangle(list(box))
+                        draw.text(box[:2], self.object_names()[obj_id])
+
+                image.show()
+
+                input('--- press enter to continue ---')
+
             yield {self._field.name: counts_arr}
 
 
@@ -491,7 +515,7 @@ class TFObjectDetectionProcess(mp.Process):
                 break
 
             out_batch = model(in_batch)
-            self.out_queue.put(out_batch)
+            self.out_queue.put((in_batch, out_batch))
             self.in_queue.task_done()
 
 
@@ -506,7 +530,7 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
 
     def __init__(self, spark_session: SparkSession, input_url: str,
                  read_cfg: cfg.PetastormReadConfig, model_name: str,
-                 threshold: float, cache: WebCache):
+                 cache: WebCache, threshold: float, debug: bool=False):
         super().__init__(spark_session, input_url,
                          'detected objects from the OpenImages set', read_cfg)
 
@@ -532,6 +556,8 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
         self._field = UnischemaField('oi_object_counts', np.uint8,
                                      (num_ints,), NdarrayCodec(), False)
 
+        self.debug = debug
+
     def object_names(self):
         return self.object_names_from_cache(self.cache)
 
@@ -552,10 +578,9 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
     def with_pretrained_model(spark_session: SparkSession,
                               model_name: str, input_url: str,
                               read_cfg: cfg.PetastormReadConfig,
-                              cache: WebCache,
-                              threshold: float=.5):
+                              cache: WebCache, **kwargs):
         return ToOIV4ObjectNamesTranslator(spark_session, input_url, read_cfg,
-                                           model_name, threshold, cache)
+                                           model_name, cache, **kwargs)
 
     def batch_iter(self):
         shuffle = self.read_cfg.shuffle_row_groups
@@ -594,18 +619,41 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
             p.join()
 
     def translate(self):
-        for results in self.result_iter():
-            obj_ids_batches = results['detection_classes'].numpy()
+        for image_tensors, results in self.result_iter():
+            obj_ids_batches = results['detection_classes'].numpy().astype(int)
             scores_batches = results['detection_scores'].numpy()
+            boxes_batches = results['detection_boxes'].numpy()
 
-            for obj_ids, scores in zip(obj_ids_batches, scores_batches):
-                obj_counts = Counter(obj_id for i, obj_id in enumerate(obj_ids)
-                                     if scores[i] > self.threshold)
+            for image_tensor, obj_ids, scores, boxes in \
+                    zip(image_tensors, obj_ids_batches, scores_batches,
+                        boxes_batches):
+                obj_counts = Counter(obj_id for score, obj_id
+                                     in zip(scores, obj_ids)
+                                     if score > self.threshold)
 
-                obj_ids = range(len(self.object_names()))
+                all_obj_ids = range(len(self.object_names()))
                 counts_arr = np.array([obj_counts.get(obj_id, 0)
-                                       for obj_id in obj_ids],
+                                       for obj_id in all_obj_ids],
                                       dtype=np.uint8)
+
+                if self.debug:
+                    image = Image.fromarray(image_tensor.numpy(), 'RGB')
+                    draw = ImageDraw.Draw(image)
+                    for obj_id, box, score in zip(obj_ids, boxes, scores):
+                        if score > self.threshold:
+                            top, left = (box[0] * image.height,
+                                         box[1] * image.width)
+                            bottom, right = (box[2] * image.height,
+                                             box[3] * image.width)
+                            draw.rectangle((left, bottom, right, top),
+                                           outline=(255, 0, 0))
+                            draw.text((left, top), self.object_names()[obj_id],
+                                      fill=(255, 0, 0))
+
+                    image.show()
+
+                    input('--- press enter to continue ---')
+
                 yield {self._field.name: counts_arr}
 
 
@@ -635,9 +683,11 @@ _RE_IMAGE = re.compile(r'(?P<name>images)\[(?P<width>\d+),\s?(?P<height>\d+)\]')
 _RE_COLORS = re.compile(r'(?P<name>colors)(@(?P<k>\d+))?')
 _RE_PLACES365 = re.compile(r'(?P<name>places365_scenes)\[(?P<model>.*)\]'
                            r'(@(?P<k>\d+))?')
-_RE_COCO = re.compile(r'(?P<name>coco_objects)\[(?P<model>.*)\]'
+_RE_COCO = re.compile(r'(?P<name>coco_objects)'
+                      r'\[(?P<model>[^\+]+)(?P<debug>\+debug)?\]'
                       r'(@(?P<t>0?\.\d+))?')
-_RE_OI = re.compile(r'(?P<name>oi_objects)\[(?P<model>.*)\]'
+_RE_OI = re.compile(r'(?P<name>oi_objects)'
+                    r'\[(?P<model>[^\+]+)(?P<debug>\+debug)?\]'
                     r'(@(?P<t>0?\.\d+))?')
 
 
@@ -708,6 +758,7 @@ class TranslatorFactory:
             d = coco_match.groupdict()
             model = d['model']
             params = {'threshold': float(d['t'])} if d['t'] else {}
+            params['debug'] = d['debug'] is not None
 
             if model in ['default', 'faster_r_cnn']:
                 return ToCocoObjectNamesTranslator \
@@ -722,6 +773,7 @@ class TranslatorFactory:
             d = oi_match.groupdict()
             model_short = d['model']
             params = {'threshold': float(d['t'])} if d['t'] else {}
+            params['debug'] = d['debug'] is not None
 
             model_full = {'inception_resnet': 'faster_rcnn_inception_resnet_v2'
                                               '_atrous_oid_v4_2018_12_12',

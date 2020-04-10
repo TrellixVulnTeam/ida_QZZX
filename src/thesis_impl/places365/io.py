@@ -18,7 +18,7 @@ def peta_loader(data_url, schema_fields,
 def _get_image_tensors(batch, device: torch.device):
     images = batch['image'].to(device, torch.float)
     # pytorch expects channels before width/height
-    images = images.permute(0, 3, 1, 2).div(255)
+    images = images.div(255)
     assert images.min().item() >= 0
     assert images.max().item() <= 1
     return images
