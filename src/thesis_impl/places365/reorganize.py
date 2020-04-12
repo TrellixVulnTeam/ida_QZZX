@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from thesis_impl.places365.hub import Places365Hub
-from thesis_impl.places365 import config as cfg
+from thesis_impl import config as cfg
 from thesis_impl.util.webcache import WebCache
 
 

@@ -1,5 +1,4 @@
 import argparse
-import logging
 import re
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType
 
-from thesis_impl.places365 import config as cfg
+from thesis_impl import config as cfg
 from thesis_impl.places365.hub import Places365Hub
 from thesis_impl.util.webcache import WebCache
 

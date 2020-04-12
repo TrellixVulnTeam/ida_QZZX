@@ -30,7 +30,7 @@ from pyspark.sql.types import IntegerType, FloatType
 
 from thesis_impl.places365.hub import Places365Hub
 from thesis_impl.places365.io import unsupervised_loader
-import thesis_impl.places365.config as cfg
+import thesis_impl.config as cfg
 from thesis_impl.util.functools import cached_property
 from thesis_impl.util.webcache import WebCache
 
@@ -95,7 +95,7 @@ class DictBasedDataGenerator(DataGenerator):
         self.spark_session = spark_session
 
     @abc.abstractmethod
-    def translate(self) -> Iterable[RowDict]:
+    def generate(self) -> Iterable[RowDict]:
         """
         Generate a sequence of rows with a schema conforming to `self.schema`.
         """
@@ -111,7 +111,7 @@ class DictBasedDataGenerator(DataGenerator):
 
             last_time = time.time()
 
-            for row_id, row_dict in enumerate(self.translate()):
+            for row_id, row_dict in enumerate(self.generate()):
                 row_dict[self.id_field.name] = row_id
                 rows.append(dict_to_spark_row(self.schema, row_dict))
 
@@ -149,6 +149,9 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         self.device = device
 
     def batch_iter(self):
+        # we must set *shuffle_row_groups* to False, otherwise rows cannot
+        # be joined with rows from other translators!
+        self.read_cfg.shuffle_row_groups = False
         return unsupervised_loader(self.input_url, self.read_cfg,
                                    self.device)
 
@@ -162,7 +165,7 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         """
         torch.cuda.empty_cache()  # release all memory that can be released
 
-    def translate(self):
+    def generate(self):
         with torch.no_grad():
             for batch in self.batch_iter():
                 yield from self.translate_batch(batch)
@@ -464,9 +467,10 @@ class TFTranslator(DictBasedDataGenerator, abc.ABC):
         self.read_cfg = read_cfg
 
     def batch_iter(self):
-        shuffle = self.read_cfg.shuffle_row_groups
+        # we must set *shuffle_row_groups* to False, otherwise rows cannot
+        # be joined with rows from other translators!
         reader = make_reader(self.input_url, schema_fields=['image'],
-                             shuffle_row_groups=shuffle)
+                             shuffle_row_groups=False)
         peta_dataset = make_petastorm_dataset(reader) \
             .batch(self.read_cfg.batch_size)
 
@@ -582,16 +586,6 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
         return ToOIV4ObjectNamesTranslator(spark_session, input_url, read_cfg,
                                            model_name, cache, **kwargs)
 
-    def batch_iter(self):
-        shuffle = self.read_cfg.shuffle_row_groups
-        reader = make_reader(self.input_url, schema_fields=['image'],
-                             shuffle_row_groups=shuffle)
-        peta_dataset = make_petastorm_dataset(reader) \
-            .batch(self.read_cfg.batch_size)
-
-        for schema_view in peta_dataset:
-            yield schema_view.image
-
     def result_iter(self):
         for p in self.processes:
             p.start()
@@ -618,7 +612,7 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
         for p in self.processes:
             p.join()
 
-    def translate(self):
+    def generate(self):
         for image_tensors, results in self.result_iter():
             obj_ids_batches = results['detection_classes'].numpy().astype(int)
             scores_batches = results['detection_scores'].numpy()

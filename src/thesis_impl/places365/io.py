@@ -2,7 +2,7 @@ import torch
 from petastorm import make_reader
 from petastorm.pytorch import DataLoader
 
-import thesis_impl.places365.config as cfg
+import thesis_impl.config as cfg
 
 
 def peta_loader(data_url, schema_fields,
