@@ -2,16 +2,18 @@ import logging
 
 import pytest
 import torch
+from petastorm import make_reader
+from petastorm.pytorch import DataLoader
 
 from thesis_impl.places365.hub import Places365Hub
-from thesis_impl.places365.io import supervised_loader
 
 
 @pytest.fixture
 def resnet18_evaluation(supervised_url):
     hub = Places365Hub()
     resnet18 = hub.resnet18()
-    return hub, resnet18, supervised_loader(supervised_url)
+    reader = make_reader(supervised_url, schema_fields=['image', 'label_id'])
+    return hub, resnet18, DataLoader(reader)
 
 
 def evaluate_accuracy(caplog, hub, loader, method):
