@@ -98,18 +98,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert a subset of the '
                                                  'Places365 data to a Parquet'
                                                  'store.')
-    parser.add_argument('subset', type=str, choices=['validation', 'train'],
-                        help='the subset of images to convert')
-    parser.add_argument('images_dir', type=str,
-                        help='the directory where the images are stored')
-    parser.add_argument('images_glob', type=str,
-                        help='glob expression specifying which images in the '
-                             'above directory should be converted')
-    parser.add_argument('--size', type=str, required=True,
-                        help='Specify in which size the images are stored '
-                             'as a string "[width]x[height]"')
-    parser.add_argument('-o', '--output_url', type=str, default=None,
-                        help='URL where to store the dataset')
+    conv_group = parser.add_argument_group('Conversion settings')
+    cfg.ConverterConfig.setup_parser(conv_group)
 
     log_group = parser.add_argument_group('Logging settings')
     cfg.LoggingConfig.setup_parser(log_group)
@@ -127,23 +117,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    _conv_cfg = cfg.ConverterConfig.from_args(args)
     cfg.LoggingConfig.set_from_args(args)
     _cache_dir = cfg.WebCacheConfig.from_args(args)
     _write_cfg = cfg.PetastormWriteConfig.from_args(args)
 
-    args = parser.parse_args()
-
-    if _RE_SIZE.match(args.size) is None:
-        raise ValueError('Format of --resize parameter must be '
-                         '"[width]x[height]".')
-    width, height = args.size.split('x')
-    _size = int(width), int(height)
-
-    _images_dir = args.images_dir.replace('\'', '')
-    _images_glob = args.images_glob.replace('\'', '')
-
     _cache = WebCache(cfg.WebCacheConfig.from_args(args))
     _hub = Places365Hub(_cache)
 
-    converter = Converter(_images_dir, _hub, _write_cfg)
-    converter.convert(_size, _images_glob, args.subset, args.output_url)
+    converter = Converter(_conv_cfg.images_dir, _hub, _write_cfg)
+    converter.convert(_conv_cfg.size, _conv_cfg.images_glob, _conv_cfg.subset,
+                      _conv_cfg.output_url)

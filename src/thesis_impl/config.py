@@ -1,4 +1,7 @@
 import logging
+import re
+from pathlib import Path
+from typing import Tuple
 
 import torch
 from typeguard import typechecked
@@ -141,3 +144,57 @@ class PetastormWriteConfig:
                             default=default_num_partitions)
         parser.add_argument('--row-size', type=int,
                             default=default_row_size)
+
+
+class ConverterConfig:
+
+    _RE_SIZE = re.compile(r'^[0-9]*x[0-9]*$')
+
+    @typechecked
+    def __init__(self, images_dir: Path, subset: str, size: Tuple[int, int],
+                 images_glob: str, output_url: str):
+        self.images_dir = images_dir
+        self.subset = subset
+        self.size = size
+        self.images_glob = images_glob
+        self.output_url = output_url
+
+    @staticmethod
+    def from_args(conv_args):
+        if ConverterConfig._RE_SIZE.match(conv_args.size) is None:
+            raise ValueError('Format of --resize parameter must be '
+                             '"[width]x[height]".')
+        width, height = conv_args.size.split('x')
+        size = int(width), int(height)
+
+        images_dir = conv_args.images_dir.replace('\'', '')
+        images_dir = Path(images_dir).expanduser()
+        assert images_dir.exists()
+
+        images_glob = conv_args.images_glob.replace('\'', '')
+
+        return ConverterConfig(images_dir,
+                               conv_args.subset,
+                               size,
+                               images_glob,
+                               conv_args.output_url)
+
+    @staticmethod
+    def setup_parser(parser, default_output_url=None):
+        """
+        Adds all arguments to `parser that are necessary to construct
+        a `ConverterConfig`.
+        """
+        parser.add_argument('subset', type=str, choices=['validation', 'train'],
+                            help='the subset of images to convert')
+        parser.add_argument('images_dir', type=str,
+                            help='the directory where the images are stored')
+        parser.add_argument('images_glob', type=str,
+                            help='glob expression specifying which images in the '
+                                 'above directory should be converted')
+        parser.add_argument('--size', type=str, required=True,
+                            help='Specify in which size the images are stored '
+                                 'as a string "[width]x[height]"')
+        parser.add_argument('-o', '--output_url', type=str,
+                            default=default_output_url,
+                            help='URL where to store the dataset')
