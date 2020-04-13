@@ -111,14 +111,13 @@ class DictBasedDataGenerator(DataGenerator):
 
             last_time = time.time()
 
-            for row_id, row_dict in enumerate(self.generate()):
-                row_dict[self.id_field.name] = row_id
+            for num_rows, row_dict in enumerate(self.generate()):
                 rows.append(dict_to_spark_row(self.schema, row_dict))
 
                 current_time = time.time()
                 if current_time - last_time > 5:
                     self._log_item('Translated {} rows so far.'
-                                   .format(row_id + 1))
+                                   .format(num_rows + 1))
                     last_time = current_time
 
             spark_schema = self.schema.as_spark_schema()
@@ -152,11 +151,18 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         # we must set *shuffle_row_groups* to False, otherwise rows cannot
         # be joined with rows from other translators!
         self.read_cfg.shuffle_row_groups = False
-        return unsupervised_loader(self.input_url, self.read_cfg,
-                                   self.device)
+
+        def enumerate_batches():
+            start = 0
+            for batch in unsupervised_loader(self.input_url, self.read_cfg,
+                                             self.device):
+                end = start + len(batch)
+                yield range(start, end, 1), batch
+
+        return enumerate_batches()
 
     @abc.abstractmethod
-    def translate_batch(self, batch) -> Iterable[RowDict]:
+    def translate_batch(self, ids, batch) -> Iterable[RowDict]:
         pass
 
     def cleanup(self):
@@ -167,8 +173,8 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
 
     def generate(self):
         with torch.no_grad():
-            for batch in self.batch_iter():
-                yield from self.translate_batch(batch)
+            for ids, batch in self.batch_iter():
+                yield from self.translate_batch(ids, batch)
 
         self.cleanup()
 
@@ -192,11 +198,14 @@ class ToImageDummyTranslator(TorchTranslator):
     def fields(self) -> [UnischemaField]:
         return [self._field]
 
-    def translate_batch(self, image_tensors):
-        for image_tensor in image_tensors.cpu().permute(0, 3, 1, 2):
+    def translate_batch(self, ids, image_tensors):
+        image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
+
+        for row_id, image_tensor in zip(ids, image_tensors):
             image_arr = np.asarray(to_pil_image(image_tensor, 'RGB')
                                    .resize((self._width, self._height)))
-            yield {self._field.name: image_arr}
+            yield {self.id_field.name: row_id,
+                   self._field.name: image_arr}
 
 
 class ToColorDistributionTranslator(TorchTranslator):
@@ -247,8 +256,10 @@ class ToColorDistributionTranslator(TorchTranslator):
     def fields(self) -> [UnischemaField]:
         return self._fields
 
-    def translate_batch(self, image_tensors):
-        for image_tensor in image_tensors.cpu().permute(0, 3, 1, 2):
+    def translate_batch(self, ids, image_tensors):
+        image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
+
+        for row_id, image_tensor in zip(ids, image_tensors):
             image = to_pil_image(image_tensor, 'RGB')\
                 .resize((self._resize_to, self._resize_to))\
                 .convert('HSV')
@@ -264,8 +275,10 @@ class ToColorDistributionTranslator(TorchTranslator):
             for hue_fraction, color in zip(hue_fractions, self._color_bins):
                 color_fractions[color] += hue_fraction
 
-            yield {self._get_field_name(color): fraction
-                   for color, fraction in color_fractions.items()}
+            row_dict = {self._get_field_name(color): fraction
+                        for color, fraction in color_fractions.items()}
+            row_dict[self.id_field.name] = row_id
+            yield row_dict
 
 
 def _wrap_parallel(model):
@@ -338,14 +351,16 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
                                                read_cfg, device, create_model,
                                                top_k=top_k)
 
-    def translate_batch(self, image_tensors):
+    def translate_batch(self, ids, image_tensors):
         image_tensors = image_tensors.permute(0, 3, 1, 2)
 
         probs = self.model(image_tensors)
         _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
-        for predicted_labels in predicted_labels_batch:
-            yield {f.name: predicted_labels[i].cpu().item()
-                   for i, f in enumerate(self._fields)}
+        for row_id, predicted_labels in zip(ids, predicted_labels_batch):
+            row_dict = {f.name: predicted_labels[i].cpu().item()
+                        for i, f in enumerate(self._fields)}
+            row_dict[self.id_field.name] = row_id
+            yield row_dict
 
 
 class ToCocoObjectNamesTranslator(TorchModelTranslator):
@@ -419,12 +434,12 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
         return {ToCocoObjectNamesTranslator.object_names()[obj_id]: count
                 for obj_id, count in enumerate(counts_array) if count > 0}
 
-    def translate_batch(self, image_tensors):
+    def translate_batch(self, ids, image_tensors):
         # transform (H, W, C) images to (C, H, W) images
         image_tensors = image_tensors.permute(0, 3, 1, 2)
 
-        for image_tensor, result in zip(image_tensors,
-                                        self.model(image_tensors)):
+        for row_id, image_tensor, result \
+                in zip(ids, image_tensors, self.model(image_tensors)):
             obj_ids, scores = result['labels'], result['scores']
             obj_counts = Counter(obj_id.cpu().item()
                                  for score, obj_id in zip(scores, obj_ids)
@@ -449,7 +464,8 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
 
                 input('--- press enter to continue ---')
 
-            yield {self._field.name: counts_arr}
+            yield {self.id_field.name: row_id,
+                   self._field.name: counts_arr}
 
 
 class TFTranslator(DictBasedDataGenerator, abc.ABC):
@@ -472,10 +488,10 @@ class TFTranslator(DictBasedDataGenerator, abc.ABC):
         reader = make_reader(self.input_url, schema_fields=['image'],
                              shuffle_row_groups=False)
         peta_dataset = make_petastorm_dataset(reader) \
-            .batch(self.read_cfg.batch_size)
+            .enumerate().batch(self.read_cfg.batch_size)
 
-        for schema_view in peta_dataset:
-            yield schema_view.image
+        for row_ids, schema_view in peta_dataset:
+            yield row_ids, schema_view.image
 
 
 class TFObjectDetectionProcess(mp.Process):
@@ -512,14 +528,14 @@ class TFObjectDetectionProcess(mp.Process):
         model = model.signatures['serving_default']
 
         while True:
-            in_batch = self.in_queue.get()
+            ids, in_batch = self.in_queue.get()
             if in_batch is None:
                 logging.info('Exiting Process for GPU {}'.format(self.gpu_id))
                 self.in_queue.task_done()
                 break
 
             out_batch = model(in_batch)
-            self.out_queue.put((in_batch, out_batch))
+            self.out_queue.put((ids, in_batch, out_batch))
             self.in_queue.task_done()
 
 
@@ -591,8 +607,8 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
             p.start()
 
         pending_count = 0
-        for batch in self.batch_iter():
-            self.in_queue.put(batch)  # blocks until a slot is free
+        for ids, batch in self.batch_iter():
+            self.in_queue.put((ids, batch))  # blocks until a slot is free
             pending_count += 1
 
             try:
@@ -603,7 +619,7 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
                 pending_count -= 1
 
         for _ in self.processes:
-            self.in_queue.put(None)
+            self.in_queue.put((None, None))
         self.in_queue.join()  # wait until all results are there
 
         for _ in range(pending_count):
@@ -613,13 +629,13 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
             p.join()
 
     def generate(self):
-        for image_tensors, results in self.result_iter():
+        for ids, image_tensors, results in self.result_iter():
             obj_ids_batches = results['detection_classes'].numpy().astype(int)
             scores_batches = results['detection_scores'].numpy()
             boxes_batches = results['detection_boxes'].numpy()
 
-            for image_tensor, obj_ids, scores, boxes in \
-                    zip(image_tensors, obj_ids_batches, scores_batches,
+            for row_id, image_tensor, obj_ids, scores, boxes in \
+                    zip(ids, image_tensors, obj_ids_batches, scores_batches,
                         boxes_batches):
                 obj_counts = Counter(obj_id for score, obj_id
                                      in zip(scores, obj_ids)
@@ -648,7 +664,8 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
 
                     input('--- press enter to continue ---')
 
-                yield {self._field.name: counts_arr}
+                yield {self.id_field.name: row_id,
+                       self._field.name: counts_arr}
 
 
 class JoinDataGenerator(DataGenerator):
