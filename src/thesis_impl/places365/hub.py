@@ -1,15 +1,42 @@
 import csv
 import re
 from typing import Mapping, Optional
+import numpy as np
 
 import torch
+from petastorm.codecs import ScalarCodec
+from petastorm.unischema import UnischemaField
+from pyspark.sql.types import StringType, IntegerType
 
+from thesis_impl.hub import SupervisedImageDataset, SupervisedImageDatasetMeta
 from thesis_impl.util.functools import cached_property
 from thesis_impl.places365 import wideresnet
 from thesis_impl.util.webcache import WebCache
 
 
-class Places365Hub:
+class Places365HubMeta(SupervisedImageDatasetMeta):
+
+    _dataset_name = 'Places365Challenge'
+    # the longest image ID in Places365 has 42 characters
+    _image_id_field = UnischemaField('image_id', str, (),
+                                     ScalarCodec(StringType()), False)
+    _label_field = UnischemaField('label_id', np.int16, (),
+                                  ScalarCodec(IntegerType()), False)
+
+    @property
+    def dataset_name(cls) -> str:
+        return cls._dataset_name
+
+    @property
+    def image_id_field(cls):
+        return cls._image_id_field
+
+    @property
+    def label_field(cls):
+        return cls._label_field
+
+
+class Places365Hub(SupervisedImageDataset, metaclass=Places365HubMeta):
     """
     Provides simple access to the Places365 metadata
     and some pre-trained models.
@@ -36,6 +63,37 @@ class Places365Hub:
         if cache is None:
             cache = WebCache('~/.cache/places-365')
         self.cache = cache
+
+    def get_image_id(self, image_path, subset=None):
+        if subset is None:
+            raise ValueError('Places365 image IDs are only unique within the '
+                             'train, test or validation subset respectively.'
+                             'Please specify the subset.')
+
+        if subset == 'validation':
+            return image_path.name
+        elif subset in ['train', 'test']:
+            two_parents = image_path.parents[2]
+            rel = str(image_path.relative_to(two_parents))
+            return '/' + str(image_path.relative_to(two_parents))
+        else:
+            raise ValueError('Subset {} does not exist.'.format(subset))
+
+    def get_image_label(self, image_path, subset=None):
+        if subset is None:
+            raise ValueError('To find out the correct label we must know '
+                             'whether the image is part of the validation or'
+                             'train subset.')
+
+        image_id = self.get_image_id(image_path, subset)
+
+        if subset == 'validation':
+            return self.validation_label_map[image_id]
+        elif subset == 'train':
+            return self.train_label_map[image_id]
+        else:
+            raise ValueError('Only the \'train\' and \'validation\' subsets '
+                             'have labels in the Places365 challenge.')
 
     def _prettify_label(self, label: str):
         label = self._LABEL_RE.fullmatch(label).group(1)

@@ -29,7 +29,7 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import IntegerType, FloatType
 
 from thesis_impl.places365.hub import Places365Hub
-from thesis_impl.places365.io import unsupervised_loader
+from thesis_impl.io import torch_peta_loader
 import thesis_impl.config as cfg
 from thesis_impl.util.functools import cached_property
 from thesis_impl.util.webcache import WebCache
@@ -43,10 +43,9 @@ class DataGenerator(abc.ABC):
     When called, this class generates a dataframe with a certain schema.
     """
 
-    def __init__(self, output_description: str):
+    def __init__(self, output_description: str, id_field: UnischemaField):
         self.output_description = output_description
-        self.id_field = UnischemaField('translation_id', np.int64, (),
-                                       ScalarCodec(IntegerType()), False)
+        self.id_field = id_field
         self._log_nesting = 0
 
     @property
@@ -90,8 +89,9 @@ class DataGenerator(abc.ABC):
 
 class DictBasedDataGenerator(DataGenerator):
 
-    def __init__(self, spark_session: SparkSession, output_description: str):
-        super().__init__(output_description)
+    def __init__(self, spark_session: SparkSession, output_description: str,
+                 id_field: UnischemaField):
+        super().__init__(output_description, id_field)
         self.spark_session = spark_session
 
     @abc.abstractmethod
@@ -129,11 +129,14 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
     """
     Reads batches of image data from a petastorm store
     and converts these images to Torch tensors.
-    Subclasses can translate these tensors to other data.
+
+    Subclasses can translate the produced tensors to other data
+    batch-wise by implementing the `translate_batch` method.
     """
 
     def __init__(self, spark_session: SparkSession,
                  input_url: str, output_description: str,
+                 id_field: UnischemaField,
                  read_cfg: cfg.PetastormReadConfig,
                  device: torch.device):
         """
@@ -141,25 +144,20 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         to other data.
         The input petastorm schema must have a field called *image*.
         """
-        super().__init__(spark_session, output_description)
+        super().__init__(spark_session, output_description, id_field)
 
         self.input_url = input_url
         self.read_cfg = read_cfg
         self.device = device
 
     def batch_iter(self):
-        # we must set *shuffle_row_groups* to False, otherwise rows cannot
-        # be joined with rows from other translators!
-        self.read_cfg.shuffle_row_groups = False
+        for peta_batch in torch_peta_loader(self.input_url,
+                                            self.read_cfg):
+            images = peta_batch['image']\
+                .to(self.device, torch.float)\
+                .div(255)
 
-        def enumerate_batches():
-            start = 0
-            for batch in unsupervised_loader(self.input_url, self.read_cfg,
-                                             self.device):
-                end = start + len(batch)
-                yield range(start, end, 1), batch
-
-        return enumerate_batches()
+            yield (peta_batch[self.id_field.name], images)
 
     @abc.abstractmethod
     def translate_batch(self, ids, batch) -> Iterable[RowDict]:
@@ -185,10 +183,12 @@ class ToImageDummyTranslator(TorchTranslator):
     """
 
     def __init__(self,  spark_session: SparkSession, input_url: str,
+                 id_field: UnischemaField,
                  read_cfg: cfg.PetastormReadConfig,
                  device: torch.device, width: int, height: int):
         super().__init__(spark_session, input_url,
-                         'the untouched original image', read_cfg, device)
+                         'the untouched original image', id_field, read_cfg,
+                         device)
         self._field = UnischemaField('image', np.uint8, (width, height, 3),
                                      CompressedImageCodec('png'), False)
         self._width = width
@@ -230,10 +230,10 @@ class ToColorDistributionTranslator(TorchTranslator):
                  360.: 'red'}
 
     def __init__(self, spark_session: SparkSession, input_url: str,
-                 read_cfg: cfg.PetastormReadConfig,
+                 id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
                  device: torch.device, num_colors: int=10, resize_to: int=100):
         super().__init__(spark_session, input_url,
-                         'distribution of colors in the image',
+                         'distribution of colors in the image', id_field,
                          read_cfg, device)
         self.num_colors = num_colors
 
@@ -294,10 +294,11 @@ class TorchModelTranslator(TorchTranslator, abc.ABC):
     """
 
     def __init__(self, spark_session: SparkSession, input_url: str,
-                 output_description: str, read_cfg: cfg.PetastormReadConfig,
+                 output_description: str, id_field: UnischemaField,
+                 read_cfg: cfg.PetastormReadConfig,
                  device: torch.device, create_model_func):
-        super().__init__(spark_session, input_url, output_description, read_cfg,
-                         device)
+        super().__init__(spark_session, input_url, output_description, id_field,
+                         read_cfg, device)
         self._create_model = create_model_func
         self.model = None
 
@@ -319,10 +320,10 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
     """
 
     def __init__(self, spark_session: SparkSession, input_url: str,
-                 read_cfg: cfg.PetastormReadConfig, device: torch.device,
-                 create_model_func, top_k: int=1):
+                 id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
+                 device: torch.device, create_model_func, top_k: int=1):
         super().__init__(spark_session, input_url,
-                         'scene names from the Places365 set',
+                         'scene names from the Places365 set', id_field,
                          read_cfg, device, create_model_func)
 
         self._top_k = top_k
@@ -342,14 +343,15 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
 
     @staticmethod
     def with_resnet18(spark_session: SparkSession, input_url,
+                      id_field: UnischemaField,
                       read_cfg: cfg.PetastormReadConfig, device: torch.device,
                       cache: WebCache, top_k: int=5):
         def create_model():
             hub = Places365Hub(cache)
             return _wrap_parallel(hub.resnet18().to(device).eval())
         return ToPlaces365SceneLabelTranslator(spark_session, input_url,
-                                               read_cfg, device, create_model,
-                                               top_k=top_k)
+                                               id_field, read_cfg, device,
+                                               create_model, top_k=top_k)
 
     def translate_batch(self, ids, image_tensors):
         image_tensors = image_tensors.permute(0, 3, 1, 2)
@@ -389,11 +391,11 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
     ]
 
     def __init__(self, spark_session: SparkSession, input_url: str,
-                 read_cfg: cfg.PetastormReadConfig,
+                 id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
                  device: torch.device, create_model_func, threshold: float,
                  debug: bool=False):
         super().__init__(spark_session, input_url,
-                         'detected objects from the COCO set',
+                         'detected objects from the COCO set', id_field,
                          read_cfg, device, create_model_func)
 
         assert 0 <= threshold < 1
@@ -415,6 +417,7 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
 
     @staticmethod
     def with_faster_r_cnn(spark_session: SparkSession, input_url: str,
+                          id_field: UnischemaField,
                           read_cfg: cfg.PetastormReadConfig,
                           device: torch.device, **kwargs):
         def create_model():
@@ -422,8 +425,9 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
                 .fasterrcnn_resnet50_fpn(pretrained=True)\
                 .to(device)\
                 .eval()
-        return ToCocoObjectNamesTranslator(spark_session, input_url, read_cfg,
-                                           device, create_model, **kwargs)
+        return ToCocoObjectNamesTranslator(spark_session, input_url, id_field,
+                                           read_cfg, device, create_model,
+                                           **kwargs)
 
     @staticmethod
     def get_object_names_counts(counts_array):
@@ -476,8 +480,9 @@ class TFTranslator(DictBasedDataGenerator, abc.ABC):
     """
 
     def __init__(self, spark_session: SparkSession, input_url: str,
-                 output_description: str, read_cfg: cfg.PetastormReadConfig):
-        super().__init__(spark_session, output_description)
+                 output_description: str, id_field: UnischemaField,
+                 read_cfg: cfg.PetastormReadConfig):
+        super().__init__(spark_session, output_description, id_field)
 
         self.input_url = input_url
         self.read_cfg = read_cfg
@@ -549,10 +554,12 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
     LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
 
     def __init__(self, spark_session: SparkSession, input_url: str,
+                 id_field: UnischemaField,
                  read_cfg: cfg.PetastormReadConfig, model_name: str,
                  cache: WebCache, threshold: float, debug: bool=False):
         super().__init__(spark_session, input_url,
-                         'detected objects from the OpenImages set', read_cfg)
+                         'detected objects from the OpenImages set', id_field,
+                         read_cfg)
 
         cache.cache(model_name + '.tar.gz', self.MODELS_URL, is_archive=True)
 
@@ -597,10 +604,12 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
     @staticmethod
     def with_pretrained_model(spark_session: SparkSession,
                               model_name: str, input_url: str,
+                              id_field: UnischemaField,
                               read_cfg: cfg.PetastormReadConfig,
                               cache: WebCache, **kwargs):
-        return ToOIV4ObjectNamesTranslator(spark_session, input_url, read_cfg,
-                                           model_name, cache, **kwargs)
+        return ToOIV4ObjectNamesTranslator(spark_session, input_url, id_field,
+                                           read_cfg, model_name, cache,
+                                           **kwargs)
 
     def result_iter(self):
         for p in self.processes:
@@ -675,7 +684,11 @@ class JoinDataGenerator(DataGenerator):
     """
 
     def __init__(self, generators: [DataGenerator]):
-        super().__init__('joined data')
+        if len(set(g.id_field for g in generators)) > 1:
+            raise ValueError('All generators must use the same ID field '
+                             'for the join.')
+
+        super().__init__('joined data', generators[0].id_field)
         self.generators = generators
 
     @property
@@ -707,7 +720,7 @@ class TranslatorFactory:
     Enables to create many translators with shared settings.
     """
 
-    def __init__(self, input_url: str,
+    def __init__(self, input_url: str, id_field: UnischemaField,
                  read_cfg: cfg.PetastormReadConfig, torch_cfg: cfg.TorchConfig,
                  write_cfg: cfg.PetastormWriteConfig,
                  cache_dir: str):
@@ -721,6 +734,7 @@ class TranslatorFactory:
             .getOrCreate()
 
         self.input_url = input_url
+        self.id_field = id_field
         self.read_cfg = read_cfg
         self.torch_device = torch_cfg.device
         self.cache = WebCache(cache_dir)
@@ -739,15 +753,16 @@ class TranslatorFactory:
             d = image_match.groupdict()
             width, height = int(d['width']), int(d['height'])
             return ToImageDummyTranslator(self.spark_session, self.input_url,
-                                          self.read_cfg, self.torch_device,
-                                          width, height)
+                                          self.id_field, self.read_cfg,
+                                          self.torch_device, width, height)
 
         color_match = _RE_COLORS.fullmatch(t_spec)
         if color_match:
             d = color_match.groupdict()
             params = {'num_colors': int(d['k'])} if d['k'] else {}
             return ToColorDistributionTranslator(self.spark_session,
-                                                 self.input_url, self.read_cfg,
+                                                 self.input_url, self.id_field,
+                                                 self.read_cfg,
                                                  self.torch_device, **params)
 
         places365_match = _RE_PLACES365.fullmatch(t_spec)
@@ -759,8 +774,9 @@ class TranslatorFactory:
             if model in ['default', 'resnet18']:
                 return ToPlaces365SceneLabelTranslator \
                     .with_resnet18(self.spark_session, self.input_url,
-                                   self.read_cfg, self.torch_device,
-                                   cache=self.cache, **params)
+                                   self.id_field, self.read_cfg,
+                                   self.torch_device, cache=self.cache,
+                                   **params)
 
             _raise_unknown_model(model, d['name'])
 
@@ -774,7 +790,8 @@ class TranslatorFactory:
             if model in ['default', 'faster_r_cnn']:
                 return ToCocoObjectNamesTranslator \
                     .with_faster_r_cnn(self.spark_session, self.input_url,
-                                       self.read_cfg, self.torch_device,
+                                       self.id_field, self.read_cfg,
+                                       self.torch_device,
                                        **params)
 
             _raise_unknown_model(model, d['name'])
@@ -798,62 +815,14 @@ class TranslatorFactory:
             else:
                 return ToOIV4ObjectNamesTranslator\
                     .with_pretrained_model(self.spark_session, model,
-                                           self.input_url, self.read_cfg,
+                                           self.input_url, self.id_field,
+                                           self.read_cfg,
                                            self.cache, **params)
 
         raise ValueError('Unknown translator: {}'.format(t_spec))
 
 
-def main(args):
-    mp.set_start_method('spawn')
-
-    cfg.LoggingConfig.set_from_args(args)
-    torch_cfg = cfg.TorchConfig.from_args(args)
-    read_cfg = cfg.PetastormReadConfig.from_args(args)
-    write_cfg = cfg.PetastormWriteConfig.from_args(args)
-    cache_dir = cfg.WebCacheConfig.from_args(args)
-
-    spark_session = SparkSession.builder \
-        .config('spark.driver.memory',
-                write_cfg.spark_driver_memory) \
-        .config('spark.executor.memory',
-                write_cfg.spark_exec_memory) \
-        .master(write_cfg.spark_master) \
-        .getOrCreate()
-
-    spark_session.sparkContext.setLogLevel('WARN')
-
-    factory = TranslatorFactory(args.input_url, read_cfg, torch_cfg, write_cfg,
-                                cache_dir)
-    translators = [factory.create(t_spec) for t_spec in args.translators]
-    data_gen = JoinDataGenerator(translators)
-    out_df = data_gen()
-
-    logging.info('Writing dataframe. First row: {}'.format(out_df.take(1)))
-
-    output_url = args.output_url
-
-    while True:
-        try:
-            with materialize_dataset(spark_session, output_url,
-                                     data_gen.schema,
-                                     write_cfg.row_group_size_mb):
-                out_df.write.mode('error').parquet(args.output_url)
-        except Exception as e:
-            logging.error('Encountered exception: {}'.format(e))
-            other_url = input('To retry, enter another '
-                              'output URL and press <Enter>.'
-                              'To exit, just press <Enter>.')
-            if not other_url:
-                raise e
-            output_url = other_url
-        else:
-            break
-
-    logging.info('----- Finished -----')
-
-
-if __name__ == '__main__':
+def _parse_args():
     parser = argparse.ArgumentParser(description='Translate images to low '
                                                  'dimensional and '
                                                  'interpretable kinds of data.')
@@ -861,7 +830,7 @@ if __name__ == '__main__':
                         help='input URL for the images')
     parser.add_argument('-o', '--output_url', type=str, required=True,
                         help='output URL for the translations of the images')
-    parser.add_argument('-s','--schema_name', type=str,
+    parser.add_argument('-s', '--schema_name', type=str,
                         default='ImageTranslationSchema',
                         help='how to name the data schema of the output'
                              'translations')
@@ -891,4 +860,65 @@ if __name__ == '__main__':
                                           default_num_partitions=64 * 3,
                                           default_row_size='1024')
 
-    main(parser.parse_args())
+    return parser.parse_args()
+
+
+def main(id_field: UnischemaField):
+    """
+    Translate images to low-dimensional, interpretable data.
+    The images are read from a petastorm parquet store. In this parquet store,
+    there must be the fields
+
+      - `id_field`: a unique id for each image
+      - `image`: image data encoded with the petastorm png encoder
+
+    :param id_field: the field to use as unique image identifier
+    """
+    mp.set_start_method('spawn')
+
+    args = _parse_args()
+
+    cfg.LoggingConfig.set_from_args(args)
+    torch_cfg = cfg.TorchConfig.from_args(args)
+    read_cfg = cfg.PetastormReadConfig.from_args(args)
+    write_cfg = cfg.PetastormWriteConfig.from_args(args)
+    cache_dir = cfg.WebCacheConfig.from_args(args)
+
+    spark_session = SparkSession.builder \
+        .config('spark.driver.memory',
+                write_cfg.spark_driver_memory) \
+        .config('spark.executor.memory',
+                write_cfg.spark_exec_memory) \
+        .master(write_cfg.spark_master) \
+        .getOrCreate()
+
+    spark_session.sparkContext.setLogLevel('WARN')
+
+    factory = TranslatorFactory(args.input_url, id_field, read_cfg, torch_cfg,
+                                write_cfg, cache_dir)
+    translators = [factory.create(t_spec) for t_spec in args.translators]
+    data_gen = JoinDataGenerator(translators)
+    out_df = data_gen()
+
+    logging.info('Writing dataframe. First row: {}'.format(out_df.take(1)))
+
+    output_url = args.output_url
+
+    while True:
+        try:
+            with materialize_dataset(spark_session, output_url,
+                                     data_gen.schema,
+                                     write_cfg.row_group_size_mb):
+                out_df.write.mode('error').parquet(args.output_url)
+        except Exception as e:
+            logging.error('Encountered exception: {}'.format(e))
+            other_url = input('To retry, enter another '
+                              'output URL and press <Enter>.'
+                              'To exit, just press <Enter>.')
+            if not other_url:
+                raise e
+            output_url = other_url
+        else:
+            break
+
+    logging.info('----- Finished -----')
