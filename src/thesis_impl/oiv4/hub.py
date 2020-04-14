@@ -14,7 +14,7 @@ from thesis_impl.util.webcache import WebCache
 class OpenImagesV4HubMeta(SupervisedImageDatasetMeta):
 
     _dataset_name = 'OpenImagesV4'
-    _image_id_field = UnischemaField('image_id', str, (),
+    _image_id_field = UnischemaField('image_id', np.unicode_, (),
                                      ScalarCodec(StringType()), False)
     BOXES_DTYPE = [('label_id', 'U16'), ('x_min', float), ('x_max', float),
                     ('y_min', float), ('y_max', float), ('is_occluded', bool),

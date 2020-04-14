@@ -18,7 +18,7 @@ class Places365HubMeta(SupervisedImageDatasetMeta):
 
     _dataset_name = 'Places365Challenge'
     # the longest image ID in Places365 has 42 characters
-    _image_id_field = UnischemaField('image_id', str, (),
+    _image_id_field = UnischemaField('image_id', np.unicode_, (),
                                      ScalarCodec(StringType()), False)
     _label_field = UnischemaField('label_id', np.int16, (),
                                   ScalarCodec(IntegerType()), False)

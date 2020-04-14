@@ -490,13 +490,16 @@ class TFTranslator(DictBasedDataGenerator, abc.ABC):
     def batch_iter(self):
         # we must set *shuffle_row_groups* to False, otherwise rows cannot
         # be joined with rows from other translators!
-        reader = make_reader(self.input_url, schema_fields=['image'],
+        reader = make_reader(self.input_url,
+                             schema_fields=['image', self.id_field.name],
                              shuffle_row_groups=False)
-        peta_dataset = make_petastorm_dataset(reader) \
-            .enumerate().batch(self.read_cfg.batch_size)
+        peta_dataset = make_petastorm_dataset(reader)\
+            .batch(self.read_cfg.batch_size)
 
-        for row_ids, schema_view in peta_dataset:
-            yield row_ids, schema_view.image
+        for schema_view in peta_dataset:
+            ids = getattr(schema_view, self.id_field.name).numpy()\
+                .astype(self.id_field.numpy_dtype).tolist()
+            yield ids, schema_view.image
 
 
 class TFObjectDetectionProcess(mp.Process):
@@ -867,10 +870,13 @@ def main(id_field: UnischemaField):
     """
     Translate images to low-dimensional, interpretable data.
     The images are read from a petastorm parquet store. In this parquet store,
-    there must be the fields
+    there must be two fields:
 
-      - `id_field`: a unique id for each image
-      - `image`: image data encoded with the petastorm png encoder
+      - A field holding a unique id for each image.
+        This field may have any name, it is passed with the parameter
+        `id_field`.
+      - A field holding image data encoded with the petastorm png encoder.
+        This field must be named *image*.
 
     :param id_field: the field to use as unique image identifier
     """
