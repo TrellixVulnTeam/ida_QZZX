@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
 import torch
 from typeguard import typechecked
@@ -152,7 +152,7 @@ class ConverterConfig:
 
     @typechecked
     def __init__(self, images_dir: Path, subset: str, size: Tuple[int, int],
-                 images_glob: str, output_url: str):
+                 images_glob: str, output_url: Optional[str]):
         self.images_dir = images_dir
         self.subset = subset
         self.size = size
