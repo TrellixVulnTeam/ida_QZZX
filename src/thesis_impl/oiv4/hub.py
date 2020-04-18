@@ -48,7 +48,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
     """
 
     _DOWNLOAD_URL = 'https://storage.googleapis.com/openimages/2018_04/'
-    _VALIDATION_URL = _DOWNLOAD_URL + 'validation'
+    _VALIDATION_URL = _DOWNLOAD_URL + 'validation/'
 
     def __init__(self, cache: Optional[WebCache]=None):
         """
@@ -70,7 +70,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
         image_id = self.get_image_id(image_path, subset)
 
         if subset == 'validation':
-            return self.validation_boxes_map[image_id + '.jpg']
+            return self.validation_boxes_map[image_id]
         else:
             raise NotImplementedError()
 
@@ -110,7 +110,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
                     boxes_row_map[image_id] = [row]
 
             boxes_map = {
-                image_id: np.array([(row['LabelID'],
+                image_id: np.array([(row['LabelName'],
                                      float(row['XMin']), float(row['XMax']),
                                      float(row['YMin']), float(row['YMax']),
                                      bool(row['IsOccluded']),
@@ -119,8 +119,8 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
                                      bool(row['IsDepiction']),
                                      bool(row['IsInside']))
                                     for row in boxes_rows],
-                                   dtype=self.label_field.dtype)
-                for image_id, boxes_rows in boxes_row_map
+                                   dtype=self.label_field.numpy_dtype)
+                for image_id, boxes_rows in boxes_row_map.items()
             }
 
             return boxes_map
