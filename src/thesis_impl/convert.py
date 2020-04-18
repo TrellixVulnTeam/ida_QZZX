@@ -25,8 +25,7 @@ class Converter:
         self.write_cfg = write_cfg
 
     def _get_schema(self, image_width: int, image_height: int):
-        image_data_field = UnischemaField('image', np.uint8, (image_width,
-                                                              image_height, 3),
+        image_data_field = UnischemaField('image', np.uint8, (None, None, 3),
                                           CompressedImageCodec('png'), False)
 
         return Unischema('{}SupervisedSchema'.format(self.hub.dataset_name),
@@ -53,7 +52,8 @@ class Converter:
         def generate_row(image_path: Path):
             image_id = self.hub.get_image_id(image_path, subset)
             label = self.hub.get_image_label(image_path, subset)
-            image = Image.open(image_path).resize(image_size)
+            image = Image.open(image_path)
+            image.thumbnail(image_size)  # maintains aspect ratio
             if image.mode != 'RGB':
                 image = image.convert('RGB')
 
