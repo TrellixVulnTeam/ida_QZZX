@@ -21,7 +21,7 @@ from torchvision.transforms.functional import to_pil_image
 
 from petastorm import make_reader
 from petastorm.codecs import ScalarCodec, CompressedImageCodec, NdarrayCodec
-from petastorm.etl.dataset_metadata import materialize_dataset
+from petastorm.etl.dataset_metadata import materialize_dataset, get_schema_from_dataset_url
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
 
@@ -43,8 +43,7 @@ class DataGenerator(abc.ABC):
     When called, this class generates a dataframe with a certain schema.
     """
 
-    def __init__(self, output_description: str, id_field: UnischemaField):
-        self.output_description = output_description
+    def __init__(self, id_field: UnischemaField):
         self.id_field = id_field
         self._log_nesting = 0
 
@@ -63,6 +62,12 @@ class DataGenerator(abc.ABC):
         """
         return Unischema('TranslatorSchema', [self.id_field] + self.fields)
 
+    @abc.abstractmethod
+    def __call__(self) -> DataFrame:
+        """
+        Generate a dataframe with a schema conforming to `self.schema`.
+        """
+
     def _log(self, msg):
         prefix = '--' * self._log_nesting + ' ' if self._log_nesting else ''
         logging.info(prefix + msg)
@@ -71,7 +76,7 @@ class DataGenerator(abc.ABC):
         self._log('<{}/>'.format(msg))
 
     def _log_group_start(self, msg):
-        self._log_item(msg)
+        self._log('<{}>'.format(msg))
         self._log_nesting += 1
 
     def _log_group_end(self):
@@ -87,11 +92,35 @@ class DataGenerator(abc.ABC):
             self._log_group_end()
 
 
+class CopyDataGenerator(DataGenerator):
+    """
+    Returns the input rows unchanged.
+    """
+
+    def __init__(self, spark_session: SparkSession, input_url: str,
+                 id_field: UnischemaField):
+        super(CopyDataGenerator, self).__init__(id_field)
+        self.spark_session = spark_session
+        self.input_url = input_url
+        self._schema = get_schema_from_dataset_url(self.input_url)
+
+        assert id_field in self._schema.fields.values()
+
+    @property
+    def fields(self) -> [UnischemaField]:
+        return self._schema.fields
+
+    def __call__(self):
+        with self._log_task('Translating to: unchanged input'):
+            return self.spark_session.read.parquet(self.input_url)
+
+
 class DictBasedDataGenerator(DataGenerator):
 
     def __init__(self, spark_session: SparkSession, output_description: str,
                  id_field: UnischemaField):
-        super().__init__(output_description, id_field)
+        super().__init__(id_field)
+        self.output_description = output_description
         self.spark_session = spark_session
 
     @abc.abstractmethod
@@ -102,9 +131,6 @@ class DictBasedDataGenerator(DataGenerator):
         pass
 
     def __call__(self) -> DataFrame:
-        """
-        Generate a dataframe with a schema conforming to `self.schema`.
-        """
         with self._log_task('Translating to: {}'
                             .format(self.output_description)):
             rows = []
@@ -691,7 +717,7 @@ class JoinDataGenerator(DataGenerator):
             raise ValueError('All generators must use the same ID field '
                              'for the join.')
 
-        super().__init__('joined data', generators[0].id_field)
+        super().__init__(generators[0].id_field)
         self.generators = generators
 
     @property
@@ -706,6 +732,7 @@ class JoinDataGenerator(DataGenerator):
             return reduce(op, dfs)
 
 
+_RE_COPY = re.compile(r'copy')
 _RE_IMAGE = re.compile(r'(?P<name>images)\[(?P<width>\d+),\s?(?P<height>\d+)\]')
 _RE_COLORS = re.compile(r'(?P<name>colors)(@(?P<k>\d+))?')
 _RE_PLACES365 = re.compile(r'(?P<name>places365_scenes)\[(?P<model>.*)\]'
@@ -750,6 +777,11 @@ class TranslatorFactory:
         def _raise_unknown_model(_model, _translator):
             raise ValueError('Unknown model {} for translator {}'
                              .format(_model, _translator))
+
+        copy_match = _RE_COPY.fullmatch(t_spec)
+        if copy_match:
+            return CopyDataGenerator(self.spark_session, self.input_url,
+                                     self.id_field)
 
         image_match = _RE_IMAGE.fullmatch(t_spec)
         if image_match:
