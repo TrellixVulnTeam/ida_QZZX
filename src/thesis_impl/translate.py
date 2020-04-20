@@ -157,6 +157,9 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
     Reads batches of image data from a petastorm store
     and converts these images to Torch tensors.
 
+    Attention: If the input images can have different sizes, you *must*
+    set `read_cfg.batch_size` to 1!
+
     Subclasses can translate the produced tensors to other data
     batch-wise by implementing the `translate_batch` method.
     """
@@ -524,6 +527,8 @@ class TFTranslator(DictBasedDataGenerator, abc.ABC):
     Reads batches of image data from a petastorm store
     and converts these images to Tensorflow tensors.
     Subclasses can translate these tensors to other data.
+
+    FIXME: this translator currently only works if all images have the same size
     """
 
     def __init__(self, spark_session: SparkSession, input_url: str,
