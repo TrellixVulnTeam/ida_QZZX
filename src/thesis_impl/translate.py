@@ -178,7 +178,9 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
 
     def batch_iter(self):
         for peta_batch in torch_peta_loader(self.input_url,
-                                            self.read_cfg):
+                                            self.read_cfg,
+                                            schema_fields=['image',
+                                                           self.id_field.name]):
             images = peta_batch['image']\
                 .to(self.device, torch.float)\
                 .div(255)
