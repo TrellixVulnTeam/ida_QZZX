@@ -17,9 +17,9 @@ class OpenImagesV4HubMeta(SupervisedImageDatasetMeta):
     _image_id_field = UnischemaField('image_id', np.unicode_, (),
                                      ScalarCodec(StringType()), False)
     BOXES_DTYPE = [('label_id', 'U16'), ('x_min', float), ('x_max', float),
-                    ('y_min', float), ('y_max', float), ('is_occluded', bool),
-                    ('is_truncated', bool), ('is_group_of', bool),
-                    ('is_depiction', bool), ('is_inside', bool)]
+                   ('y_min', float), ('y_max', float), ('is_occluded', bool),
+                   ('is_truncated', bool), ('is_group_of', bool),
+                   ('is_depiction', bool), ('is_inside', bool)]
     _label_field = UnischemaField('boxes', BOXES_DTYPE, (), NdarrayCodec(),
                                   False)
 
