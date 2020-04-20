@@ -29,7 +29,6 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import IntegerType, FloatType
 
 from thesis_impl.places365.hub import Places365Hub
-from thesis_impl.io import torch_peta_loader
 import thesis_impl.config as cfg
 from thesis_impl.util.functools import cached_property
 from thesis_impl.util.webcache import WebCache
@@ -99,16 +98,18 @@ class CopyDataGenerator(DataGenerator):
 
     def __init__(self, spark_session: SparkSession, input_url: str,
                  id_field: UnischemaField):
-        super(CopyDataGenerator, self).__init__(id_field)
+        super().__init__(id_field)
         self.spark_session = spark_session
         self.input_url = input_url
-        self._schema = get_schema_from_dataset_url(self.input_url)
 
-        assert id_field in self._schema.fields.values()
+        schema = get_schema_from_dataset_url(self.input_url)
+        fields = schema.fields.values()
+        assert id_field in fields
+        self._fields = [f for f in fields if f != self.id_field]
 
     @property
     def fields(self) -> [UnischemaField]:
-        return self._schema.fields
+        return self._fields
 
     def __call__(self):
         with self._log_task('Translating to: unchanged input'):
@@ -177,15 +178,33 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         self.device = device
 
     def batch_iter(self):
-        for peta_batch in torch_peta_loader(self.input_url,
-                                            self.read_cfg,
-                                            schema_fields=['image',
-                                                           self.id_field.name]):
-            images = peta_batch['image']\
-                .to(self.device, torch.float)\
+        reader = make_reader(self.input_url,
+                             shuffle_row_groups=self.read_cfg.shuffle_row_groups,
+                             reader_pool_type=self.read_cfg.pool_type,
+                             workers_count=self.read_cfg.workers_count,
+                             schema_fields=['image', self.id_field.name])
+
+        current_batch = []
+
+        def to_tensor(batch_columns):
+            row_ids, image_arrays = batch_columns
+            image_tensors = torch.as_tensor(image_arrays) \
+                .to(self.device, torch.float) \
                 .div(255)
 
-            yield (peta_batch[self.id_field.name], images)
+            return row_ids, image_tensors
+
+        for row in reader:
+            if len(current_batch) < self.read_cfg.batch_size:
+                row_id = getattr(row, self.id_field.name)
+                current_batch.append((row_id, row.image))
+                continue
+
+            yield to_tensor(list(zip(*current_batch)))
+            current_batch.clear()
+
+        if current_batch:
+            yield to_tensor(list(zip(*current_batch)))
 
     @abc.abstractmethod
     def translate_batch(self, ids, batch) -> Iterable[RowDict]:
@@ -516,11 +535,8 @@ class TFTranslator(DictBasedDataGenerator, abc.ABC):
         self.read_cfg = read_cfg
 
     def batch_iter(self):
-        # we must set *shuffle_row_groups* to False, otherwise rows cannot
-        # be joined with rows from other translators!
         reader = make_reader(self.input_url,
-                             schema_fields=['image', self.id_field.name],
-                             shuffle_row_groups=False)
+                             schema_fields=['image', self.id_field.name])
         peta_dataset = make_petastorm_dataset(reader)\
             .batch(self.read_cfg.batch_size)
 
@@ -940,7 +956,8 @@ def main(id_field: UnischemaField):
     data_gen = JoinDataGenerator(translators)
     out_df = data_gen()
 
-    logging.info('Writing dataframe. First row: {}'.format(out_df.take(1)))
+    logging.info('Writing dataframe of {} rows.'.format(out_df.count()))
+    logging.info('First row: {}'.format(out_df.take(1)))
 
     output_url = args.output_url
 
