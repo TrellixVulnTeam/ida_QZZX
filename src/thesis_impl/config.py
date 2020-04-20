@@ -190,9 +190,9 @@ class ConverterConfig:
         """
         parser.add_argument('subset', type=str, choices=['validation', 'train'],
                             help='the subset of images to convert')
-        parser.add_argument('images-dir', type=str,
+        parser.add_argument('images_dir', metavar='images-dir', type=str,
                             help='the directory where the images are stored')
-        parser.add_argument('images-glob', type=str,
+        parser.add_argument('images_glob', metavar='images-glob', type=str,
                             help='glob expression specifying which images in the '
                                  'above directory should be converted')
         parser.add_argument('--size', type=str, required=True,
