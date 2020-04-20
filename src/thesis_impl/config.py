@@ -152,11 +152,13 @@ class ConverterConfig:
 
     @typechecked
     def __init__(self, images_dir: Path, subset: str, size: Tuple[int, int],
-                 images_glob: str, output_url: Optional[str]):
+                 images_glob: str, ignore_missing_labels: bool,
+                 output_url: Optional[str]):
         self.images_dir = images_dir
         self.subset = subset
         self.size = size
         self.images_glob = images_glob
+        self.ignore_missing_labels = ignore_missing_labels
         self.output_url = output_url
 
     @staticmethod
@@ -177,6 +179,7 @@ class ConverterConfig:
                                conv_args.subset,
                                size,
                                images_glob,
+                               conv_args.ignore_missing_labels,
                                conv_args.output_url)
 
     @staticmethod
@@ -187,14 +190,16 @@ class ConverterConfig:
         """
         parser.add_argument('subset', type=str, choices=['validation', 'train'],
                             help='the subset of images to convert')
-        parser.add_argument('images_dir', type=str,
+        parser.add_argument('images-dir', type=str,
                             help='the directory where the images are stored')
-        parser.add_argument('images_glob', type=str,
+        parser.add_argument('images-glob', type=str,
                             help='glob expression specifying which images in the '
                                  'above directory should be converted')
         parser.add_argument('--size', type=str, required=True,
-                            help='Specify in which size the images are stored '
+                            help='width and height bounds for the images '
                                  'as a string "[width]x[height]"')
-        parser.add_argument('-o', '--output_url', type=str,
+        parser.add_argument('--ignore-missing-labels', action='store_true',
+                            help='ignore images with missing labels')
+        parser.add_argument('-o', '--output-url', type=str,
                             default=default_output_url,
                             help='URL where to store the dataset')

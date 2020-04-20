@@ -81,5 +81,6 @@ class SupervisedImageDataset(abc.ABC, metaclass=SupervisedImageDatasetMeta):
         In some datasets image ids are only unique per `subset`, i.e. validation
         or train subset.
         In this case, the subset must be specified.
+        Raises a `KeyError` if no label is known for `image path`.
         """
         pass

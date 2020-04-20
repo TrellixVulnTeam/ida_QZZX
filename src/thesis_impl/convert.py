@@ -34,7 +34,7 @@ class Converter:
                           self.hub.label_field])
 
     def convert(self, image_size, glob='*.jpg', subset='validation',
-                output_url=None):
+                output_url=None, ignore_missing_labels=False):
         assert subset in ['validation', 'train']
 
         if output_url is None:
@@ -50,16 +50,23 @@ class Converter:
         spark_ctx = spark_session.sparkContext
 
         def generate_row(image_path: Path):
-            image_id = self.hub.get_image_id(image_path, subset)
-            label = self.hub.get_image_label(image_path, subset)
-            image = Image.open(image_path)
-            image.thumbnail(image_size)  # maintains aspect ratio
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
+            try:
+                image_id = self.hub.get_image_id(image_path, subset)
+                label = self.hub.get_image_label(image_path, subset)
+            except KeyError as e:
+                if ignore_missing_labels:
+                    return None
+                else:
+                    raise e
+            else:
+                image = Image.open(image_path)
+                image.thumbnail(image_size)  # maintains aspect ratio
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
 
-            return {'image': np.asarray(image),
-                    self.hub.image_id_field.name: image_id,
-                    self.hub.label_field.name: label}
+                return {'image': np.asarray(image),
+                        self.hub.image_id_field.name: image_id,
+                        self.hub.label_field.name: label}
 
         schema = self._get_schema(*image_size)
 
@@ -68,6 +75,7 @@ class Converter:
             rows_rdd = spark_ctx.parallelize(self.images_dir.glob(glob)) \
                 .repartition(self.write_cfg.num_partitions) \
                 .map(generate_row) \
+                .filter(lambda x: x is not None) \
                 .map(lambda x: dict_to_spark_row(schema, x))
 
             spark_session.createDataFrame(rows_rdd, schema.as_spark_schema()) \
@@ -105,4 +113,4 @@ def main(parser: ArgumentParser, hub_class):
 
     converter = Converter(conv_cfg.images_dir, hub, write_cfg)
     converter.convert(conv_cfg.size, conv_cfg.images_glob, conv_cfg.subset,
-                      conv_cfg.output_url)
+                      conv_cfg.output_url, conv_cfg.ignore_missing_labels)
