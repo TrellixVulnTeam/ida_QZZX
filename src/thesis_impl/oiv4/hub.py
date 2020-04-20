@@ -16,13 +16,13 @@ class OpenImagesV4HubMeta(SupervisedImageDatasetMeta):
     _dataset_name = 'OpenImagesV4'
     _image_id_field = UnischemaField('image_id', np.unicode_, (),
                                      ScalarCodec(StringType()), False)
-    BOXES_DTYPE = [('label_id', np.unicode_),
-                   ('x_min', np.float32), ('x_max', np.float32),
-                   ('y_min', np.float32), ('y_max', np.float32),
-                   ('is_occluded', np.bool_),
-                   ('is_truncated', np.bool_), ('is_group_of', np.bool_),
-                   ('is_depiction', np.bool_), ('is_inside', np.bool_)]
-    _label_field = UnischemaField('boxes', BOXES_DTYPE, (), NdarrayCodec(),
+    BOXES_DTYPE = [('label_id', '<U16'),
+                   ('x_min', '<f4'), ('x_max', '<f4'),
+                   ('y_min', '<f4'), ('y_max', '<f4'),
+                   ('is_occluded', '?'),
+                   ('is_truncated', '?'), ('is_group_of', '?'),
+                   ('is_depiction', '?'), ('is_inside', '?')]
+    _label_field = UnischemaField('boxes', np.void, (None,), NdarrayCodec(),
                                   False)
 
     @property
@@ -121,7 +121,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
                                      bool(row['IsDepiction']),
                                      bool(row['IsInside']))
                                     for row in boxes_rows],
-                                   dtype=self.label_field.numpy_dtype)
+                                   dtype=type(self).BOXES_DTYPE)
                 for image_id, boxes_rows in boxes_row_map.items()
             }
 
