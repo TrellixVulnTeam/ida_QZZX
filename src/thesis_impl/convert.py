@@ -88,8 +88,8 @@ class Converter:
 
                     if scale != 1.:
                         w, h = image.size
-                        image.resize((round(w * scale),
-                                      round(h * scale)))
+                        image = image.resize((round(w * scale),
+                                              round(h * scale)))
 
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
