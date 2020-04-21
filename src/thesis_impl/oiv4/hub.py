@@ -76,8 +76,15 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
         else:
             raise NotImplementedError()
 
+    @property
+    def label_names(self) -> [str]:
+        """
+        Returns a list of all human readable label names.
+        """
+        return self._label_names_map.values()
+
     @cached_property
-    def _label_names(self) -> Mapping[str, str]:
+    def _label_names_map(self) -> Mapping[str, str]:
         """
         Returns a mapping from label IDs to human readable label names.
         """
@@ -88,7 +95,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             return {label_id: label_name for label_id, label_name in csv_reader}
 
     def label_name(self, label_id: str):
-        return self._label_names[label_id]
+        return self._label_names_map[label_id]
 
     @cached_property
     def validation_boxes_map(self) -> Mapping[str, np.ndarray]:
