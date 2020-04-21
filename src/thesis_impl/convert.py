@@ -1,4 +1,3 @@
-import re
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -24,7 +23,7 @@ class Converter:
         self.hub = hub
         self.write_cfg = write_cfg
 
-    def _get_schema(self, image_width: int, image_height: int):
+    def _get_schema(self):
         image_data_field = UnischemaField('image', np.uint8, (None, None, 3),
                                           CompressedImageCodec('png'), False)
 
@@ -33,8 +32,10 @@ class Converter:
                           image_data_field,
                           self.hub.label_field])
 
-    def convert(self, image_size, glob='*.jpg', subset='validation',
-                output_url=None, ignore_missing_labels=False):
+    def convert(self, glob='*.jpg', subset='validation',
+                output_url=None, ignore_missing_labels=False,
+                image_size=None, min_length=None,
+                max_length=None):
         assert subset in ['validation', 'train']
 
         if output_url is None:
@@ -60,7 +61,36 @@ class Converter:
                     raise e
             else:
                 image = Image.open(image_path)
-                image.thumbnail(image_size)  # maintains aspect ratio
+
+                if image_size:
+                    image = image.resize(image_size)
+                else:
+                    current_min_length = min(*image.size)
+                    current_max_length = max(*image.size)
+
+                    # compute the minimum and maximum scale factors:
+
+                    if min_length:
+                        min_scale = float(min_length) / \
+                                    float(current_min_length)
+                    else:
+                        min_scale = 0.
+
+                    if max_length:
+                        max_scale = float(max_length) / \
+                                    float(current_max_length)
+                    else:
+                        max_scale = 1.
+
+                    # scale at most to max_scale
+                    # scale at least to min_scale (overrules max_scale)
+                    scale = max(min_scale, min(max_scale, 1.))
+
+                    if scale != 1.:
+                        w, h = image.size
+                        image.resize((w * scale,
+                                      h * scale))
+
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
 
@@ -68,7 +98,7 @@ class Converter:
                         self.hub.image_id_field.name: image_id,
                         self.hub.label_field.name: label}
 
-        schema = self._get_schema(*image_size)
+        schema = self._get_schema()
 
         with materialize_dataset(spark_session, output_url, schema,
                                  self.write_cfg.row_group_size_mb):
@@ -112,5 +142,8 @@ def main(parser: ArgumentParser, hub_class):
     hub = hub_class(cache)
 
     converter = Converter(conv_cfg.images_dir, hub, write_cfg)
-    converter.convert(conv_cfg.size, conv_cfg.images_glob, conv_cfg.subset,
-                      conv_cfg.output_url, conv_cfg.ignore_missing_labels)
+    converter.convert(conv_cfg.images_glob, conv_cfg.subset,
+                      conv_cfg.output_url, conv_cfg.ignore_missing_labels,
+                      image_size=conv_cfg.size,
+                      min_length=conv_cfg.min_length,
+                      max_length=conv_cfg.max_length)

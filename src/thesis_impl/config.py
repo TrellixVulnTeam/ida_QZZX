@@ -151,23 +151,34 @@ class ConverterConfig:
     _RE_SIZE = re.compile(r'^[0-9]*x[0-9]*$')
 
     @typechecked
-    def __init__(self, images_dir: Path, subset: str, size: Tuple[int, int],
+    def __init__(self, images_dir: Path, subset: str,
+                 size: Optional[Tuple[int, int]],
+                 min_length: Optional[int],
+                 max_length: Optional[int],
                  images_glob: str, ignore_missing_labels: bool,
                  output_url: Optional[str]):
         self.images_dir = images_dir
         self.subset = subset
         self.size = size
+        self.min_length = min_length
+        self.max_length = max_length
         self.images_glob = images_glob
         self.ignore_missing_labels = ignore_missing_labels
         self.output_url = output_url
 
     @staticmethod
     def from_args(conv_args):
-        if ConverterConfig._RE_SIZE.match(conv_args.size) is None:
-            raise ValueError('Format of --resize parameter must be '
-                             '"[width]x[height]".')
-        width, height = conv_args.size.split('x')
-        size = int(width), int(height)
+        if conv_args.size:
+            if ConverterConfig._RE_SIZE.match(conv_args.size) is None:
+                raise ValueError('Format of --size parameter must be '
+                                 '"[width]x[height]".')
+            width, height = conv_args.size.split('x')
+            size = int(width), int(height)
+            min_length, max_length = None,  None
+        else:
+            size = None
+            min_length = conv_args.min_length
+            max_length = conv_args.max_length
 
         images_dir = conv_args.images_dir.replace('\'', '')
         images_dir = Path(images_dir).expanduser()
@@ -178,6 +189,8 @@ class ConverterConfig:
         return ConverterConfig(images_dir,
                                conv_args.subset,
                                size,
+                               min_length,
+                               max_length,
                                images_glob,
                                conv_args.ignore_missing_labels,
                                conv_args.output_url)
@@ -195,9 +208,20 @@ class ConverterConfig:
         parser.add_argument('images_glob', metavar='images-glob', type=str,
                             help='glob expression specifying which images in the '
                                  'above directory should be converted')
-        parser.add_argument('--size', type=str, required=True,
-                            help='width and height bounds for the images '
-                                 'as a string "[width]x[height]"')
+        parser.add_argument('--min-length', type=int, default=None,
+                            help='scale images up if one side is shorter than'
+                                 'this minimum length')
+        parser.add_argument('--max-length', type=int, default=None,
+                            help='scale images down if one side is longer than'
+                                 'this maximum length. this option is only'
+                                 'applied to an image if it does not violate'
+                                 'the minimum length specified by'
+                                 '--min-length')
+        parser.add_argument('--size', type=str, default=None,
+                            help='resize images to a fixed size, given by'
+                                 'a string "[width]x[height]". this option'
+                                 'overrides the options '
+                                 '--min-length, --max-length')
         parser.add_argument('--ignore-missing-labels', action='store_true',
                             help='ignore images with missing labels')
         parser.add_argument('-o', '--output-url', type=str,
