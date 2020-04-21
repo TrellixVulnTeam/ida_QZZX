@@ -187,8 +187,6 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
                              workers_count=self.read_cfg.workers_count,
                              schema_fields=['image', self.id_field.name])
 
-        current_batch = []
-
         def to_tensor(batch_columns):
             row_ids, image_arrays = batch_columns
             image_tensors = torch.as_tensor(image_arrays) \
@@ -197,10 +195,13 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
 
             return row_ids, image_tensors
 
+        current_batch = []
+
         for row in reader:
+            row_id = getattr(row, self.id_field.name)
+            current_batch.append((row_id, row.image))
+
             if len(current_batch) < self.read_cfg.batch_size:
-                row_id = getattr(row, self.id_field.name)
-                current_batch.append((row_id, row.image))
                 continue
 
             yield to_tensor(list(zip(*current_batch)))
