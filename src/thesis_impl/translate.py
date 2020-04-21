@@ -113,7 +113,9 @@ class CopyDataGenerator(DataGenerator):
 
     def __call__(self):
         with self._log_task('Translating to: unchanged input'):
-            return self.spark_session.read.parquet(self.input_url)
+            df = self.spark_session.read.parquet(self.input_url)
+            self._log_item('Processed a total of {} rows.'.format(df.count()))
+            return df
 
 
 class DictBasedDataGenerator(DataGenerator):
