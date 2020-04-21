@@ -81,7 +81,8 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
         """
         Returns a mapping from label IDs to human readable label names.
         """
-        with self.cache.open('class-descriptions.csv', self._DOWNLOAD_URL)\
+        with self.cache.open('class-descriptions-boxable.csv',
+                             self._DOWNLOAD_URL)\
                 as all_labels_file:
             csv_reader = csv.reader(all_labels_file, delimiter=',')
             return {label_id: label_name for label_id, label_name in csv_reader}
