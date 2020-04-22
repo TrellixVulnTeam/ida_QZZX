@@ -18,7 +18,7 @@ class Reorganizer:
         """
         Creates a subdirectory for every Places365 label within `images_dir`.
         """
-        for label in self.hub.all_labels:
+        for label in self.hub.label_names:
             label_path = self.images_dir / label
             label_path.mkdir(exist_ok=True)
 
@@ -40,7 +40,7 @@ class Reorganizer:
 
         for image_path in self.images_dir.glob(glob):
             label_id = label_map[image_path.name]
-            dest_path = self.images_dir / self.hub.all_labels[label_id] / \
+            dest_path = self.images_dir / self.hub.label_names[label_id] / \
                         image_path.name
             logging.info('Moving image {} to {}.'.format(image_path, dest_path))
             image_path.replace(dest_path)

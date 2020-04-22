@@ -106,7 +106,7 @@ class Places365Hub(SupervisedImageDataset, metaclass=Places365HubMeta):
                          is_archive=True)
 
     @cached_property
-    def all_labels(self) -> [str]:
+    def label_names(self) -> [str]:
         """
         Returns a list of all labels that can be predicted
         in the Places365 task.
@@ -120,7 +120,7 @@ class Places365Hub(SupervisedImageDataset, metaclass=Places365HubMeta):
             return [self._prettify_label(row[0]) for row in csv_reader]
 
     def label_name(self, label_id):
-        return self.all_labels[label_id]
+        return self.label_names[label_id]
 
     @cached_property
     def indoor_outdoor_map(self) -> [bool]:
@@ -218,5 +218,5 @@ class Places365Hub(SupervisedImageDataset, metaclass=Places365HubMeta):
         Returns a dictionary `{l: p, ...}` mapping readable label names
         to probabilities.
         """
-        labels = (self.all_labels[i] for i in label_ids)
+        labels = (self.label_names[i] for i in label_ids)
         return {l: p for l, p in zip(labels, label_probs)}

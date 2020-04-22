@@ -20,8 +20,8 @@ def evaluate_accuracy(caplog, hub, loader, method):
     outer_level = logging.getLogger().level
 
     with caplog.at_level(logging.INFO):
-        correct_of_label = torch.zeros(len(hub.all_labels))
-        total_of_label = torch.zeros(len(hub.all_labels))
+        correct_of_label = torch.zeros(len(hub.label_names))
+        total_of_label = torch.zeros(len(hub.label_names))
 
         num_processed = 0
         total_acc = 0
@@ -50,7 +50,7 @@ def evaluate_accuracy(caplog, hub, loader, method):
 
         acc_of_label = correct_of_label / total_of_label
         acc_of_label_names = '\n'.join(['{}: {}'.format(l, acc.item())
-                                       for l, acc in zip(hub.all_labels,
+                                       for l, acc in zip(hub.label_names,
                                                          acc_of_label)])
 
         logging.info('Accuracy of individual labels:\n{}'

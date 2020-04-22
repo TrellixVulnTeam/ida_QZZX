@@ -25,4 +25,4 @@ def test_that_resnet18_works():
         label_probs = resnet18.predict_probabilities(image_tensor)
         _, label_ids = label_probs.sort(-1, True)
 
-        assert hub.all_labels[label_ids[0]] == 'food court'
+        assert hub.label_names[label_ids[0]] == 'food court'
