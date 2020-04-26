@@ -20,7 +20,8 @@ from torch.nn import DataParallel
 from torchvision.transforms.functional import to_pil_image
 
 from petastorm import make_reader
-from petastorm.codecs import ScalarCodec, CompressedImageCodec, NdarrayCodec
+from petastorm.codecs import ScalarCodec, CompressedImageCodec, \
+    CompressedNdarrayCodec
 from petastorm.etl.dataset_metadata import materialize_dataset, get_schema_from_dataset_url
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
@@ -374,19 +375,28 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
 
     def __init__(self, spark_session: SparkSession, input_url: str,
                  id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
-                 device: torch.device, create_model_func, top_k: int=1):
+                 device: torch.device, create_model_func,
+                 top_k: Optional[int]=None):
         super().__init__(spark_session, input_url,
                          'scene names from the Places365 set', id_field,
                          read_cfg, device, create_model_func)
 
+        assert top_k is None or top_k > 0
         self._top_k = top_k
-        self._fields = [UnischemaField(self._get_field_name(i),
-                                       np.uint8, (),
-                                       ScalarCodec(IntegerType()),
-                                       False)
-                        for i in range(top_k)]
 
-    def _get_field_name(self, position):
+        if self._top_k is not None:
+            self._fields = [UnischemaField(self._get_top_k_field_name(i),
+                                           np.uint8, (),
+                                           ScalarCodec(IntegerType()),
+                                           False)
+                            for i in range(top_k)]
+        else:
+            self._fields = [UnischemaField('places365_scene_probs',
+                                           np.float32, (365,),
+                                           CompressedNdarrayCodec(),
+                                           False)]
+
+    def _get_top_k_field_name(self, position):
         assert 0 <= position < self._top_k
         return 'places365_top_{}_scene_label_id'.format(position + 1)
 
@@ -398,7 +408,7 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
     def with_resnet18(spark_session: SparkSession, input_url,
                       id_field: UnischemaField,
                       read_cfg: cfg.PetastormReadConfig, device: torch.device,
-                      cache: WebCache, top_k: int=5):
+                      cache: WebCache, top_k: Optional[int]=None):
         def create_model():
             hub = Places365Hub(cache)
             return _wrap_parallel(hub.resnet18().to(device).eval())
@@ -409,18 +419,24 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
     def translate_batch(self, ids, image_tensors):
         image_tensors = image_tensors.permute(0, 3, 1, 2)
 
-        probs = self.model(image_tensors)
-        _, predicted_labels_batch = torch.topk(probs, self._top_k, -1)
-        for row_id, predicted_labels in zip(ids, predicted_labels_batch):
-            row_dict = {f.name: predicted_labels[i].cpu().item()
-                        for i, f in enumerate(self._fields)}
-            row_dict[self.id_field.name] = row_id
-            yield row_dict
+        probs_batch = self.model(image_tensors).cpu()
+
+        if self._top_k is None:
+            for row_id, probs in zip(ids, probs_batch):
+                yield {self.id_field.name: row_id,
+                       'places365_scene_probs': probs.numpy()}
+        else:
+            _, predicted_labels_batch = torch.topk(probs_batch, self._top_k, -1)
+            for row_id, predicted_labels in zip(ids, predicted_labels_batch):
+                row_dict = {f.name: predicted_labels[i].item()
+                            for i, f in enumerate(self._fields)}
+                row_dict[self.id_field.name] = row_id
+                yield row_dict
 
 
 class ToCocoObjectNamesTranslator(TorchModelTranslator):
     """
-    Translates each image to a set of detected objects from the COCO task.
+    Translates each image to counts of detected objects from the COCO task.
     The COCO task includes 91 objects.
     """
 
@@ -456,7 +472,8 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
 
         num_ints = len(self.object_names())
         self._field = UnischemaField('coco_object_counts', np.uint8,
-                                     (num_ints,), NdarrayCodec(), False)
+                                     (num_ints,), CompressedNdarrayCodec(),
+                                     False)
 
         self.debug = debug
 
@@ -636,7 +653,8 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
 
         num_ints = len(self.object_names())
         self._field = UnischemaField('oi_object_counts', np.uint8,
-                                     (num_ints,), NdarrayCodec(), False)
+                                     (num_ints,), CompressedNdarrayCodec(),
+                                     False)
 
         self.debug = debug
 
