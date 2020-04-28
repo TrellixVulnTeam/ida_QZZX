@@ -314,9 +314,7 @@ class ToColorDistributionTranslator(TorchTranslator):
         return self._fields
 
     def generate(self):
-        num_processes = min(3, os.cpu_count())
-
-        with mp.Pool(num_processes) as pool:
+        with mp.Pool() as pool:
             self._pool = pool
             yield from super().generate()
 
