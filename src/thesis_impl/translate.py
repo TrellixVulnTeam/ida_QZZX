@@ -8,6 +8,7 @@ import queue
 import re
 import time
 from collections import Counter
+from colorsys import rgb_to_hls
 from contextlib import contextmanager
 from functools import reduce, partial
 from typing import Optional, Any, Dict, Iterable
@@ -326,7 +327,8 @@ class ToColorDistributionTranslator(TorchTranslator):
         hues = []
 
         for px in px_row:
-            saturation, lightness = px[1:] / 255.
+            r, g, b = px / 255.
+            hue, lightness, saturation = rgb_to_hls(r, g, b)
             if lightness < .1:
                 black += 1.
             elif lightness > .9:
@@ -340,7 +342,7 @@ class ToColorDistributionTranslator(TorchTranslator):
                 # color of pixel is undefined, not clear enough
                 continue
             else:
-                hues.append(px[0])
+                hues.append(min(255., round(hue * 255.)))
 
         non_hue_counts = np.array([black, white, grey])
 
@@ -353,8 +355,7 @@ class ToColorDistributionTranslator(TorchTranslator):
     def _translate_single(image_tensor, resize_to, hue_bins, colors,
                           color_bins):
         image = to_pil_image(image_tensor, 'RGB') \
-            .resize((resize_to, resize_to)) \
-            .convert('HSV')
+            .resize((resize_to, resize_to))
 
         image_arr = np.asarray(image)
         f = partial(ToColorDistributionTranslator._pixel_row_to_color_dist,
