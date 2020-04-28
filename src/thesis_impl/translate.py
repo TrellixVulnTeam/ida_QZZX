@@ -289,7 +289,7 @@ class ToColorDistributionTranslator(TorchTranslator):
         super().__init__(spark_session, input_url,
                          'distribution of colors in the image', id_field,
                          read_cfg, device)
-        self._color_bins = self.COLOR_MAP.values()
+        self._color_bins = list(self.COLOR_MAP.values())
         self._colors = set(self._color_bins)
         self._non_colors = {'black', 'white', 'grey'}
         self._hue_bins = np.array([0.] + list(self.COLOR_MAP.keys())) \
@@ -305,7 +305,8 @@ class ToColorDistributionTranslator(TorchTranslator):
 
         self._debug = debug
 
-    def _get_field_name(self, color_name):
+    @staticmethod
+    def _get_field_name(color_name):
         return 'fraction_of_{}_pixels'.format(color_name)
 
     @property
@@ -348,33 +349,41 @@ class ToColorDistributionTranslator(TorchTranslator):
 
         return np.concatenate((non_hue_counts, hue_counts))
 
-    def translate_batch(self, ids, image_tensors):
-        assert self._pool is not None
+    @staticmethod
+    def _translate_single(image_tensor, resize_to, hue_bins, colors,
+                          color_bins):
+        image = to_pil_image(image_tensor, 'RGB') \
+            .resize((resize_to, resize_to)) \
+            .convert('HSV')
 
+        image_arr = np.asarray(image)
+        f = partial(ToColorDistributionTranslator._pixel_row_to_color_dist,
+                    hue_bins=hue_bins)
+        counts_arrays = np.asarray([f(px_row) for px_row in image_arr])
+        fractions_arr = np.sum(counts_arrays, 0) / np.sum(counts_arrays)
+
+        black, white, grey = fractions_arr[:3]
+        color_fractions = {'black': black,
+                           'white': white,
+                           'grey': grey}
+
+        color_fractions.update({color: .0 for color in colors})
+        hue_fractions = fractions_arr[3:]
+        for hue_fraction, color in zip(hue_fractions, color_bins):
+            color_fractions[color] += hue_fraction
+
+        return color_fractions
+
+    def translate_batch(self, ids, image_tensors):
         image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
 
-        for row_id, image_tensor in zip(ids, image_tensors):
-            image = to_pil_image(image_tensor, 'RGB')\
-                .resize((self._resize_to, self._resize_to))\
-                .convert('HSV')
+        f = partial(self._translate_single, resize_to=self._resize_to,
+                    hue_bins=self._hue_bins, colors=self._colors,
+                    color_bins=self._color_bins)
+        fractions_batch = list(self._pool.map(f, image_tensors))
 
-            image_arr = np.asarray(image)
-            f = partial(self._pixel_row_to_color_dist, hue_bins=self._hue_bins)
-
-            counts_arrays = list(self._pool.imap_unordered(f, image_arr))
-            counts_arrays = np.asarray(counts_arrays)
-            fractions_arr = np.sum(counts_arrays, 0) / np.sum(counts_arrays)
-
-            black, white, grey = fractions_arr[:3]
-            color_fractions = {'black': black,
-                               'white': white,
-                               'grey': grey}
-
-            color_fractions.update({color: .0 for color in self._colors})
-            hue_fractions = fractions_arr[3:]
-            for hue_fraction, color in zip(hue_fractions, self._color_bins):
-                color_fractions[color] += hue_fraction
-
+        for img_no, row_id, color_fractions in zip(range(len(image_tensors)),
+                                                   ids, fractions_batch):
             row_dict = {self._get_field_name(color): fraction
                         for color, fraction in color_fractions.items()}
             row_dict[self.id_field.name] = row_id
@@ -384,7 +393,7 @@ class ToColorDistributionTranslator(TorchTranslator):
                           .format(sorted(color_fractions.items(),
                                          key=lambda x: x[1],
                                          reverse=True)))
-                image.show()
+                to_pil_image(image_tensors[img_no], mode='RGB').show()
                 input('--- press enter to continue ---')
 
             yield row_dict
