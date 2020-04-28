@@ -285,23 +285,25 @@ class ToColorDistributionTranslator(TorchTranslator):
 
     def __init__(self, spark_session: SparkSession, input_url: str,
                  id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
-                 device: torch.device, num_colors: int=10, resize_to: int=100):
+                 device: torch.device, resize_to: int=100, debug: bool=False):
         super().__init__(spark_session, input_url,
                          'distribution of colors in the image', id_field,
                          read_cfg, device)
-        self.num_colors = num_colors
-
         self._color_bins = self.COLOR_MAP.values()
         self._colors = set(self._color_bins)
+        self._non_colors = {'black', 'white', 'grey'}
         self._hue_bins = np.array([0.] + list(self.COLOR_MAP.keys())) \
             / 360. * 255.
 
         self._fields = [UnischemaField(self._get_field_name(color_name),
                                        float, (), ScalarCodec(FloatType()),
                                        False)
-                        for color_name in self._colors]
+                        for color_name in self._colors | self._non_colors]
 
         self._resize_to = resize_to
+        self._pool = None
+
+        self._debug = debug
 
     def _get_field_name(self, color_name):
         return 'fraction_of_{}_pixels'.format(color_name)
@@ -310,7 +312,45 @@ class ToColorDistributionTranslator(TorchTranslator):
     def fields(self) -> [UnischemaField]:
         return self._fields
 
+    def generate(self):
+        num_processes = min(3, os.cpu_count())
+
+        with mp.Pool(num_processes) as pool:
+            self._pool = pool
+            yield from super().generate()
+
+    @staticmethod
+    def _pixel_row_to_color_dist(px_row: np.ndarray, hue_bins):
+        black, white, grey = 0., 0., 0.
+        hues = []
+
+        for px in px_row:
+            saturation, lightness = px[1:] / 255.
+            if lightness < .1:
+                black += 1.
+            elif lightness > .9:
+                white += 1.
+            elif saturation < .1:
+                if lightness < .85:
+                    grey += 1.
+                else:
+                    white += 1.
+            elif saturation < .7:
+                # color of pixel is undefined, not clear enough
+                continue
+            else:
+                hues.append(px[0])
+
+        non_hue_counts = np.array([black, white, grey])
+
+        hues = np.asarray(hues)
+        hue_counts, _ = np.histogram(hues, hue_bins, range(256))
+
+        return np.concatenate((non_hue_counts, hue_counts))
+
     def translate_batch(self, ids, image_tensors):
+        assert self._pool is not None
+
         image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
 
         for row_id, image_tensor in zip(ids, image_tensors):
@@ -318,20 +358,35 @@ class ToColorDistributionTranslator(TorchTranslator):
                 .resize((self._resize_to, self._resize_to))\
                 .convert('HSV')
 
-            image_hues = np.asarray(image)[:, :, 0].flatten()
-            hue_fractions, _ = np.histogram(image_hues, self._hue_bins,
-                                            range(256))
-            # we want a fraction of the total pixels
-            hue_fractions = hue_fractions / (self._resize_to ** 2)
+            image_arr = np.asarray(image)
+            f = partial(self._pixel_row_to_color_dist, hue_bins=self._hue_bins)
 
-            color_fractions = {color: .0 for color in self._colors}
+            counts_arrays = list(self._pool.imap_unordered(f, image_arr))
+            counts_arrays = np.asarray(counts_arrays)
+            fractions_arr = np.sum(counts_arrays, 0) / np.sum(counts_arrays)
 
+            black, white, grey = fractions_arr[:3]
+            color_fractions = {'black': black,
+                               'white': white,
+                               'grey': grey}
+
+            color_fractions.update({color: .0 for color in self._colors})
+            hue_fractions = fractions_arr[3:]
             for hue_fraction, color in zip(hue_fractions, self._color_bins):
                 color_fractions[color] += hue_fraction
 
             row_dict = {self._get_field_name(color): fraction
                         for color, fraction in color_fractions.items()}
             row_dict[self.id_field.name] = row_id
+
+            if self._debug:
+                self._log('image shows the following colors:\n{}'
+                          .format(sorted(color_fractions.items(),
+                                         key=lambda x: x[1],
+                                         reverse=True)))
+                image.show()
+                input('--- press enter to continue ---')
+
             yield row_dict
 
 
@@ -778,7 +833,7 @@ class JoinDataGenerator(DataGenerator):
 
 _RE_COPY = re.compile(r'copy')
 _RE_IMAGE = re.compile(r'(?P<name>images)\[(?P<width>\d+),\s?(?P<height>\d+)\]')
-_RE_COLORS = re.compile(r'(?P<name>colors)(@(?P<k>\d+))?')
+_RE_COLORS = re.compile(r'(?P<name>colors)(?P<debug>\+debug)?')
 _RE_PLACES365 = re.compile(r'(?P<name>places365_scenes)\[(?P<model>.*)\]'
                            r'(@(?P<k>\d+))?')
 _RE_COCO = re.compile(r'(?P<name>coco_objects)'
@@ -838,7 +893,7 @@ class TranslatorFactory:
         color_match = _RE_COLORS.fullmatch(t_spec)
         if color_match:
             d = color_match.groupdict()
-            params = {'num_colors': int(d['k'])} if d['k'] else {}
+            params = {'debug': d['debug'] is not None}
             return ToColorDistributionTranslator(self.spark_session,
                                                  self.input_url, self.id_field,
                                                  self.read_cfg,
