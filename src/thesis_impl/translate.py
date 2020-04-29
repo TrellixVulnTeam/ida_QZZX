@@ -265,24 +265,29 @@ class ToImageDummyTranslator(TorchTranslator):
 
 class ToColorDistributionTranslator(TorchTranslator):
     """
-    Translates each image to a "hue distribution".
-    That is, the distribution of the hue values of all pixels
-    is estimated with a histogram.
-    The intervals of this histogram correspond to natural language
-    color names.
+    Translates each image to a "color distribution".
+    That is, every pixel of the image is sorted into a bin
+    of a histogram.
+    Each bin corresponds to a perceivable color.
     """
 
+    #
+    BIN_NAMES = ['red', 'orange', 'gold', 'yellow',
+                 'green', 'turquoise', 'blue',
+                 'purple', 'magenta', 'red',
+                 'black', 'white', 'grey']
+
     # assign natural language color names to hue values
-    COLOR_MAP = {20.: 'red',
-                 45.: 'orange',
-                 55.: 'gold',
-                 65.: 'yellow',
-                 155.: 'green',
-                 185.: 'turquoise',
-                 250.: 'blue',
-                 280.: 'purple',
-                 320.: 'magenta',
-                 360.: 'red'}
+    HUE_MAP = {20.: 'red',
+               45.: 'orange',
+               55.: 'gold',
+               65.: 'yellow',
+               155.: 'green',
+               185.: 'turquoise',
+               250.: 'blue',
+               280.: 'purple',
+               320.: 'magenta',
+               360.: 'red'}
 
     def __init__(self, spark_session: SparkSession, input_url: str,
                  id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
@@ -290,16 +295,16 @@ class ToColorDistributionTranslator(TorchTranslator):
         super().__init__(spark_session, input_url,
                          'distribution of colors in the image', id_field,
                          read_cfg, device)
-        self._color_bins = list(self.COLOR_MAP.values())
-        self._colors = set(self._color_bins)
-        self._non_colors = {'black', 'white', 'grey'}
-        self._hue_bins = np.array([0.] + list(self.COLOR_MAP.keys())) \
+        self._hue_bin_names = list(self.HUE_MAP.values())
+        self._hue_names = set(self._hue_bin_names)
+        self._lightness_names = {'black', 'white', 'grey'}
+        self._hue_bins = np.array([0.] + list(self.HUE_MAP.keys())) \
             / 360. * 255.
 
-        self._fields = [UnischemaField(self._get_field_name(color_name),
+        self._fields = [UnischemaField(self._get_field_name(name),
                                        float, (), ScalarCodec(FloatType()),
                                        False)
-                        for color_name in self._colors | self._non_colors]
+                        for name in self._hue_names | self._lightness_names]
 
         self._resize_to = resize_to
         self._pool = None
@@ -352,8 +357,8 @@ class ToColorDistributionTranslator(TorchTranslator):
         return np.concatenate((non_hue_counts, hue_counts))
 
     @staticmethod
-    def _translate_single(image_tensor, resize_to, hue_bins, colors,
-                          color_bins):
+    def _translate_single(image_tensor, resize_to, hue_bins, hue_names,
+                          hue_bin_names, lightness_names):
         image = to_pil_image(image_tensor, 'RGB') \
             .resize((resize_to, resize_to))
 
@@ -361,17 +366,26 @@ class ToColorDistributionTranslator(TorchTranslator):
         f = partial(ToColorDistributionTranslator._pixel_row_to_color_dist,
                     hue_bins=hue_bins)
         counts_arrays = np.asarray([f(px_row) for px_row in image_arr])
-        fractions_arr = np.sum(counts_arrays, 0) / np.sum(counts_arrays)
 
-        black, white, grey = fractions_arr[:3]
-        color_fractions = {'black': black,
-                           'white': white,
-                           'grey': grey}
+        binned_px_count = np.sum(counts_arrays)
+        if binned_px_count == 0.:
+            num_colors = len(hue_names) + len(lightness_names)
+            uniform_fraction = 1. / num_colors
 
-        color_fractions.update({color: .0 for color in colors})
-        hue_fractions = fractions_arr[3:]
-        for hue_fraction, color in zip(hue_fractions, color_bins):
-            color_fractions[color] += hue_fraction
+            color_fractions = {name: uniform_fraction
+                               for name in hue_names | lightness_names}
+        else:
+            fractions_arr = np.sum(counts_arrays, 0) / binned_px_count
+
+            black, white, grey = fractions_arr[:3]
+            color_fractions = {'black': black,
+                               'white': white,
+                               'grey': grey}
+
+            color_fractions.update({hue: .0 for hue in hue_names})
+            hue_fractions = fractions_arr[3:]
+            for hue_fraction, hue_bin in zip(hue_fractions, hue_bin_names):
+                color_fractions[hue_bin] += hue_fraction
 
         return color_fractions
 
@@ -379,8 +393,9 @@ class ToColorDistributionTranslator(TorchTranslator):
         image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
 
         f = partial(self._translate_single, resize_to=self._resize_to,
-                    hue_bins=self._hue_bins, colors=self._colors,
-                    color_bins=self._color_bins)
+                    hue_bins=self._hue_bins, hue_names=self._hue_names,
+                    hue_bin_names=self._hue_bin_names,
+                    lightness_names=self._lightness_names)
         fractions_batch = list(self._pool.map(f, image_tensors))
 
         for img_no, row_id, color_fractions in zip(range(len(image_tensors)),
