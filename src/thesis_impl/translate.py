@@ -274,7 +274,7 @@ class ToColorDistributionTranslator(TorchTranslator):
     #
     BIN_NAMES = ['red', 'orange', 'gold', 'yellow',
                  'green', 'turquoise', 'blue',
-                 'purple', 'magenta', 'red',
+                 'purple', 'magenta',
                  'black', 'white', 'grey']
 
     # assign natural language color names to hue values
