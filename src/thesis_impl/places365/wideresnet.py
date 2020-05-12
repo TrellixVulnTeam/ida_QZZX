@@ -173,15 +173,15 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        return x
+        return F.softmax(x, 1).data.squeeze()
 
-    def predict_probabilities(self, x):
-        """
-        Performs a forward pass with additional softmax normalization.
-        Returns a 1-d tensor of label probabilities.
-        """
-        logit = self.forward(x)
-        return F.softmax(logit, 1).data.squeeze()
+    # def predict_probabilities(self, x):
+    #     """
+    #     Performs a forward pass with additional softmax normalization.
+    #     Returns a 1-d tensor of label probabilities.
+    #     """
+    #     logit = self.forward(x)
+    #     return F.softmax(logit, 1).data.squeeze()
 
 
 def resnet18(pre_trained=False, **kwargs):
