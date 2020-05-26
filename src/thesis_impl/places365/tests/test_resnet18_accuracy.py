@@ -13,7 +13,9 @@ def resnet18_evaluation(supervised_url):
     hub = Places365Hub()
     resnet18 = hub.resnet18()
     reader = make_reader(supervised_url, schema_fields=['image', 'label_id'])
-    return hub, resnet18, DataLoader(reader)
+    # we set batch size to sth > 1
+    # to not have the first tensor dimension removed
+    return hub, resnet18, DataLoader(reader, batch_size=2)
 
 
 def evaluate_accuracy(caplog, hub, loader, method):
@@ -28,7 +30,10 @@ def evaluate_accuracy(caplog, hub, loader, method):
 
         try:
             with torch.no_grad():
-                for images, labels in loader:
+                for batch in loader:
+                    images = batch['image'].permute(0, 3, 1, 2) \
+                        .to(torch.float32).div(255.)
+                    labels = batch['label_id']
                     num_processed += images.size()[0]
 
                     with caplog.at_level(outer_level):
@@ -62,7 +67,7 @@ def test_top_k_accuracy(caplog, resnet18_evaluation, k=5):
     hub, resnet18, loader = resnet18_evaluation
 
     def _eval(images, labels):
-        probs = resnet18.predict_probabilities(images)
+        probs = resnet18(images)
         _, predicted_labels = torch.topk(probs, k, -1)
         true_labels = labels.unsqueeze(-1).expand_as(predicted_labels)
         success = (predicted_labels == true_labels).sum(-1)
@@ -77,7 +82,7 @@ def test_indoor_outdoor_accuracy(caplog, resnet18_evaluation, k=10):
     hub, resnet18, loader = resnet18_evaluation
 
     def _eval(images_batch, labels_batch):
-        probs_batch = resnet18.predict_probabilities(images_batch)
+        probs_batch = resnet18(images_batch)
         _, k_predicted_labels_batch = torch.topk(probs_batch, k, -1)
 
         for true_label_id, k_predicted_labels \

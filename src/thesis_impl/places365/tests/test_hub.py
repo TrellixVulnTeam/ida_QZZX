@@ -22,7 +22,7 @@ def test_that_resnet18_works():
 
     with hub.open_demo_image() as demo_file:
         image_tensor = _load_image_as_tensor(demo_file).unsqueeze(0)
-        label_probs = resnet18.predict_probabilities(image_tensor)
+        label_probs = resnet18(image_tensor)
         _, label_ids = label_probs.sort(-1, True)
 
         assert hub.label_names[label_ids[0]] == 'food court'
