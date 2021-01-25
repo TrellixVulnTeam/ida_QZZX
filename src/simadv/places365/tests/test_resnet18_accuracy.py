@@ -5,7 +5,7 @@ import torch
 from petastorm import make_reader
 from petastorm.pytorch import DataLoader
 
-from thesis_impl.places365.hub import Places365Hub
+from simadv.places365.hub import Places365Hub
 
 
 @pytest.fixture

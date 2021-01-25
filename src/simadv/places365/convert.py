@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 
-from thesis_impl.convert import main
-from thesis_impl.places365.hub import Places365Hub
+from simadv.convert import main
+from simadv.places365.hub import Places365Hub
 
 
 if __name__ == '__main__':

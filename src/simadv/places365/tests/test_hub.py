@@ -4,7 +4,7 @@ import torch
 from PIL import Image
 from torchvision.transforms.functional import to_tensor
 
-from thesis_impl.places365.hub import Places365Hub
+from simadv.places365.hub import Places365Hub
 
 
 _DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

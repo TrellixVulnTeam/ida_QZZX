@@ -4,7 +4,7 @@ from petastorm.codecs import CompressedImageCodec
 from petastorm.pytorch import decimal_friendly_collate
 from petastorm.unischema import UnischemaField
 
-from thesis_impl.places365.hub import Places365Hub
+from simadv.places365.hub import Places365Hub
 from torchvision import transforms as trn
 
 

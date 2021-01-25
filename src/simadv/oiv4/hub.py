@@ -6,9 +6,9 @@ from petastorm.codecs import ScalarCodec, NdarrayCodec
 from petastorm.unischema import UnischemaField
 from pyspark.sql.types import StringType
 
-from thesis_impl.hub import SupervisedImageDataset, SupervisedImageDatasetMeta
-from thesis_impl.util.functools import cached_property
-from thesis_impl.util.webcache import WebCache
+from simadv.hub import SupervisedImageDataset, SupervisedImageDatasetMeta
+from simadv.util.functools import cached_property
+from simadv.util.webcache import WebCache
 
 
 class OpenImagesV4HubMeta(SupervisedImageDatasetMeta):

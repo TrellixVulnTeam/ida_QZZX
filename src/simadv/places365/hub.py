@@ -8,10 +8,10 @@ from petastorm.codecs import ScalarCodec
 from petastorm.unischema import UnischemaField
 from pyspark.sql.types import StringType, IntegerType
 
-from thesis_impl.hub import SupervisedImageDataset, SupervisedImageDatasetMeta
-from thesis_impl.util.functools import cached_property
-from thesis_impl.places365 import wideresnet
-from thesis_impl.util.webcache import WebCache
+from simadv.hub import SupervisedImageDataset, SupervisedImageDatasetMeta
+from simadv.util.functools import cached_property
+from simadv.places365 import wideresnet
+from simadv.util.webcache import WebCache
 
 
 class Places365HubMeta(SupervisedImageDatasetMeta):

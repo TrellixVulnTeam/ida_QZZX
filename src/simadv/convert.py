@@ -9,9 +9,9 @@ from petastorm.etl.dataset_metadata import materialize_dataset
 from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import SparkSession
 
-from thesis_impl import config as cfg
-from thesis_impl.hub import SupervisedImageDataset
-from thesis_impl.util.webcache import WebCache
+from simadv import config as cfg
+from simadv.hub import SupervisedImageDataset
+from simadv.util.webcache import WebCache
 
 
 class Converter:

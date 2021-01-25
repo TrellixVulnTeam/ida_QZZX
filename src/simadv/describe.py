@@ -30,10 +30,10 @@ from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import IntegerType, FloatType
 
-from thesis_impl.places365.hub import Places365Hub
-import thesis_impl.config as cfg
-from thesis_impl.util.functools import cached_property
-from thesis_impl.util.webcache import WebCache
+from simadv.places365.hub import Places365Hub
+import simadv.config as cfg
+from simadv.util.functools import cached_property
+from simadv.util.webcache import WebCache
 
 
 RowDict = Dict[str, Any]
@@ -59,9 +59,9 @@ class DataGenerator(abc.ABC):
     @cached_property
     def schema(self):
         """
-        Output schema of this translator as a petastorm `Unischema`.
+        Output schema of this describer as a petastorm `Unischema`.
         """
-        return Unischema('TranslatorSchema', [self.id_field] + self.fields)
+        return Unischema('DescriberSchema', [self.id_field] + self.fields)
 
     @abc.abstractmethod
     def __call__(self) -> DataFrame:
@@ -156,7 +156,7 @@ class DictBasedDataGenerator(DataGenerator):
             return df
 
 
-class TorchTranslator(DictBasedDataGenerator, abc.ABC):
+class TorchDescriber(DictBasedDataGenerator, abc.ABC):
     """
     Reads batches of image data from a petastorm store
     and converts these images to Torch tensors.
@@ -232,7 +232,7 @@ class TorchTranslator(DictBasedDataGenerator, abc.ABC):
         self.cleanup()
 
 
-class ToImageDummyTranslator(TorchTranslator):
+class ImageDummyDescriber(TorchDescriber):
     """
     Passes each image through, untouched.
     """
@@ -263,7 +263,7 @@ class ToImageDummyTranslator(TorchTranslator):
                    self._field.name: image_arr}
 
 
-class ToColorDistributionTranslator(TorchTranslator):
+class ColorDistributionDescriber(TorchDescriber):
     """
     Translates each image to a "color distribution".
     That is, every pixel of the image is sorted into a bin
@@ -363,7 +363,7 @@ class ToColorDistributionTranslator(TorchTranslator):
             .resize((resize_to, resize_to))
 
         image_arr = np.asarray(image)
-        f = partial(ToColorDistributionTranslator._pixel_row_to_color_dist,
+        f = partial(ColorDistributionDescriber._pixel_row_to_color_dist,
                     hue_bins=hue_bins)
         counts_arrays = np.asarray([f(px_row) for px_row in image_arr])
 
@@ -421,7 +421,7 @@ def _wrap_parallel(model):
     return model
 
 
-class TorchModelTranslator(TorchTranslator, abc.ABC):
+class TorchModelDescriber(TorchDescriber, abc.ABC):
     """
     Loads a Torch ML model before consuming data.
     Useful to load the model first on the GPU before the data.
@@ -447,7 +447,7 @@ class TorchModelTranslator(TorchTranslator, abc.ABC):
         return super().__call__()
 
 
-class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
+class Places365SceneLabelDescriber(TorchModelDescriber):
     """
     Translates each image to one out of 365 natural language scene labels,
     from the Places365 Challenge.
@@ -492,9 +492,9 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
         def create_model():
             hub = Places365Hub(cache)
             return _wrap_parallel(hub.resnet18().to(device).eval())
-        return ToPlaces365SceneLabelTranslator(spark_session, input_url,
-                                               id_field, read_cfg, device,
-                                               create_model, top_k=top_k)
+        return Places365SceneLabelDescriber(spark_session, input_url,
+                                            id_field, read_cfg, device,
+                                            create_model, top_k=top_k)
 
     def translate_batch(self, ids, image_tensors):
         image_tensors = image_tensors.permute(0, 3, 1, 2)
@@ -514,7 +514,7 @@ class ToPlaces365SceneLabelTranslator(TorchModelTranslator):
                 yield row_dict
 
 
-class ToCocoObjectNamesTranslator(TorchModelTranslator):
+class CocoObjectNamesDescriber(TorchModelDescriber):
     """
     Translates each image to counts of detected objects from the COCO task.
     The COCO task includes 91 objects.
@@ -563,7 +563,7 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
 
     @staticmethod
     def object_names():
-        return ToCocoObjectNamesTranslator._OBJECT_NAMES
+        return CocoObjectNamesDescriber._OBJECT_NAMES
 
     @staticmethod
     def with_faster_r_cnn(spark_session: SparkSession, input_url: str,
@@ -575,9 +575,9 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
                 .fasterrcnn_resnet50_fpn(pretrained=True)\
                 .to(device)\
                 .eval()
-        return ToCocoObjectNamesTranslator(spark_session, input_url, id_field,
-                                           read_cfg, device, create_model,
-                                           **kwargs)
+        return CocoObjectNamesDescriber(spark_session, input_url, id_field,
+                                        read_cfg, device, create_model,
+                                        **kwargs)
 
     @staticmethod
     def get_object_names_counts(counts_array):
@@ -585,7 +585,7 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
         Returns a mapping from object names to counts,
         as encoded in *counts_array*.
         """
-        return {ToCocoObjectNamesTranslator.object_names()[obj_id]: count
+        return {CocoObjectNamesDescriber.object_names()[obj_id]: count
                 for obj_id, count in enumerate(counts_array) if count > 0}
 
     def translate_batch(self, ids, image_tensors):
@@ -622,13 +622,13 @@ class ToCocoObjectNamesTranslator(TorchModelTranslator):
                    self._field.name: counts_arr}
 
 
-class TFTranslator(DictBasedDataGenerator, abc.ABC):
+class TFDescriber(DictBasedDataGenerator, abc.ABC):
     """
     Reads batches of image data from a petastorm store
     and converts these images to Tensorflow tensors.
     Subclasses can translate these tensors to other data.
 
-    FIXME: this translator currently only works if all images have the same size
+    FIXME: this describer currently only works if all images have the same size
     """
 
     def __init__(self, spark_session: SparkSession, input_url: str,
@@ -696,7 +696,7 @@ class TFObjectDetectionProcess(mp.Process):
             self.in_queue.task_done()
 
 
-class ToOIV4ObjectNamesTranslator(TFTranslator):
+class OIV4ObjectNamesDescriber(TFDescriber):
     """
     Translates each image to a set of detected objects from the OpenImages task.
     The OpenImages task includes 600 objects.
@@ -743,7 +743,7 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
 
     @staticmethod
     def object_names_from_cache(cache: WebCache):
-        url = ToOIV4ObjectNamesTranslator.LABELS_URL
+        url = OIV4ObjectNamesDescriber.LABELS_URL
 
         with cache.open('class-descriptions-boxable.csv', url)\
                 as object_names_file:
@@ -760,9 +760,9 @@ class ToOIV4ObjectNamesTranslator(TFTranslator):
                               id_field: UnischemaField,
                               read_cfg: cfg.PetastormReadConfig,
                               cache: WebCache, **kwargs):
-        return ToOIV4ObjectNamesTranslator(spark_session, input_url, id_field,
-                                           read_cfg, model_name, cache,
-                                           **kwargs)
+        return OIV4ObjectNamesDescriber(spark_session, input_url, id_field,
+                                        read_cfg, model_name, cache,
+                                        **kwargs)
 
     def result_iter(self):
         for p in self.processes:
@@ -869,9 +869,9 @@ _RE_OI = re.compile(r'(?P<name>oi_objects)'
                     r'(@(?P<t>0?\.\d+))?')
 
 
-class TranslatorFactory:
+class DescriberFactory:
     """
-    Enables to create many translators with shared settings.
+    Enables to create many describers with shared settings.
     """
 
     def __init__(self, input_url: str, id_field: UnischemaField,
@@ -895,12 +895,12 @@ class TranslatorFactory:
 
     def create(self, t_spec: str):
         """
-        Creates a translator based on a parameter string `t_spec`.
+        Creates a describer based on a parameter string `t_spec`.
         """
 
-        def _raise_unknown_model(_model, _translator):
-            raise ValueError('Unknown model {} for translator {}'
-                             .format(_model, _translator))
+        def _raise_unknown_model(_model, _describer):
+            raise ValueError('Unknown model {} for describer {}'
+                             .format(_model, _describer))
 
         copy_match = _RE_COPY.fullmatch(t_spec)
         if copy_match:
@@ -911,18 +911,18 @@ class TranslatorFactory:
         if image_match:
             d = image_match.groupdict()
             width, height = int(d['width']), int(d['height'])
-            return ToImageDummyTranslator(self.spark_session, self.input_url,
-                                          self.id_field, self.read_cfg,
-                                          self.torch_device, width, height)
+            return ImageDummyDescriber(self.spark_session, self.input_url,
+                                       self.id_field, self.read_cfg,
+                                       self.torch_device, width, height)
 
         color_match = _RE_COLORS.fullmatch(t_spec)
         if color_match:
             d = color_match.groupdict()
             params = {'debug': d['debug'] is not None}
-            return ToColorDistributionTranslator(self.spark_session,
-                                                 self.input_url, self.id_field,
-                                                 self.read_cfg,
-                                                 self.torch_device, **params)
+            return ColorDistributionDescriber(self.spark_session,
+                                              self.input_url, self.id_field,
+                                              self.read_cfg,
+                                              self.torch_device, **params)
 
         places365_match = _RE_PLACES365.fullmatch(t_spec)
         if places365_match:
@@ -931,7 +931,7 @@ class TranslatorFactory:
             params = {'top_k': int(d['k'])} if d['k'] else {}
 
             if model in ['default', 'resnet18']:
-                return ToPlaces365SceneLabelTranslator \
+                return Places365SceneLabelDescriber \
                     .with_resnet18(self.spark_session, self.input_url,
                                    self.id_field, self.read_cfg,
                                    self.torch_device, cache=self.cache,
@@ -947,7 +947,7 @@ class TranslatorFactory:
             params['debug'] = d['debug'] is not None
 
             if model in ['default', 'faster_r_cnn']:
-                return ToCocoObjectNamesTranslator \
+                return CocoObjectNamesDescriber \
                     .with_faster_r_cnn(self.spark_session, self.input_url,
                                        self.id_field, self.read_cfg,
                                        self.torch_device,
@@ -972,13 +972,13 @@ class TranslatorFactory:
             except KeyError:
                 _raise_unknown_model(model_short, d['name'])
             else:
-                return ToOIV4ObjectNamesTranslator\
+                return OIV4ObjectNamesDescriber\
                     .with_pretrained_model(self.spark_session, model,
                                            self.input_url, self.id_field,
                                            self.read_cfg,
                                            self.cache, **params)
 
-        raise ValueError('Unknown translator: {}'.format(t_spec))
+        raise ValueError('Unknown describer: {}'.format(t_spec))
 
 
 def _parse_args():
@@ -993,8 +993,8 @@ def _parse_args():
                         default='ImageTranslationSchema',
                         help='how to name the data schema of the output'
                              'translations')
-    parser.add_argument('translators', type=str, nargs='+',
-                        help='one or more translators to apply to the images')
+    parser.add_argument('describers', type=str, nargs='+',
+                        help='one or more describers to apply to the images')
 
     log_group = parser.add_argument_group('Logging settings')
     cfg.LoggingConfig.setup_parser(log_group)
@@ -1024,7 +1024,7 @@ def _parse_args():
 
 def main(id_field: UnischemaField):
     """
-    Translate images to low-dimensional, interpretable data.
+    Describe images with abstract and familiar attributes.
     The images are read from a petastorm parquet store. In this parquet store,
     there must be two fields:
 
@@ -1056,10 +1056,10 @@ def main(id_field: UnischemaField):
 
     spark_session.sparkContext.setLogLevel('WARN')
 
-    factory = TranslatorFactory(args.input_url, id_field, read_cfg, torch_cfg,
+    factory = DescriberFactory(args.input_url, id_field, read_cfg, torch_cfg,
                                 write_cfg, cache_dir)
-    translators = [factory.create(t_spec) for t_spec in args.translators]
-    data_gen = JoinDataGenerator(translators)
+    describers = [factory.create(t_spec) for t_spec in args.describers]
+    data_gen = JoinDataGenerator(describers)
     out_df = data_gen()
 
     logging.info('Writing dataframe of {} rows.'.format(out_df.count()))

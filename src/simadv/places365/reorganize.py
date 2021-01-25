@@ -2,9 +2,9 @@ import argparse
 import logging
 from pathlib import Path
 
-from thesis_impl.places365.hub import Places365Hub
-from thesis_impl import config as cfg
-from thesis_impl.util.webcache import WebCache
+from simadv.places365.hub import Places365Hub
+from simadv import config as cfg
+from simadv.util.webcache import WebCache
 
 
 class Reorganizer:
