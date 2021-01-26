@@ -1,5 +1,4 @@
 import abc
-import argparse
 import csv
 import logging
 import multiprocessing as mp
@@ -10,28 +9,29 @@ import time
 from collections import Counter
 from colorsys import rgb_to_hls
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from functools import reduce, partial
+from pathlib import Path
 from typing import Optional, Any, Dict, Iterable
 
 import numpy as np
 import torch
 import torchvision
 from PIL import Image, ImageDraw
+from simple_parsing import ArgumentParser
 from torch.nn import DataParallel
 from torchvision.transforms.functional import to_pil_image
 
-from petastorm import make_reader
 from petastorm.codecs import ScalarCodec, CompressedImageCodec, \
     CompressedNdarrayCodec
-from petastorm.etl.dataset_metadata import materialize_dataset, get_schema_from_dataset_url
-from petastorm.tf_utils import make_petastorm_dataset
+from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
 from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
 
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import IntegerType, FloatType
 
+from simadv.common import PetastormReadConfig, LoggingConfig, PetastormTransformer, TorchConfig
 from simadv.places365.hub import Places365Hub
-import simadv.config as cfg
 from simadv.util.functools import cached_property
 from simadv.util.webcache import WebCache
 
@@ -169,28 +169,21 @@ class TorchDescriber(DictBasedDataGenerator, abc.ABC):
     """
 
     def __init__(self, spark_session: SparkSession,
-                 input_url: str, output_description: str,
+                 output_description: str,
                  id_field: UnischemaField,
-                 read_cfg: cfg.PetastormReadConfig,
+                 read_cfg: PetastormReadConfig,
                  device: torch.device):
         """
-        Reads image data from a petastorm `input_url` and translates it
+        Reads image data from a petastorm `read_cfg` and translates it
         to other data.
         The input petastorm schema must have a field called *image*.
         """
         super().__init__(spark_session, output_description, id_field)
 
-        self.input_url = input_url
         self.read_cfg = read_cfg
         self.device = device
 
     def batch_iter(self):
-        reader = make_reader(self.input_url,
-                             shuffle_row_groups=self.read_cfg.shuffle_row_groups,
-                             reader_pool_type=self.read_cfg.pool_type,
-                             workers_count=self.read_cfg.workers_count,
-                             schema_fields=['image', self.id_field.name])
-
         def to_tensor(batch_columns):
             row_ids, image_arrays = batch_columns
             image_tensors = torch.as_tensor(image_arrays) \
@@ -200,6 +193,7 @@ class TorchDescriber(DictBasedDataGenerator, abc.ABC):
             return row_ids, image_tensors
 
         current_batch = []
+        reader = self.read_cfg.make_reader(['image', self.id_field.name])
 
         for row in reader:
             row_id = getattr(row, self.id_field.name)
@@ -237,11 +231,11 @@ class ImageDummyDescriber(TorchDescriber):
     Passes each image through, untouched.
     """
 
-    def __init__(self,  spark_session: SparkSession, input_url: str,
+    def __init__(self,  spark_session: SparkSession,
                  id_field: UnischemaField,
-                 read_cfg: cfg.PetastormReadConfig,
+                 read_cfg: PetastormReadConfig,
                  device: torch.device, width: int, height: int):
-        super().__init__(spark_session, input_url,
+        super().__init__(spark_session,
                          'the untouched original image', id_field, read_cfg,
                          device)
         self._field = UnischemaField('image', np.uint8, (width, height, 3),
@@ -289,10 +283,10 @@ class ColorDistributionDescriber(TorchDescriber):
                320.: 'magenta',
                360.: 'red'}
 
-    def __init__(self, spark_session: SparkSession, input_url: str,
-                 id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
-                 device: torch.device, resize_to: int=100, debug: bool=False):
-        super().__init__(spark_session, input_url,
+    def __init__(self, spark_session: SparkSession,
+                 id_field: UnischemaField, read_cfg: PetastormReadConfig,
+                 device: torch.device, resize_to: int = 100, debug: bool = False):
+        super().__init__(spark_session,
                          'distribution of colors in the image', id_field,
                          read_cfg, device)
         self._hue_bin_names = list(self.HUE_MAP.values())
@@ -427,11 +421,11 @@ class TorchModelDescriber(TorchDescriber, abc.ABC):
     Useful to load the model first on the GPU before the data.
     """
 
-    def __init__(self, spark_session: SparkSession, input_url: str,
+    def __init__(self, spark_session: SparkSession,
                  output_description: str, id_field: UnischemaField,
-                 read_cfg: cfg.PetastormReadConfig,
+                 read_cfg: PetastormReadConfig,
                  device: torch.device, create_model_func):
-        super().__init__(spark_session, input_url, output_description, id_field,
+        super().__init__(spark_session, output_description, id_field,
                          read_cfg, device)
         self._create_model = create_model_func
         self.model = None
@@ -453,11 +447,11 @@ class Places365SceneLabelDescriber(TorchModelDescriber):
     from the Places365 Challenge.
     """
 
-    def __init__(self, spark_session: SparkSession, input_url: str,
-                 id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
+    def __init__(self, spark_session: SparkSession,
+                 id_field: UnischemaField, read_cfg: PetastormReadConfig,
                  device: torch.device, create_model_func,
-                 top_k: Optional[int]=None):
-        super().__init__(spark_session, input_url,
+                 top_k: Optional[int] = None):
+        super().__init__(spark_session,
                          'scene names from the Places365 set', id_field,
                          read_cfg, device, create_model_func)
 
@@ -485,14 +479,14 @@ class Places365SceneLabelDescriber(TorchModelDescriber):
         return self._fields
 
     @staticmethod
-    def with_resnet18(spark_session: SparkSession, input_url,
+    def with_resnet18(spark_session: SparkSession,
                       id_field: UnischemaField,
-                      read_cfg: cfg.PetastormReadConfig, device: torch.device,
-                      cache: WebCache, top_k: Optional[int]=None):
+                      read_cfg: PetastormReadConfig, device: torch.device,
+                      cache: WebCache, top_k: Optional[int] = None):
         def create_model():
             hub = Places365Hub(cache)
             return _wrap_parallel(hub.resnet18().to(device).eval())
-        return Places365SceneLabelDescriber(spark_session, input_url,
+        return Places365SceneLabelDescriber(spark_session,
                                             id_field, read_cfg, device,
                                             create_model, top_k=top_k)
 
@@ -539,11 +533,11 @@ class CocoObjectNamesDescriber(TorchModelDescriber):
         'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
     ]
 
-    def __init__(self, spark_session: SparkSession, input_url: str,
-                 id_field: UnischemaField, read_cfg: cfg.PetastormReadConfig,
+    def __init__(self, spark_session: SparkSession,
+                 id_field: UnischemaField, read_cfg: PetastormReadConfig,
                  device: torch.device, create_model_func, threshold: float,
-                 debug: bool=False):
-        super().__init__(spark_session, input_url,
+                 debug: bool = False):
+        super().__init__(spark_session,
                          'detected objects from the COCO set', id_field,
                          read_cfg, device, create_model_func)
 
@@ -566,16 +560,16 @@ class CocoObjectNamesDescriber(TorchModelDescriber):
         return CocoObjectNamesDescriber._OBJECT_NAMES
 
     @staticmethod
-    def with_faster_r_cnn(spark_session: SparkSession, input_url: str,
+    def with_faster_r_cnn(spark_session: SparkSession,
                           id_field: UnischemaField,
-                          read_cfg: cfg.PetastormReadConfig,
+                          read_cfg: PetastormReadConfig,
                           device: torch.device, **kwargs):
         def create_model():
             return torchvision.models.detection\
                 .fasterrcnn_resnet50_fpn(pretrained=True)\
                 .to(device)\
                 .eval()
-        return CocoObjectNamesDescriber(spark_session, input_url, id_field,
+        return CocoObjectNamesDescriber(spark_session, id_field,
                                         read_cfg, device, create_model,
                                         **kwargs)
 
@@ -631,21 +625,15 @@ class TFDescriber(DictBasedDataGenerator, abc.ABC):
     FIXME: this describer currently only works if all images have the same size
     """
 
-    def __init__(self, spark_session: SparkSession, input_url: str,
+    def __init__(self, spark_session: SparkSession,
                  output_description: str, id_field: UnischemaField,
-                 read_cfg: cfg.PetastormReadConfig):
+                 read_cfg: PetastormReadConfig):
         super().__init__(spark_session, output_description, id_field)
 
-        self.input_url = input_url
         self.read_cfg = read_cfg
 
     def batch_iter(self):
-        reader = make_reader(self.input_url,
-                             schema_fields=['image', self.id_field.name])
-        peta_dataset = make_petastorm_dataset(reader)\
-            .batch(self.read_cfg.batch_size)
-
-        for schema_view in peta_dataset:
+        for schema_view in self.read_cfg.make_tf_dataset(['image', self.id_field.name]):
             ids = getattr(schema_view, self.id_field.name).numpy()\
                 .astype(self.id_field.numpy_dtype).tolist()
             yield ids, schema_view.image
@@ -678,8 +666,7 @@ class TFObjectDetectionProcess(mp.Process):
         # import tensorflow locally in the process
         import tensorflow as tf
 
-        model_dir = self.cache.get_absolute_path(self.model_name) \
-                    / 'saved_model'
+        model_dir = self.cache.get_absolute_path(self.model_name) / 'saved_model'
 
         model = tf.saved_model.load(str(model_dir))
         model = model.signatures['serving_default']
@@ -705,11 +692,11 @@ class OIV4ObjectNamesDescriber(TFDescriber):
     MODELS_URL = 'http://download.tensorflow.org/models/object_detection/'
     LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
 
-    def __init__(self, spark_session: SparkSession, input_url: str,
+    def __init__(self, spark_session: SparkSession,
                  id_field: UnischemaField,
-                 read_cfg: cfg.PetastormReadConfig, model_name: str,
-                 cache: WebCache, threshold: float, debug: bool=False):
-        super().__init__(spark_session, input_url,
+                 read_cfg: PetastormReadConfig, model_name: str,
+                 cache: WebCache, threshold: float, debug: bool = False):
+        super().__init__(spark_session,
                          'detected objects from the OpenImages set', id_field,
                          read_cfg)
 
@@ -756,11 +743,10 @@ class OIV4ObjectNamesDescriber(TFDescriber):
 
     @staticmethod
     def with_pretrained_model(spark_session: SparkSession,
-                              model_name: str, input_url: str,
-                              id_field: UnischemaField,
-                              read_cfg: cfg.PetastormReadConfig,
+                              model_name: str, id_field: UnischemaField,
+                              read_cfg: PetastormReadConfig,
                               cache: WebCache, **kwargs):
-        return OIV4ObjectNamesDescriber(spark_session, input_url, id_field,
+        return OIV4ObjectNamesDescriber(spark_session, id_field,
                                         read_cfg, model_name, cache,
                                         **kwargs)
 
@@ -857,74 +843,64 @@ class JoinDataGenerator(DataGenerator):
 
 
 _RE_COPY = re.compile(r'copy')
-_RE_IMAGE = re.compile(r'(?P<name>images)\[(?P<width>\d+),\s?(?P<height>\d+)\]')
+_RE_IMAGE = re.compile(r'(?P<name>images)\[(?P<width>\d+),\s?(?P<height>\d+)]')
 _RE_COLORS = re.compile(r'(?P<name>colors)(?P<debug>\+debug)?')
-_RE_PLACES365 = re.compile(r'(?P<name>places365_scenes)\[(?P<model>.*)\]'
+_RE_PLACES365 = re.compile(r'(?P<name>places365_scenes)\[(?P<model>.*)]'
                            r'(@(?P<k>\d+))?')
 _RE_COCO = re.compile(r'(?P<name>coco_objects)'
-                      r'\[(?P<model>[^\+]+)(?P<debug>\+debug)?\]'
+                      r'\[(?P<model>[^+]+)(?P<debug>\+debug)?]'
                       r'(@(?P<t>0?\.\d+))?')
 _RE_OI = re.compile(r'(?P<name>oi_objects)'
-                    r'\[(?P<model>[^\+]+)(?P<debug>\+debug)?\]'
+                    r'\[(?P<model>[^+]+)(?P<debug>\+debug)?]'
                     r'(@(?P<t>0?\.\d+))?')
 
 
-class DescriberFactory:
+@dataclass
+class DescriberFactory(PetastormTransformer):
     """
-    Enables to create many describers with shared settings.
+    Runs multiple describers with shared settings.
     """
 
-    def __init__(self, input_url: str, id_field: UnischemaField,
-                 read_cfg: cfg.PetastormReadConfig, torch_cfg: cfg.TorchConfig,
-                 write_cfg: cfg.PetastormWriteConfig,
-                 cache_dir: str):
+    describers: str
+    torch_cfg: TorchConfig
+    cache_dir: str
 
-        self.spark_session = SparkSession.builder \
-            .config('spark.driver.memory',
-                    write_cfg.spark_driver_memory) \
-            .config('spark.executor.memory',
-                    write_cfg.spark_exec_memory) \
-            .master(write_cfg.spark_master) \
-            .getOrCreate()
+    def __post_init__(self):
+        self.cache = WebCache(Path(self.cache_dir))
 
-        self.input_url = input_url
-        self.id_field = id_field
-        self.read_cfg = read_cfg
-        self.torch_device = torch_cfg.device
-        self.cache = WebCache(cache_dir)
-
-    def create(self, t_spec: str):
+    def _create(self, d_spec: str):
         """
-        Creates a describer based on a parameter string `t_spec`.
+        Creates a describer based on a parameter string `d_spec`.
         """
 
         def _raise_unknown_model(_model, _describer):
             raise ValueError('Unknown model {} for describer {}'
                              .format(_model, _describer))
 
-        copy_match = _RE_COPY.fullmatch(t_spec)
+        copy_match = _RE_COPY.fullmatch(d_spec)
         if copy_match:
-            return CopyDataGenerator(self.spark_session, self.input_url,
+            return CopyDataGenerator(self.write_cfg.session,
+                                     self.read_cfg.input_url,
                                      self.id_field)
 
-        image_match = _RE_IMAGE.fullmatch(t_spec)
+        image_match = _RE_IMAGE.fullmatch(d_spec)
         if image_match:
             d = image_match.groupdict()
             width, height = int(d['width']), int(d['height'])
-            return ImageDummyDescriber(self.spark_session, self.input_url,
+            return ImageDummyDescriber(self.write_cfg.session,
                                        self.id_field, self.read_cfg,
-                                       self.torch_device, width, height)
+                                       self.torch_cfg.device, width, height)
 
-        color_match = _RE_COLORS.fullmatch(t_spec)
+        color_match = _RE_COLORS.fullmatch(d_spec)
         if color_match:
             d = color_match.groupdict()
             params = {'debug': d['debug'] is not None}
-            return ColorDistributionDescriber(self.spark_session,
-                                              self.input_url, self.id_field,
+            return ColorDistributionDescriber(self.write_cfg.session,
+                                              self.id_field,
                                               self.read_cfg,
-                                              self.torch_device, **params)
+                                              self.torch_cfg.device, **params)
 
-        places365_match = _RE_PLACES365.fullmatch(t_spec)
+        places365_match = _RE_PLACES365.fullmatch(d_spec)
         if places365_match:
             d = places365_match.groupdict()
             model = d['model']
@@ -932,14 +908,14 @@ class DescriberFactory:
 
             if model in ['default', 'resnet18']:
                 return Places365SceneLabelDescriber \
-                    .with_resnet18(self.spark_session, self.input_url,
+                    .with_resnet18(self.write_cfg.session,
                                    self.id_field, self.read_cfg,
-                                   self.torch_device, cache=self.cache,
+                                   self.torch_cfg.device, cache=self.cache,
                                    **params)
 
             _raise_unknown_model(model, d['name'])
 
-        coco_match = _RE_COCO.fullmatch(t_spec)
+        coco_match = _RE_COCO.fullmatch(d_spec)
         if coco_match:
             d = coco_match.groupdict()
             model = d['model']
@@ -948,14 +924,14 @@ class DescriberFactory:
 
             if model in ['default', 'faster_r_cnn']:
                 return CocoObjectNamesDescriber \
-                    .with_faster_r_cnn(self.spark_session, self.input_url,
+                    .with_faster_r_cnn(self.write_cfg.session,
                                        self.id_field, self.read_cfg,
-                                       self.torch_device,
+                                       self.torch_cfg.device,
                                        **params)
 
             _raise_unknown_model(model, d['name'])
 
-        oi_match = _RE_OI.fullmatch(t_spec)
+        oi_match = _RE_OI.fullmatch(d_spec)
         if oi_match:
             d = oi_match.groupdict()
             model_short = d['model']
@@ -973,53 +949,23 @@ class DescriberFactory:
                 _raise_unknown_model(model_short, d['name'])
             else:
                 return OIV4ObjectNamesDescriber\
-                    .with_pretrained_model(self.spark_session, model,
-                                           self.input_url, self.id_field,
-                                           self.read_cfg,
+                    .with_pretrained_model(self.write_cfg.session, model,
+                                           self.id_field, self.read_cfg,
                                            self.cache, **params)
 
-        raise ValueError('Unknown describer: {}'.format(t_spec))
+        raise ValueError('Unknown describer: {}'.format(d_spec))
 
+    def run(self):
+        describers = [self._create(t_spec) for t_spec in self.describers]
+        data_gen = JoinDataGenerator(describers)
+        out_df = data_gen()
 
-def _parse_args():
-    parser = argparse.ArgumentParser(description='Translate images to low '
-                                                 'dimensional and '
-                                                 'interpretable kinds of data.')
-    parser.add_argument('-i', '--input_url', type=str, required=True,
-                        help='input URL for the images')
-    parser.add_argument('-o', '--output_url', type=str, required=True,
-                        help='output URL for the translations of the images')
-    parser.add_argument('-s', '--schema_name', type=str,
-                        default='ImageTranslationSchema',
-                        help='how to name the data schema of the output'
-                             'translations')
-    parser.add_argument('describers', type=str, nargs='+',
-                        help='one or more describers to apply to the images')
+        logging.info('Writing dataframe of {} rows.'.format(out_df.count()))
+        logging.info('First row: {}'.format(out_df.take(1)))
 
-    log_group = parser.add_argument_group('Logging settings')
-    cfg.LoggingConfig.setup_parser(log_group)
+        self.write_cfg.write_parquet(out_df, data_gen.schema, self.output_url)
 
-    cache_group = parser.add_argument_group('Cache settings')
-    cfg.WebCacheConfig.setup_parser(cache_group)
-
-    torch_group = parser.add_argument_group('Torch settings')
-    cfg.TorchConfig.setup_parser(torch_group)
-
-    peta_read_group = parser.add_argument_group('Settings for reading the '
-                                                'input dataset')
-    cfg.PetastormReadConfig.setup_parser(peta_read_group,
-                                         default_batch_size=16)
-
-    peta_write_group = parser.add_argument_group('Settings for writing the '
-                                                 'output dataset')
-    cfg.PetastormWriteConfig.setup_parser(peta_write_group,
-                                          default_spark_master='local[*]',
-                                          default_spark_driver_memory='40g',
-                                          default_spark_exec_memory='20g',
-                                          default_num_partitions=64 * 3,
-                                          default_row_size='1024')
-
-    return parser.parse_args()
+        logging.info('----- Finished -----')
 
 
 def main(id_field: UnischemaField):
@@ -1029,8 +975,7 @@ def main(id_field: UnischemaField):
     there must be two fields:
 
       - A field holding a unique id for each image.
-        This field may have any name, it is passed with the parameter
-        `id_field`.
+        This field may have any name, it is passed with the parameter `id_field`.
       - A field holding image data encoded with the petastorm png encoder.
         This field must be named *image*.
 
@@ -1038,50 +983,12 @@ def main(id_field: UnischemaField):
     """
     mp.set_start_method('spawn')
 
-    args = _parse_args()
+    @dataclass  # set the id_field attribute
+    class PartialDescriberFactory(DescriberFactory):  # give the id_field its default value
+        id_field: UnischemaField = field(default_factory=lambda: id_field, init=False)
 
-    cfg.LoggingConfig.set_from_args(args)
-    torch_cfg = cfg.TorchConfig.from_args(args)
-    read_cfg = cfg.PetastormReadConfig.from_args(args)
-    write_cfg = cfg.PetastormWriteConfig.from_args(args)
-    cache_dir = cfg.WebCacheConfig.from_args(args)
-
-    spark_session = SparkSession.builder \
-        .config('spark.driver.memory',
-                write_cfg.spark_driver_memory) \
-        .config('spark.executor.memory',
-                write_cfg.spark_exec_memory) \
-        .master(write_cfg.spark_master) \
-        .getOrCreate()
-
-    spark_session.sparkContext.setLogLevel('WARN')
-
-    factory = DescriberFactory(args.input_url, id_field, read_cfg, torch_cfg,
-                                write_cfg, cache_dir)
-    describers = [factory.create(t_spec) for t_spec in args.describers]
-    data_gen = JoinDataGenerator(describers)
-    out_df = data_gen()
-
-    logging.info('Writing dataframe of {} rows.'.format(out_df.count()))
-    logging.info('First row: {}'.format(out_df.take(1)))
-
-    output_url = args.output_url
-
-    while True:
-        try:
-            with materialize_dataset(spark_session, output_url,
-                                     data_gen.schema,
-                                     write_cfg.row_group_size_mb):
-                out_df.write.mode('error').parquet(args.output_url)
-        except Exception as e:
-            logging.error('Encountered exception: {}'.format(e))
-            other_url = input('To retry, enter another '
-                              'output URL and press <Enter>.'
-                              'To exit, just press <Enter>.')
-            if not other_url:
-                raise e
-            output_url = other_url
-        else:
-            break
-
-    logging.info('----- Finished -----')
+    parser = ArgumentParser(description='Describe images with abstract and familiar attributes.')
+    parser.add_arguments(PartialDescriberFactory, 'describer')
+    parser.add_arguments(LoggingConfig, 'logging')
+    args = parser.parse_args()
+    args.describer.run()

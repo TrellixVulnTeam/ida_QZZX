@@ -52,7 +52,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
     _DOWNLOAD_URL = 'https://storage.googleapis.com/openimages/2018_04/'
     _VALIDATION_URL = _DOWNLOAD_URL + 'validation/'
 
-    def __init__(self, cache: Optional[WebCache]=None):
+    def __init__(self, cache: Optional[WebCache] = None):
         """
         :param cache: cache to use for downloading files
         """
