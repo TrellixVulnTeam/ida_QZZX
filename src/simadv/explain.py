@@ -2,7 +2,7 @@ import abc
 import logging
 import time
 from dataclasses import dataclass, field
-from functools import cached_property
+from simadv.util.functools import cached_property
 from itertools import islice
 from typing import Optional, Type
 
