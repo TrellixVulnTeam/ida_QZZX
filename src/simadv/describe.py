@@ -9,7 +9,7 @@ import time
 from collections import Counter
 from colorsys import rgb_to_hls
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import reduce, partial
 from pathlib import Path
 from typing import Optional, Any, Dict, Iterable, Type
