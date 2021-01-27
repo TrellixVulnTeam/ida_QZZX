@@ -65,7 +65,7 @@ class SupervisedImageDataset(abc.ABC, metaclass=SupervisedImageDatasetMeta):
         return type(self).label_field
 
     @abc.abstractmethod
-    def get_image_id(self, image_path: Path, subset: Optional[str]=None):
+    def get_image_id(self, image_path: Path, subset: Optional[str] = None):
         """
         Returns the image id of the image located at `image_path`.
         In some datasets, the image id depends on the `subset`, i.e. validation
@@ -75,7 +75,7 @@ class SupervisedImageDataset(abc.ABC, metaclass=SupervisedImageDatasetMeta):
         pass
 
     @abc.abstractmethod
-    def get_image_label(self, image_path: Path, subset: Optional[str]=None):
+    def get_image_label(self, image_path: Path, subset: Optional[str] = None):
         """
         Returns the ground-truth label for the image located at `image_path`.
         In some datasets image ids are only unique per `subset`, i.e. validation

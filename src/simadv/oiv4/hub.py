@@ -1,6 +1,7 @@
 import csv
 import re
-from typing import Mapping, Optional
+from pathlib import Path
+from typing import Mapping, Optional, Union
 import numpy as np
 from petastorm.codecs import ScalarCodec, NdarrayCodec
 from petastorm.unischema import UnischemaField
@@ -16,7 +17,7 @@ class OpenImagesV4HubMeta(SupervisedImageDatasetMeta):
     _dataset_name = 'OpenImagesV4'
     _image_id_field = UnischemaField('image_id', np.unicode_, (),
                                      ScalarCodec(StringType()), False)
-    BOXES_DTYPE = [('label_id', '<U16'),
+    BOXES_DTYPE = [('label_id', '<i2'),
                    ('x_min', '<f4'), ('x_max', '<f4'),
                    ('y_min', '<f4'), ('y_max', '<f4'),
                    ('is_occluded', '?'),
@@ -60,10 +61,12 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             cache = WebCache('~/.cache/open-images-v4')
         self.cache = cache
 
-    def get_image_id(self, image_path, subset=None):
-        return _RE_IMAGE_ID.fullmatch(image_path.name).group(1)
+    def get_image_id(self, image_path: Union[str, Path], subset: Optional[str] = None):
+        if isinstance(image_path, Path):
+            image_path = image_path.name
+        return _RE_IMAGE_ID.fullmatch(image_path).group(1)
 
-    def get_image_label(self, image_path, subset=None):
+    def get_image_label(self, image_path: Union[str, Path], subset: Optional[str] = None):
         if subset is None:
             raise ValueError('To find out the correct label we must know '
                              'whether the image is part of the train, test or'
@@ -76,17 +79,22 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
         else:
             raise NotImplementedError()
 
-    @property
+    @cached_property
     def label_names(self) -> [str]:
         """
-        Returns a list of all human readable label names.
+        Returns a list of all object names that have bounding boxes in the dataset.
+        The index of each object name in the list is its id in output arrays of object detection models.
         """
-        return self._label_names_map.values()
+        with self.cache.open('class-descriptions-boxable.csv', self._DOWNLOAD_URL) \
+                as object_names_file:
+            csv_reader = csv.reader(object_names_file, delimiter=',')
+            return ['__background__'] + [row[1] for row in csv_reader]
 
     @cached_property
     def _label_names_map(self) -> Mapping[str, str]:
         """
-        Returns a mapping from label IDs to human readable label names.
+        Returns a mapping from "label ids of objects" to human readable label names.
+        See `label_name()` below.
         """
         with self.cache.open('class-descriptions-boxable.csv',
                              self._DOWNLOAD_URL)\
@@ -95,15 +103,34 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             return {label_id: label_name for label_id, label_name in csv_reader}
 
     def label_name(self, label_id: str):
+        """
+        Looks up the human readable label name of a "label id".
+        "Label ids" in the OpenImages dataset are a special concept of the OpenImages dataset,
+        they are uniform identifiers for both objects and per-image labels.
+        This method only works for label ids of objects.
+        """
         return self._label_names_map[label_id]
+
+    @cached_property
+    def object_names(self):
+        """
+        Returns a list of all object names that have bounding boxes in the dataset.
+        The index of each object name in the list is its id during classification.
+        """
+        with self.cache.open('class-descriptions-boxable.csv', self._DOWNLOAD_URL) \
+                as object_names_file:
+            csv_reader = csv.reader(object_names_file, delimiter=',')
+            return ['__background__'] + [row[1] for row in csv_reader]
 
     @cached_property
     def validation_boxes_map(self) -> Mapping[str, np.ndarray]:
         """
         Returns a mapping from an image ID of the validation set
-        to the list of boxes and labels that were annotated for this image.
+        to the bounding boxes of objects that were annotated for this image.
         """
         labels_file_name = 'validation-annotations-bbox.csv'
+
+        label_id_by_name = {label_name: label_id for label_id, label_name in enumerate(self.label_names)}
 
         with self.cache.open(labels_file_name, self._VALIDATION_URL) \
                 as validation_labels_file:
@@ -120,7 +147,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
                     boxes_row_map[image_id] = [row]
 
             boxes_map = {
-                image_id: np.array([(row['LabelName'],
+                image_id: np.array([(label_id_by_name[self.label_name(row['LabelName'])],
                                      float(row['XMin']), float(row['XMax']),
                                      float(row['YMin']), float(row['YMax']),
                                      bool(row['IsOccluded']),

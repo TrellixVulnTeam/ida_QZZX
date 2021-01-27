@@ -32,7 +32,7 @@ from pyspark.sql.types import IntegerType, FloatType
 
 from simadv.common import PetastormReadConfig, LoggingConfig, PetastormTransformer, TorchConfig
 from simadv.places365.hub import Places365Hub
-from functools import cached_property
+from simadv.util.functools import cached_property
 from simadv.util.webcache import WebCache
 
 

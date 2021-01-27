@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from petastorm.unischema import UnischemaField
 
 from simadv.explain import TorchExplainTask, main
 from simadv.oiv4.hub import OpenImagesV4Hub
@@ -6,7 +8,7 @@ from simadv.oiv4.hub import OpenImagesV4Hub
 
 @dataclass
 class OIV4TorchExplainTask(TorchExplainTask):
-    id_field = OpenImagesV4Hub.image_id_field
+    id_field: UnischemaField = field(default=OpenImagesV4Hub.image_id_field, init=False)
 
 
 if __name__ == '__main__':

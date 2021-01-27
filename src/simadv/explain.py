@@ -2,6 +2,11 @@ import abc
 import logging
 import time
 from dataclasses import dataclass, field
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from skimage.segmentation import mark_boundaries
+
 from simadv.util.functools import cached_property
 from itertools import islice
 from typing import Optional, Type
@@ -9,7 +14,7 @@ from typing import Optional, Type
 import numpy as np
 from petastorm.codecs import ScalarCodec, CompressedNdarrayCodec
 from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
-from pyspark.sql.types import StringType
+from pyspark.sql.types import StringType, IntegerType
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, TorchConfig, PetastormTransformer, \
@@ -36,21 +41,23 @@ class InfluenceEstimator(abc.ABC):
 @dataclass
 class AnchorInfluenceEstimator(InfluenceEstimator):
 
-    max_anchor_size = 2
-    coverage_samples = 5
-    stop_on_first = True
-    tau = 0.2
-    delta = 0.1
-    batch_size = 10
+    coverage_samples: int = 10000
+    stop_on_first: bool = False
+    threshold: float = 0.95
+    delta: float = 0.1
+    tau: float = 0.15
+    batch_size: int = 100
+    max_anchor_size: Optional[int] = None
 
-    def __init__(self):
+    def __post_init__(self):
         self.anchor = anchor_image.AnchorImage()
 
+    @property
     def id(self) -> str:
         return 'anchor'
 
     def get_influential_pixels(self, classifier: Classifier, img: np.ndarray) -> np.ndarray:
-        explanation = self.anchor.explain_instance(np.asarray(img),
+        explanation = self.anchor.explain_instance(img,
                                                    classifier.predict_proba,
                                                    max_anchor_size=self.max_anchor_size,
                                                    coverage_samples=self.coverage_samples,
@@ -96,18 +103,26 @@ class TorchExplainTask(PetastormTransformer):
 
     perturbation_image_id_field_name: str = field(default='perturbation_image_id', init=False)
 
-    min_coverage = 0.1
+    min_coverage: float = 0.1
     # if more than this fraction of an objects bounding box is covered by influential pixels,
     # the object is considered relevant for the corresponding prediction of the classifier.
 
-    perturbation_factor = 10
+    perturbation_factor: int = 10
     # number of perturbed object counts to generate based on each influence mask
+
+    debug: bool = False
+    # whether to visualize the influential pixels for each image and explainer
 
     def __post_init__(self):
         # load the classifier from its name
         @dataclass
         class PartialTorchImageClassifier(TorchImageClassifier):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
+
+        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
+        self.influence_estimators = (self.anchor_ie,)
+        self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
+                                                     self.read_cfg.pool_type, self.read_cfg.workers_count)
 
         if self.counts_field_name is None:
             self.counts_field_name = 'object_counts'
@@ -118,11 +133,6 @@ class TorchExplainTask(PetastormTransformer):
         if self.estimator_field_name is None:
             self.estimator_field_name = 'influence_estimator'
 
-        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.anchor_ie,)
-        self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
-                                                     self.read_cfg.pool_type, self.read_cfg.workers_count)
-
     @cached_property
     def schema(self):
         """
@@ -130,14 +140,14 @@ class TorchExplainTask(PetastormTransformer):
         """
         object_counts_field = UnischemaField(self.counts_field_name, np.uint8, (self.num_objects,),
                                              CompressedNdarrayCodec(), False)
-        class_field = UnischemaField(self.class_field_name, np.float32, (self.classifier.task.num_classes,),
-                                     CompressedNdarrayCodec(), False)  # probability distribution over classes
-        estimator_field = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), False)
+        class_field = UnischemaField(self.class_field_name, np.uint16, (),
+                                     ScalarCodec(IntegerType()), False)
+        estimator_field = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
         original_image_id_field = UnischemaField(self.original_image_id_field_name, self.id_field.numpy_dtype,
-                                                 self.id_field.shape, self.id_field.codec, self.id_field.nullable)
+                                                 self.id_field.shape, self.id_field.codec, False)
         perturbation_image_id_field = UnischemaField(self.perturbation_image_id_field_name,
                                                      self.id_field.numpy_dtype, self.id_field.shape,
-                                                     self.id_field.codec, self.id_field.nullable)
+                                                     self.id_field.codec, True)
 
         return Unischema('ExplainerSchema', [object_counts_field, class_field, estimator_field, original_image_id_field,
                                              perturbation_image_id_field])
@@ -149,6 +159,7 @@ class TorchExplainTask(PetastormTransformer):
 
         with self.read_cfg.make_reader([self.id_field.name, 'image', 'boxes']) as reader:
             with self.read_cfg.make_reader([self.id_field.name, 'boxes']) as sampling_reader:
+                logging.info('Start reading images...')
                 for row in reader:
                     row_id = getattr(row, self.id_field.name)
                     processed_images_count += 1
@@ -156,19 +167,44 @@ class TorchExplainTask(PetastormTransformer):
                     for influence_estimator in self.influence_estimators:
                         pred_class = np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0])
                         influence_mask = influence_estimator.get_influential_pixels(self.classifier, row.image)
+                        if self.debug:
+                            fig = plt.figure()
+                            ax = plt.Axes(fig, [0., 0., 1., 1.])
+                            ax.set_axis_off()
+                            fig.add_axes(ax)
+                            ax.imshow(mark_boundaries(row.image, influence_mask))
 
-                        counts = np.zeros((self.num_objects,))
-                        min_counts = np.zeros((self.num_objects,))
+                        height, width = influence_mask.shape
+
+                        counts = np.zeros((self.num_objects,), dtype=np.uint8)
+                        min_counts = np.zeros((self.num_objects,), dtype=np.uint8)
                         for box in row.boxes:
-                            obj_id, x_min, x_max, y_min, y_max = box[:4]
-                            coverage = np.count_nonzero(influence_mask[x_min:x_max, y_min:y_max]) / \
+                            obj_id, x_min, x_max, y_min, y_max = list(box)[:5]
+                            x_min = int(np.floor(x_min * width))  # in case of "rounding doubt" let the object be larger
+                            x_max = int(np.ceil(x_max * width))
+                            y_min = int(np.floor(y_min * height))
+                            y_max = int(np.ceil(y_max * height))
+                            coverage = np.count_nonzero(influence_mask[y_min:y_max, x_min:x_max]) / \
                                        ((x_max - x_min) * (y_max - y_min))
                             counts[obj_id] += 1
 
+                            logging.info('Object: {} has {:.2f} coverage.'.format(obj_id, coverage))
+
                             if coverage > self.min_coverage:
                                 min_counts[obj_id] += 1
+                                logging.info('Influential object: {} with {:.2f} coverage.'.format(obj_id, coverage))
+
+                            if self.debug:
+                                plt.gca().add_patch(Rectangle((x_min, y_min), (x_max - x_min), (y_max - y_min),
+                                                              linewidth=1, edgecolor='r', facecolor='none'))
+                                plt.text(x_min, y_max, str(obj_id), color='r')
 
                         has_influential_object = np.any(min_counts)
+
+                        if self.debug:
+                            plt.show()
+                            input('--- press enter to continue ---')
+                            plt.clf()
 
                         if has_influential_object:
                             # yield original counts
@@ -180,7 +216,7 @@ class TorchExplainTask(PetastormTransformer):
 
                             # sample random object counts from the same distribution
                             for sampled_row in islice(sampling_reader, self.perturbation_factor):
-                                sample_counts = np.zeros((self.num_objects,))
+                                sample_counts = np.zeros((self.num_objects,), dtype=np.uint8)
                                 for box in sampled_row.boxes:
                                     obj_id = box[0]
                                     sample_counts[obj_id] += 1
@@ -199,15 +235,17 @@ class TorchExplainTask(PetastormTransformer):
 
                     current_time = time.time()
                     if current_time - last_time > 5:
-                        hit_freq = {hit_counts[est] / processed_images_count for est in self.influence_estimators}
-                        logging.info('Processed {} images so far. Hit frequencies: {:.2f}'
-                                     .format(processed_images_count, hit_freq))
+                        f = ', '.join(['{}: {:.2f}'.format(est.id, float(hit_counts[est.id]) / processed_images_count)
+                                      for est in self.influence_estimators])
+                        logging.info('Processed {} images so far. Hit frequencies: {}'
+                                     .format(processed_images_count, f))
                         last_time = current_time
 
     def run(self):
         spark_schema = self.schema.as_spark_schema()
         rows = [dict_to_spark_row(self.schema, row_dict) for row_dict in self._get_perturbations()]
         df = self.write_cfg.session.createDataFrame(rows, spark_schema)
+        logging.info('Writing {} object count observations to petastorm parquet store.'.format(df.count()))
         self.write_cfg.write_parquet(df, self.schema, self.output_url)
 
 

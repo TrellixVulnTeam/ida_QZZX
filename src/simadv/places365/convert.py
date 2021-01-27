@@ -7,7 +7,7 @@ from simadv.places365.hub import Places365Hub
 
 @dataclass
 class Places365ConvertTask(ConvertTask):
-    hub: SupervisedImageDataset = field(default=Places365Hub, init=False)
+    hub: SupervisedImageDataset = field(default_factory=Places365Hub, init=False)
 
 
 if __name__ == '__main__':

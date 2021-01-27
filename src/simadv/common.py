@@ -3,19 +3,23 @@ import logging
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
+import skimage
 import torch
 import torchvision
 from petastorm import make_reader
 from petastorm.etl.dataset_metadata import materialize_dataset
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField
+from skimage import img_as_float
+from skimage.transform import resize
 from torch.nn.functional import softmax
 
 from pyspark.sql import SparkSession
 from simple_parsing import Serializable
+from torchvision import transforms
 
 from simadv.util.webcache import WebCache
 
@@ -124,6 +128,7 @@ class Classifier(abc.ABC):
     # the task this model was trained on
     task: ClassificationTask
 
+    @abc.abstractmethod
     def predict_proba(self, images: np.ndarray) -> np.ndarray:
         pass
 
@@ -141,6 +146,9 @@ class TorchImageClassifier(Classifier, Serializable):
     # torch configuration to use
     torch_cfg: TorchConfig
 
+    # required input size of the model
+    input_size: Tuple[int, int] = (224, 224)
+
     # where to cache downloaded information
     cache: WebCache = WebCache()
 
@@ -153,6 +161,11 @@ class TorchImageClassifier(Classifier, Serializable):
             self.url += '/'
 
         self._model = None
+
+        # magic constants in the torch community
+        means, sds = np.asarray([0.485, 0.456, 0.406]), np.asarray([0.229, 0.224, 0.225])
+        self._means_nested = means[None, None, :]
+        self._sds_nested = sds[None, None, :]
 
     def _convert_latin1_to_unicode_and_cache(self):
         dest_path = self.cache.cache_dir / self.file_name
@@ -200,9 +213,21 @@ class TorchImageClassifier(Classifier, Serializable):
         self._model.eval()
         return self._model
 
-    def predict_proba(self, images: np.ndarray):
+    def preprocess(self, image: np.ndarray) -> np.ndarray:
+        """
+        Takes in an RGB `image` in shape (H, W, C) with value range [0, 255]
+        and outputs a resized and normalized image in shape (C, H, W).
+        """
+        image = img_as_float(image)
+        image = (resize(image, self.input_size) - self._means_nested) / self._sds_nested
+        return np.transpose(image, (2, 0, 1))
+
+    def predict_proba(self, images: np.ndarray, preprocessed=False) -> np.ndarray:
+        if not preprocessed:
+            images = np.asarray([self.preprocess(img) for img in images])
+
         self.torch_model.to(self.torch_cfg.device)
-        image_tensors = torch.from_numpy(images).float().to(self.torch_cfg.device).permute((0, 3, 1, 2))
+        image_tensors = torch.from_numpy(images).float().to(self.torch_cfg.device)
         logits = self.torch_model(image_tensors)
         probs = softmax(logits, dim=1)
         return probs.detach().cpu().numpy()
@@ -212,7 +237,7 @@ class TorchImageClassifier(Classifier, Serializable):
 class TorchImageClassifierSerialization:
     path: str  # path to a json serialization of a TorchImageClassifier
 
-    _COLLECTION_PACKAGE = 'classifier_collection'
+    _COLLECTION_PACKAGE = 'simadv.classifier_collection'
 
     def _raise_invalid_path(self):
         raise ValueError('Classifier path {} is neither a valid path, nor does it point to a valid resource.'

@@ -7,7 +7,7 @@ from simadv.oiv4.hub import OpenImagesV4Hub
 
 @dataclass
 class OIV4ConvertTask(ConvertTask):
-    hub: SupervisedImageDataset = field(default=OpenImagesV4Hub, init=False)
+    hub: SupervisedImageDataset = field(default_factory=OpenImagesV4Hub, init=False)
 
 
 if __name__ == '__main__':

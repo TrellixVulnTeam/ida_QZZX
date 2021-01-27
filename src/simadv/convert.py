@@ -1,4 +1,6 @@
+import logging
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Union, Optional, Tuple, Type
 
@@ -6,7 +8,6 @@ import numpy as np
 from PIL import Image
 from petastorm.codecs import CompressedImageCodec
 
-from petastorm.etl.dataset_metadata import materialize_dataset
 from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from simple_parsing import ArgumentParser
 
@@ -21,10 +22,11 @@ class ConvertTask:
     write_cfg: PetastormWriteConfig
     hub: SupervisedImageDataset
 
-    glob = '*.jpg'
+    glob: str = '*.jpg'
+    sample_size: Optional[int] = None
     subset: str = 'validation'
     output_url: Optional[str] = None
-    ignore_missing_labels: bool = False
+    ignore_missing_labels: bool = True
     image_size: Optional[Tuple[int, int]] = None
     min_length: Optional[int] = None
     max_length: Optional[int] = None
@@ -103,18 +105,16 @@ class ConvertTask:
 
         schema = self._get_schema()
 
-        with materialize_dataset(self.write_cfg.session, self.output_url, schema,
-                                 self.write_cfg.row_size):
-            rows_rdd = spark_ctx.parallelize(self.images_dir.glob(self.glob)) \
-                .repartition(self.num_partitions) \
-                .map(generate_row) \
-                .filter(lambda x: x is not None) \
-                .map(lambda x: dict_to_spark_row(schema, x))
+        img_stream = islice(self.images_dir.glob(self.glob), self.sample_size)
+        rows_rdd = spark_ctx.parallelize(img_stream) \
+            .repartition(self.num_partitions) \
+            .map(generate_row) \
+            .filter(lambda x: x is not None) \
+            .map(lambda x: dict_to_spark_row(schema, x))
 
-            self.write_cfg.session.createDataFrame(rows_rdd, schema.as_spark_schema()) \
-                .write \
-                .mode('overwrite') \
-                .parquet(self.output_url)
+        df = self.write_cfg.session.createDataFrame(rows_rdd, schema.as_spark_schema())
+        logging.info('Converted {} images into petastorm parquet store.'.format(df.count()))
+        self.write_cfg.write_parquet(df, schema, self.output_url)
 
 
 def main(convert_task: Type[ConvertTask]):
