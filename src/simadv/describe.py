@@ -114,9 +114,9 @@ class CopyDataGenerator(DataGenerator):
         return self._fields
 
     def __call__(self):
-        with self._log_task('Translating to: unchanged input'):
+        with self._log_task('Describing with: unchanged input'):
             df = self.spark_session.read.parquet(self.input_url)
-            self._log_item('Processed a total of {} rows.'.format(df.count()))
+            self._log_item('Described a total of {} rows.'.format(df.count()))
             return df
 
 
@@ -136,7 +136,7 @@ class DictBasedDataGenerator(DataGenerator):
         pass
 
     def __call__(self) -> DataFrame:
-        with self._log_task('Translating to: {}'
+        with self._log_task('Describing with: {}'
                             .format(self.output_description)):
             rows = []
 
@@ -147,7 +147,7 @@ class DictBasedDataGenerator(DataGenerator):
 
                 current_time = time.time()
                 if current_time - last_time > 5:
-                    self._log_item('Translated {} rows so far.'
+                    self._log_item('Described {} rows so far.'
                                    .format(num_rows + 1))
                     last_time = current_time
 
@@ -164,8 +164,8 @@ class TorchDescriber(DictBasedDataGenerator, abc.ABC):
     Attention: If the input images can have different sizes, you *must*
     set `read_cfg.batch_size` to 1!
 
-    Subclasses can translate the produced tensors to other data
-    batch-wise by implementing the `translate_batch` method.
+    Subclasses can describe the produced tensors as other data
+    batch-wise by implementing the `describe_batch` method.
     """
 
     def __init__(self, spark_session: SparkSession,
@@ -174,8 +174,7 @@ class TorchDescriber(DictBasedDataGenerator, abc.ABC):
                  read_cfg: PetastormReadConfig,
                  device: torch.device):
         """
-        Reads image data from a petastorm `read_cfg` and translates it
-        to other data.
+        Reads image data from a petastorm `read_cfg` and describes it as other data.
         The input petastorm schema must have a field called *image*.
         """
         super().__init__(spark_session, output_description, id_field)
@@ -209,7 +208,7 @@ class TorchDescriber(DictBasedDataGenerator, abc.ABC):
             yield to_tensor(list(zip(*current_batch)))
 
     @abc.abstractmethod
-    def translate_batch(self, ids, batch) -> Iterable[RowDict]:
+    def describe_batch(self, ids, batch) -> Iterable[RowDict]:
         pass
 
     def cleanup(self):
@@ -221,7 +220,7 @@ class TorchDescriber(DictBasedDataGenerator, abc.ABC):
     def generate(self):
         with torch.no_grad():
             for ids, batch in self.batch_iter():
-                yield from self.translate_batch(ids, batch)
+                yield from self.describe_batch(ids, batch)
 
         self.cleanup()
 
@@ -247,7 +246,7 @@ class ImageDummyDescriber(TorchDescriber):
     def fields(self) -> [UnischemaField]:
         return [self._field]
 
-    def translate_batch(self, ids, image_tensors):
+    def describe_batch(self, ids, image_tensors):
         image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
 
         for row_id, image_tensor in zip(ids, image_tensors):
@@ -259,7 +258,7 @@ class ImageDummyDescriber(TorchDescriber):
 
 class ColorDistributionDescriber(TorchDescriber):
     """
-    Translates each image to a "color distribution".
+    Describes each image with a "color distribution".
     That is, every pixel of the image is sorted into a bin
     of a histogram.
     Each bin corresponds to a perceivable color.
@@ -351,8 +350,8 @@ class ColorDistributionDescriber(TorchDescriber):
         return np.concatenate((non_hue_counts, hue_counts))
 
     @staticmethod
-    def _translate_single(image_tensor, resize_to, hue_bins, hue_names,
-                          hue_bin_names, lightness_names):
+    def _describe_single(image_tensor, resize_to, hue_bins, hue_names,
+                         hue_bin_names, lightness_names):
         image = to_pil_image(image_tensor, 'RGB') \
             .resize((resize_to, resize_to))
 
@@ -383,10 +382,10 @@ class ColorDistributionDescriber(TorchDescriber):
 
         return color_fractions
 
-    def translate_batch(self, ids, image_tensors):
+    def describe_batch(self, ids, image_tensors):
         image_tensors = image_tensors.cpu().permute(0, 3, 1, 2)
 
-        f = partial(self._translate_single, resize_to=self._resize_to,
+        f = partial(self._describe_single, resize_to=self._resize_to,
                     hue_bins=self._hue_bins, hue_names=self._hue_names,
                     hue_bin_names=self._hue_bin_names,
                     lightness_names=self._lightness_names)
@@ -490,7 +489,7 @@ class Places365SceneLabelDescriber(TorchModelDescriber):
                                             id_field, read_cfg, device,
                                             create_model, top_k=top_k)
 
-    def translate_batch(self, ids, image_tensors):
+    def describe_batch(self, ids, image_tensors):
         image_tensors = image_tensors.permute(0, 3, 1, 2)
 
         probs_batch = self.model(image_tensors).cpu()
@@ -582,7 +581,7 @@ class CocoObjectNamesDescriber(TorchModelDescriber):
         return {CocoObjectNamesDescriber.object_names()[obj_id]: count
                 for obj_id, count in enumerate(counts_array) if count > 0}
 
-    def translate_batch(self, ids, image_tensors):
+    def describe_batch(self, ids, image_tensors):
         # transform (H, W, C) images to (C, H, W) images
         image_tensors = image_tensors.permute(0, 3, 1, 2)
 
@@ -620,7 +619,7 @@ class TFDescriber(DictBasedDataGenerator, abc.ABC):
     """
     Reads batches of image data from a petastorm store
     and converts these images to Tensorflow tensors.
-    Subclasses can translate these tensors to other data.
+    Subclasses can describe these tensors as other data.
 
     FIXME: this describer currently only works if all images have the same size
     """
