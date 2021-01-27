@@ -977,6 +977,8 @@ def main(describe_task: Type[DescribeTask]):
         This field may have any name, it is passed with the parameter `id_field`.
       - A field holding image data encoded with the petastorm png encoder.
         This field must be named *image*.
+
+    Use one of the implementations in the submodules of this package.
     """
     mp.set_start_method('spawn')
     parser = ArgumentParser(description='Describe images with abstract and familiar attributes.')

@@ -223,6 +223,8 @@ def main(explain_task: Type[TorchExplainTask]):
         This field must be named *image*.
       - A field holding bounding boxes of visible objects on the image.
         This field must be named *boxes*.
+
+    Use one of the implementations in the submodules of this package.
     """
     parser = ArgumentParser(description='Explain an image classifier by representing its decision boundary '
                                         'with visible objects.')
