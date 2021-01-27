@@ -1,7 +1,6 @@
-import dataclasses
 import logging
-from dataclasses import dataclass, field
-from importlib import resources
+from dataclasses import dataclass
+from importlib import resources, abc
 from pathlib import Path
 from typing import Optional
 
@@ -117,13 +116,19 @@ class ClassificationTask:
 
 
 @dataclass
-class TorchImageClassifier(Serializable):
-
+class Classifier(abc.ABC):
     # name of this model
     name: str
 
     # the task this model was trained on
     task: ClassificationTask
+
+    def predict_proba(self, images: np.ndarray) -> np.ndarray:
+        pass
+
+
+@dataclass
+class TorchImageClassifier(Classifier, Serializable):
 
     # an optional file to load this model from
     # if None, the model will be loaded from the torchvision collection.
@@ -147,8 +152,6 @@ class TorchImageClassifier(Serializable):
             self.url += '/'
 
         self._model = None
-        self._observed_layer_outputs = {}
-        self._layer_output_sizes = {}
 
     def _convert_latin1_to_unicode_and_cache(self):
         dest_path = self.cache.cache_dir / self.file_name
@@ -224,19 +227,3 @@ class TorchImageClassifierSerialization:
                     self._raise_invalid_path()
             except ModuleNotFoundError:
                 self._raise_invalid_path()
-
-
-def partial_dataclass(cls, **presets):
-    """
-    Derives a dataclass from `cls` and sets its default values according to `presets`.
-    No new fields are added.
-    """
-    fields = []
-
-    for f in dataclasses.fields(cls):
-        if f.name in presets:
-            fields.append((f.name, f.type, dataclasses.field(default=presets[f.name], init=False)))
-
-    partial_cls = dataclasses.make_dataclass('Partial' + cls.__name__, fields, bases=(cls,))
-    return partial_cls
-
