@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import reduce, partial
 from pathlib import Path
-from typing import Optional, Any, Dict, Iterable
+from typing import Optional, Any, Dict, Iterable, Type
 
 import numpy as np
 import torch
@@ -32,7 +32,7 @@ from pyspark.sql.types import IntegerType, FloatType
 
 from simadv.common import PetastormReadConfig, LoggingConfig, PetastormTransformer, TorchConfig
 from simadv.places365.hub import Places365Hub
-from simadv.util.functools import cached_property
+from functools import cached_property
 from simadv.util.webcache import WebCache
 
 
@@ -855,7 +855,7 @@ _RE_OI = re.compile(r'(?P<name>oi_objects)'
 
 
 @dataclass
-class DescriberFactory(PetastormTransformer):
+class DescribeTask(PetastormTransformer):
     """
     Runs multiple describers with shared settings.
     """
@@ -967,7 +967,7 @@ class DescriberFactory(PetastormTransformer):
         logging.info('----- Finished -----')
 
 
-def main(id_field: UnischemaField):
+def main(describe_task: Type[DescribeTask]):
     """
     Describe images with abstract and familiar attributes.
     The images are read from a petastorm parquet store. In this parquet store,
@@ -977,17 +977,10 @@ def main(id_field: UnischemaField):
         This field may have any name, it is passed with the parameter `id_field`.
       - A field holding image data encoded with the petastorm png encoder.
         This field must be named *image*.
-
-    :param id_field: the field to use as unique image identifier
     """
     mp.set_start_method('spawn')
-
-    @dataclass  # set the id_field attribute
-    class PartialDescriberFactory(DescriberFactory):  # give the id_field its default value
-        id_field: UnischemaField = field(default_factory=lambda: id_field, init=False)
-
     parser = ArgumentParser(description='Describe images with abstract and familiar attributes.')
-    parser.add_arguments(PartialDescriberFactory, 'describer')
+    parser.add_arguments(describe_task, 'describe_task')
     parser.add_arguments(LoggingConfig, 'logging')
     args = parser.parse_args()
-    args.describer.run()
+    args.describe_task.run()
