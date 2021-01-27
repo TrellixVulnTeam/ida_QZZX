@@ -1,6 +1,7 @@
+import abc
 import logging
 from dataclasses import dataclass
-from importlib import resources, abc
+from importlib import resources
 from pathlib import Path
 from typing import Optional
 
