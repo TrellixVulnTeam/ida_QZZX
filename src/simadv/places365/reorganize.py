@@ -1,18 +1,43 @@
-import argparse
 import logging
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Union, Optional
 
+from simple_parsing import ArgumentParser
+
+from simadv.common import LoggingConfig
 from simadv.places365.hub import Places365Hub
-from simadv import config as cfg
 from simadv.util.webcache import WebCache
 
 
-class Reorganizer:
+@dataclass
+class ReorganizeTask:
 
-    def __init__(self, images_dir: str, hub: Places365Hub):
-        self.images_dir = Path(images_dir)
+    images_dir: Union[str, Path]
+    cache_dir: Optional[str]
+    glob = '*.jpg'
+    subset: str = 'validation'
+
+    def __post_init__(self):
+        if isinstance(self.images_dir, str):
+            self.images_dir = Path(self.images_dir)
+        self.images_dir = self.images_dir.expanduser()
         assert self.images_dir.exists()
-        self.hub = hub
+
+        if self.subset == 'validation':
+            self.label_map = self.hub.validation_label_map
+        elif self.subset == 'train':
+            self.label_map = self.hub.train_label_map
+        else:
+            raise NotImplementedError('Currently only images from the '
+                                      'validation or train subset can be '
+                                      'reorganized.')
+
+        if self.output_url is None:
+            self.output_url = 'file://' + str(self.images_dir.absolute() /
+                                              '{}.parquet'.format(self.subset))
+
+        self.hub = Places365Hub(WebCache(self.cache_dir))
 
     def create_directories(self):
         """
@@ -22,54 +47,24 @@ class Reorganizer:
             label_path = self.images_dir / label
             label_path.mkdir(exist_ok=True)
 
-    def move_image_files(self, glob='*.jpg', subset='validation'):
+    def run(self):
         """
         Moves all files matching `glob` within `images_dir` to the correct
         subdirectory. The correct subdirectory for an image has the name
         of the label of this image.
         Currently, this method only works for images from the validation subset.
         """
-        if subset == 'validation':
-            label_map = self.hub.validation_label_map
-        elif subset == 'train':
-            label_map = self.hub.train_label_map
-        else:
-            raise NotImplementedError('Currently only images from the '
-                                      'validation or train subset can be '
-                                      'reorganized.')
-
-        for image_path in self.images_dir.glob(glob):
-            label_id = label_map[image_path.name]
+        for image_path in self.images_dir.glob(self.glob):
+            label_id = self.label_map[image_path.name]
             dest_path = self.images_dir / self.hub.label_names[label_id] / \
-                        image_path.name
+                image_path.name
             logging.info('Moving image {} to {}.'.format(image_path, dest_path))
             image_path.replace(dest_path)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Group images by their label '
-                                                 'into different '
-                                                 'subdirectories.')
-    parser.add_argument('subset', type=str, choices=['validation', 'train'],
-                        help='the subset of images to reorganize')
-    parser.add_argument('images_dir', type=str,
-                        help='the directory where the images are stored')
-    parser.add_argument('images_glob', type=str,
-                        help='glob expression specifying which images in the '
-                             'above directory should be moved')
-
-    log_group = parser.add_argument_group('Logging settings')
-    cfg.LoggingConfig.setup_parser(log_group)
-
-    cache_group = parser.add_argument_group('Cache settings')
-    cfg.WebCacheConfig.setup_parser(cache_group)
-
+    parser = ArgumentParser(description='Group images by their label into different subdirectories.')
+    parser.add_arguments(ReorganizeTask, dest='reorganize_task')
+    parser.add_arguments(LoggingConfig, dest='logging')
     args = parser.parse_args()
-
-    cfg.LoggingConfig.set_from_args(args)
-    _cache = WebCache(cfg.WebCacheConfig.from_args(args))
-    _hub = Places365Hub(_cache)
-
-    reorganizer = Reorganizer(args.images_dir, _hub)
-    reorganizer.create_directories()
-    reorganizer.move_image_files(args.images_glob, args.subset)
+    args.convert_task.run()

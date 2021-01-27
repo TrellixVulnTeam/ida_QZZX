@@ -1,5 +1,6 @@
-from argparse import ArgumentParser
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Union, Optional, Tuple, Type
 
 import numpy as np
 from PIL import Image
@@ -7,21 +8,38 @@ from petastorm.codecs import CompressedImageCodec
 
 from petastorm.etl.dataset_metadata import materialize_dataset
 from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
-from pyspark.sql import SparkSession
+from simple_parsing import ArgumentParser
 
-from simadv import config as cfg
+from simadv.common import PetastormWriteConfig, LoggingConfig
 from simadv.hub import SupervisedImageDataset
-from simadv.util.webcache import WebCache
 
 
-class Converter:
+@dataclass
+class ConvertTask:
 
-    def __init__(self, images_dir: str, hub: SupervisedImageDataset,
-                 write_cfg: cfg.PetastormWriteConfig):
-        self.images_dir = Path(images_dir).expanduser()
+    images_dir: Union[str, Path]
+    write_cfg: PetastormWriteConfig
+    hub: SupervisedImageDataset
+
+    glob = '*.jpg'
+    subset: str = 'validation'
+    output_url: Optional[str] = None
+    ignore_missing_labels: bool = False
+    image_size: Optional[Tuple[int, int]] = None
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    num_partitions: int = 64 * 3
+
+    def __post_init__(self):
+        if isinstance(self.images_dir, str):
+            self.images_dir = Path(self.images_dir)
+        self.images_dir = self.images_dir.expanduser()
         assert self.images_dir.exists()
-        self.hub = hub
-        self.write_cfg = write_cfg
+
+        assert self.subset in ['validation', 'test']
+        if self.output_url is None:
+            self.output_url = 'file://' + str(self.images_dir.absolute() /
+                                              '{}.parquet'.format(self.subset))
 
     def _get_schema(self):
         image_data_field = UnischemaField('image', np.uint8, (None, None, 3),
@@ -32,52 +50,37 @@ class Converter:
                           image_data_field,
                           self.hub.label_field])
 
-    def convert(self, glob='*.jpg', subset='validation',
-                output_url=None, ignore_missing_labels=False,
-                image_size=None, min_length=None,
-                max_length=None):
-        assert subset in ['validation', 'train']
-
-        if output_url is None:
-            output_url = 'file://' + str(self.images_dir.absolute() /
-                                         '{}.parquet'.format(subset))
-
-        spark_session = SparkSession.builder\
-            .config('spark.driver.memory',
-                    self.write_cfg.spark_driver_memory)\
-            .master(self.write_cfg.spark_master)\
-            .getOrCreate()
-
-        spark_ctx = spark_session.sparkContext
+    def run(self):
+        spark_ctx = self.write_cfg.session.sparkContext
 
         def generate_row(image_path: Path):
             try:
-                image_id = self.hub.get_image_id(image_path, subset)
-                label = self.hub.get_image_label(image_path, subset)
+                image_id = self.hub.get_image_id(image_path, self.subset)
+                label = self.hub.get_image_label(image_path, self.subset)
             except KeyError as e:
-                if ignore_missing_labels:
+                if self.ignore_missing_labels:
                     return None
                 else:
                     raise e
             else:
                 image = Image.open(image_path)
 
-                if image_size:
-                    image = image.resize(image_size)
+                if self.image_size:
+                    image = image.resize(self.image_size)
                 else:
                     current_min_length = min(*image.size)
                     current_max_length = max(*image.size)
 
                     # compute the minimum and maximum scale factors:
 
-                    if min_length:
-                        min_scale = float(min_length) / \
+                    if self.min_length:
+                        min_scale = float(self.min_length) / \
                                     float(current_min_length)
                     else:
                         min_scale = 0.
 
-                    if max_length:
-                        max_scale = float(max_length) / \
+                    if self.max_length:
+                        max_scale = float(self.max_length) / \
                                     float(current_max_length)
                     else:
                         max_scale = 1.
@@ -100,50 +103,27 @@ class Converter:
 
         schema = self._get_schema()
 
-        with materialize_dataset(spark_session, output_url, schema,
-                                 self.write_cfg.row_group_size_mb):
-            rows_rdd = spark_ctx.parallelize(self.images_dir.glob(glob)) \
-                .repartition(self.write_cfg.num_partitions) \
+        with materialize_dataset(self.write_cfg.session, self.output_url, schema,
+                                 self.write_cfg.row_size):
+            rows_rdd = spark_ctx.parallelize(self.images_dir.glob(self.glob)) \
+                .repartition(self.num_partitions) \
                 .map(generate_row) \
                 .filter(lambda x: x is not None) \
                 .map(lambda x: dict_to_spark_row(schema, x))
 
-            spark_session.createDataFrame(rows_rdd, schema.as_spark_schema()) \
+            self.write_cfg.session.createDataFrame(rows_rdd, schema.as_spark_schema()) \
                 .write \
                 .mode('overwrite') \
-                .parquet(output_url)
+                .parquet(self.output_url)
 
 
-def main(parser: ArgumentParser, hub_class):
-    conv_group = parser.add_argument_group('Conversion settings')
-    cfg.ConverterConfig.setup_parser(conv_group)
-
-    log_group = parser.add_argument_group('Logging settings')
-    cfg.LoggingConfig.setup_parser(log_group)
-
-    cache_group = parser.add_argument_group('Cache settings')
-    cfg.WebCacheConfig.setup_parser(cache_group)
-
-    peta_write_group = parser.add_argument_group('Settings for writing the '
-                                                 'output dataset')
-    cfg.PetastormWriteConfig.setup_parser(peta_write_group,
-                                          default_spark_master='local[8]',
-                                          default_spark_driver_memory='40g',
-                                          default_num_partitions=64 * 3,
-                                          default_row_size=1024)
-
+def main(convert_task: Type[ConvertTask]):
+    """
+    Convert images to a petastorm parquet store.
+    Use one of the implementations in the submodules of this package.
+    """
+    parser = ArgumentParser(description='Convert images to a petastorm parquet store.')
+    parser.add_arguments(convert_task, dest='convert_task')
+    parser.add_arguments(LoggingConfig, dest='logging')
     args = parser.parse_args()
-
-    conv_cfg = cfg.ConverterConfig.from_args(args)
-    cfg.LoggingConfig.set_from_args(args)
-    write_cfg = cfg.PetastormWriteConfig.from_args(args)
-
-    cache = WebCache(cfg.WebCacheConfig.from_args(args))
-    hub = hub_class(cache)
-
-    converter = Converter(conv_cfg.images_dir, hub, write_cfg)
-    converter.convert(conv_cfg.images_glob, conv_cfg.subset,
-                      conv_cfg.output_url, conv_cfg.ignore_missing_labels,
-                      image_size=conv_cfg.size,
-                      min_length=conv_cfg.min_length,
-                      max_length=conv_cfg.max_length)
+    args.convert_task.run()
