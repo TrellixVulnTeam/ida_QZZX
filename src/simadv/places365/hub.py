@@ -10,7 +10,6 @@ from pyspark.sql.types import StringType, IntegerType
 
 from simadv.hub import SupervisedImageDataset, SupervisedImageDatasetMeta
 from simadv.util.functools import cached_property
-from simadv.places365 import wideresnet
 from simadv.util.webcache import WebCache
 
 
@@ -181,26 +180,6 @@ class Places365Hub(SupervisedImageDataset, metaclass=Places365HubMeta):
                                    encoding='latin1')
                 torch.save(model, new_path)
                 (self.cache.cache_dir / legacy_file_name).unlink()
-
-    def resnet18(self):
-        """
-        Returns a pre-trained ResNet18 provided by the original authors
-        to predict one out of the 365 scene labels for new images.
-        """
-        self._convert_and_cache_resnet18()
-
-        with self.cache.open('wideresnet18_places365_converted', mode='rb')\
-                as model_file:
-            model = wideresnet.resnet18(num_classes=365,
-                                        normalize_channels=((.485, .456, .406),
-                                                            (.229, .224, .225)))
-            checkpoint = torch.load(model_file,
-                                    map_location=lambda storage, loc: storage)
-            state_dict = {str.replace(k, 'module.', ''): v
-                          for k, v in checkpoint['state_dict'].items()}
-            model.load_state_dict(state_dict)
-            model.eval()
-            return model
 
     def vote_indoor_outdoor(self, label_ids):
         """
