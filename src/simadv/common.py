@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
-import skimage
 import torch
 import torchvision
 from petastorm import make_reader
@@ -19,7 +18,6 @@ from torch.nn.functional import softmax
 
 from pyspark.sql import SparkSession
 from simple_parsing import Serializable
-from torchvision import transforms
 
 from simadv.util.webcache import WebCache
 
