@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
 import torch
-from captum.attr import IntegratedGradients, Saliency, DeepLift, NoiseTunnel, visualization as viz, GradientAttribution
+from captum.attr import IntegratedGradients, Saliency, DeepLift, visualization as viz, GradientAttribution
 from lime import lime_image
 from matplotlib.patches import Rectangle
 from petastorm.reader import Reader
@@ -85,11 +85,11 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
         #    negatives: the strongest (?) counter examples, i.e., images where the anchor fails
         segmentation_mask, relevant_segments = explanation
 
-        influence_mask = np.zeros(segmentation_mask.shape, dtype=np.float)
+        influence_mask = np.zeros(segmentation_mask.shape, dtype=np.int)
         for segment_id, _, _, _, _ in relevant_segments:
             influence_mask = np.bitwise_or(influence_mask,
                                            segmentation_mask == segment_id)
-        return influence_mask / np.float(np.count_nonzero(influence_mask))
+        return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
 
 
 @dataclass
@@ -302,7 +302,7 @@ class TorchExplainTask(PetastormTransformer):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.igrad_ie, self.saliency_ie, self.lime_ie, self.anchor_ie)
+        self.influence_estimators = (self.anchor_ie, self.igrad_ie, self.saliency_ie, self.lime_ie, self.anchor_ie)
         self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
                                                      self.read_cfg.pool_type, self.read_cfg.workers_count)
         self.perturbers = (self.drop_perturber, self.sampling_perturber)
