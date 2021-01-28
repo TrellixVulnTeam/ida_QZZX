@@ -71,6 +71,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         explanation = self.anchor.explain_instance(img,
                                                    classifier.predict_proba,
+                                                   threshold=self.threshold,
                                                    max_anchor_size=self.max_anchor_size,
                                                    coverage_samples=self.coverage_samples,
                                                    stop_on_first=self.stop_on_first,
