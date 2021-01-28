@@ -4,13 +4,15 @@ import time
 from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
+import torch
+from captum.attr import IntegratedGradients, Saliency, DeepLift, NoiseTunnel, visualization as viz, GradientAttribution
 from lime import lime_image
 from matplotlib.patches import Rectangle
-from skimage.segmentation import mark_boundaries
+from petastorm.reader import Reader
 
 from simadv.util.functools import cached_property
 from itertools import islice
-from typing import Optional, Type
+from typing import Optional, Type, Any, Tuple, Iterable
 
 import numpy as np
 from petastorm.codecs import ScalarCodec, CompressedNdarrayCodec
@@ -35,7 +37,11 @@ class InfluenceEstimator(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_influential_pixels(self, classifier: Classifier, img: np.ndarray) -> np.ndarray:
+    def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
+        """
+        Returns a float numpy array in the dimensions of the input `img` whose entries sum up to 1
+        and represent the influence of each pixel on the classification `pred_class` by `classifier`.
+        """
         pass
 
 
@@ -62,7 +68,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
     def id(self) -> str:
         return 'anchor'
 
-    def get_influential_pixels(self, classifier: Classifier, img: np.ndarray) -> np.ndarray:
+    def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         explanation = self.anchor.explain_instance(img,
                                                    classifier.predict_proba,
                                                    max_anchor_size=self.max_anchor_size,
@@ -79,11 +85,11 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
         #    negatives: the strongest (?) counter examples, i.e., images where the anchor fails
         segmentation_mask, relevant_segments = explanation
 
-        influence_mask = np.zeros(segmentation_mask.shape, dtype=int)
+        influence_mask = np.zeros(segmentation_mask.shape, dtype=np.float)
         for segment_id, _, _, _, _ in relevant_segments:
             influence_mask = np.bitwise_or(influence_mask,
                                            segmentation_mask == segment_id)
-        return influence_mask
+        return influence_mask / np.float(np.count_nonzero(influence_mask))
 
 
 @dataclass
@@ -110,17 +116,140 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
     def id(self) -> str:
         return 'lime'
 
-    def get_influential_pixels(self, classifier: Classifier, img: np.ndarray) -> np.ndarray:
+    def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         explanation = self.lime.explain_instance(img, classifier.predict_proba,
-                                                 top_labels=self.top_labels,
+                                                 labels=(pred_class,),
+                                                 top_labels=None,
                                                  num_features=self.search_num_features,
                                                  num_samples=self.num_samples)
-        _, influence_mask = explanation.get_image_and_mask(explanation.top_labels[0],
+        _, influence_mask = explanation.get_image_and_mask(pred_class,
                                                            positive_only=self.positive_only,
                                                            negative_only=self.negative_only,
                                                            num_features=self.explain_num_features,
                                                            min_weight=self.min_weight)
-        return influence_mask
+        return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
+
+
+@dataclass
+class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
+    """
+    Wrapper for influence estimators from the `captum` package.
+    """
+
+    algorithm: Type[GradientAttribution]
+
+    def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
+        if not isinstance(classifier, TorchImageClassifier):
+            raise NotImplementedError('The captum algorithms only work for torch classifiers.')
+
+        img_tensor = torch.from_numpy(img).float().to(classifier.torch_cfg.device).permute(2, 0, 1).unsqueeze(0)
+        algo = self.algorithm(classifier.torch_model)
+        attr = algo.attribute(img_tensor, target=int(pred_class))
+        attr = np.sum(np.transpose(attr.squeeze(0).cpu().detach().numpy(), (1, 2, 0)), 2)
+        attr = attr * (attr > 0)  # we only consider pixels that contribute to the prediction (positive influence value)
+        return attr / np.sum(attr)
+
+
+@dataclass
+class IntegratedGradientsInfluenceEstimator(CaptumInfluenceEstimator):
+    algorithm: GradientAttribution = field(default=IntegratedGradients, init=False)
+
+    @property
+    def id(self) -> str:
+        return 'igrad'
+
+
+@dataclass
+class SaliencyInfluenceEstimator(CaptumInfluenceEstimator):
+    algorithm: GradientAttribution = field(default=Saliency, init=False)
+
+    @property
+    def id(self) -> str:
+        return 'saliency'
+
+
+@dataclass
+class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
+    algorithm: GradientAttribution = field(default=DeepLift, init=False)
+
+    @property
+    def id(self) -> str:
+        return 'deeplift'
+
+
+class Perturber(abc.ABC):
+
+    @property
+    @abc.abstractmethod
+    def id(self) -> str:
+        pass
+
+    @abc.abstractmethod
+    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
+            -> Tuple[np.ndarray, Any]:
+        """
+        Takes in two arrays `counts` and `influential_counts` of the same dimension 1xO,
+        where O is the number of objects in a classification task.
+        `counts` are object counts on an image, and `influential_counts` represents a subset of these objects.
+        This subset comprises objects that one deems influential for the classification of this image.
+
+        From this subset the method derives alternative count arrays that by expectation
+        all yield the same prediction as `count`.
+        The method can use the `sampler` to draw random object count arrays together with their image id
+        from the same image distribution that `count` was derived from.
+
+        :return tuples of count arrays and image ids. if a count array was derived from an image drawn from `sampler`,
+            the corresponding image id must be returned, else None.
+        """
+        pass
+
+
+@dataclass
+class LocalPerturber(Perturber):
+    """
+    Assumes that given "influential objects" are a locally sufficient condition for the classification, i.e.,
+    for images that are similar to the classified image.
+    Hence drops all other, "non-influential" objects -- they are noise.
+    """
+
+    @property
+    def id(self) -> str:
+        return 'drop'
+
+    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
+            -> Tuple[np.ndarray, Any]:
+        # yield original counts
+        yield influential_counts, None
+
+
+@dataclass
+class GlobalPerturber(Perturber):
+    """
+    Assumes that given "influential objects" are a globally sufficient condition for the classification.
+    Hence replaces all other objects randomly and assumes that the classification stays the same.
+    """
+
+    num_samples: int = 10
+
+    @property
+    def id(self) -> str:
+        return 'sampling'
+
+    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
+            -> Tuple[np.ndarray, Any]:
+        """
+        Returns the original counts array plus `num_samples` (class parameter) additional arrays.
+        The latter are unions of `influential_counts` with random counts drawn from `sampler`.
+        """
+        # yield original counts
+        yield counts, None
+
+        # sample random object counts from the same distribution
+        for sample_counts, sample_id in islice(sampler, self.num_samples):
+            # keep all influential objects from the original image,
+            # change the rest based on the sample → pairwise maximum of counts
+            combined_counts = np.maximum(influential_counts, sample_counts)
+            yield combined_counts, sample_id
 
 
 @dataclass
@@ -130,32 +259,41 @@ class TorchExplainTask(PetastormTransformer):
 
     lime_ie: LIMEInfluenceEstimator
     anchor_ie: AnchorInfluenceEstimator
+    igrad_ie: IntegratedGradientsInfluenceEstimator
+    saliency_ie: SaliencyInfluenceEstimator
 
-    num_objects: int
+    drop_perturber: LocalPerturber
+    sampling_perturber: GlobalPerturber
+
     # the number of object classes annotated for the input images
+    num_objects: int
 
-    counts_field_name: Optional[str]
     # how to call the field holding the perturbed object counts
+    counts_field_name: Optional[str]
 
-    class_field_name: Optional[str]
     # how to call the field holding the predicted class of the classifier
+    class_field_name: Optional[str]
 
-    estimator_field_name: Optional[str]
     # how to call the field holding the id of the used influence estimator
+    estimator_field_name: Optional[str]
+
+    # how to call the field holding the id of the used perturber
+    perturber_field_name: Optional[str]
 
     original_image_id_field_name: str = field(default='original_image_id', init=False)
 
     perturbation_image_id_field_name: str = field(default='perturbation_image_id', init=False)
 
-    min_coverage: float = 0.1
-    # if more than this fraction of an objects bounding box is covered by influential pixels,
-    # the object is considered relevant for the corresponding prediction of the classifier.
+    # an object is considered relevant for the prediction of the classifier
+    # if the sum of influence values in the objects bounding box
+    # exceeds the fraction 'object area' / 'image area' by a factor lift_threshold`.
+    lift_threshold: float = 1.5
 
-    perturbation_factor: int = 10
     # number of perturbed object counts to generate based on each influence mask
+    perturbation_factor: int = 10
 
-    debug: bool = False
     # whether to visualize the influential pixels for each image and explainer
+    debug: bool = False
 
     def __post_init__(self):
         # load the classifier from its name
@@ -164,9 +302,10 @@ class TorchExplainTask(PetastormTransformer):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.lime_ie, self.anchor_ie)
+        self.influence_estimators = (self.igrad_ie, self.saliency_ie, self.lime_ie, self.anchor_ie)
         self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
                                                      self.read_cfg.pool_type, self.read_cfg.workers_count)
+        self.perturbers = (self.drop_perturber, self.sampling_perturber)
 
         if self.counts_field_name is None:
             self.counts_field_name = 'object_counts'
@@ -177,6 +316,9 @@ class TorchExplainTask(PetastormTransformer):
         if self.estimator_field_name is None:
             self.estimator_field_name = 'influence_estimator'
 
+        if self.perturber_field_name is None:
+            self.perturber_field_name = 'perturber'
+
     @cached_property
     def schema(self):
         """
@@ -186,15 +328,24 @@ class TorchExplainTask(PetastormTransformer):
                                              CompressedNdarrayCodec(), False)
         class_field = UnischemaField(self.class_field_name, np.uint16, (),
                                      ScalarCodec(IntegerType()), False)
-        estimator_field = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
+        estimator_field = UnischemaField(self.estimator_field_name, np.unicode_, (), ScalarCodec(StringType()), True)
+        perturber_field = UnischemaField(self.perturber_field_name, np.unicode_, (), ScalarCodec(StringType()), False)
         original_image_id_field = UnischemaField(self.original_image_id_field_name, self.id_field.numpy_dtype,
                                                  self.id_field.shape, self.id_field.codec, False)
         perturbation_image_id_field = UnischemaField(self.perturbation_image_id_field_name,
                                                      self.id_field.numpy_dtype, self.id_field.shape,
                                                      self.id_field.codec, True)
 
-        return Unischema('ExplainerSchema', [object_counts_field, class_field, estimator_field, original_image_id_field,
-                                             perturbation_image_id_field])
+        return Unischema('ExplainerSchema', [object_counts_field, class_field, estimator_field, perturber_field,
+                                             original_image_id_field, perturbation_image_id_field])
+
+    def sampler(self, sampling_reader: Reader):
+        for sampled_row in sampling_reader:
+            sample_counts = np.zeros((self.num_objects,), dtype=np.uint8)
+            for box in sampled_row.boxes:
+                obj_id = box[0]
+                sample_counts[obj_id] += 1
+            yield sample_counts, getattr(sampled_row, self.id_field.name)
 
     def _get_perturbations(self):
         last_time = time.time()
@@ -209,16 +360,19 @@ class TorchExplainTask(PetastormTransformer):
                     processed_images_count += 1
 
                     for influence_estimator in self.influence_estimators:
-                        pred_class = np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0])
-                        influence_mask = influence_estimator.get_influential_pixels(self.classifier, row.image)
+                        pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
+                        influence_mask = influence_estimator.get_influence_mask(self.classifier, row.image, pred)
                         if self.debug:
                             fig = plt.figure()
                             ax = plt.Axes(fig, [0., 0., 1., 1.])
                             ax.set_axis_off()
                             fig.add_axes(ax)
-                            ax.imshow(mark_boundaries(row.image, influence_mask))
+                            viz.visualize_image_attr(np.expand_dims(influence_mask, 2), row.image,
+                                                     sign='positive', method='blended_heat_map', use_pyplot=False,
+                                                     plt_fig_axis=(fig, ax))
 
                         height, width = influence_mask.shape
+                        img_area = float(height * width)
 
                         counts = np.zeros((self.num_objects,), dtype=np.uint8)
                         min_counts = np.zeros((self.num_objects,), dtype=np.uint8)
@@ -228,20 +382,23 @@ class TorchExplainTask(PetastormTransformer):
                             x_max = int(np.ceil(x_max * width))
                             y_min = int(np.floor(y_min * height))
                             y_max = int(np.ceil(y_max * height))
-                            coverage = np.count_nonzero(influence_mask[y_min:y_max, x_min:x_max]) / \
-                                       ((x_max - x_min) * (y_max - y_min))
+                            box_area = float((y_max - y_min) * (x_max - x_min))
+                            # lift = how much more influence than expected do pixels of the box have?
+                            lift = np.sum(influence_mask[y_min:y_max, x_min:x_max]) / (box_area / img_area)
                             counts[obj_id] += 1
 
-                            logging.info('Object: {} has {:.2f} coverage.'.format(obj_id, coverage))
+                            logging.info('Influence of object {} is {:.2f} times the expected value.'
+                                         .format(obj_id, lift))
 
-                            if coverage > self.min_coverage:
+                            if lift > self.lift_threshold:
                                 min_counts[obj_id] += 1
-                                logging.info('Influential object: {} with {:.2f} coverage.'.format(obj_id, coverage))
+                                logging.info('Object {} has exceptional influence: {:.2f} times the expected value.'
+                                             .format(obj_id, lift))
 
                             if self.debug:
-                                plt.gca().add_patch(Rectangle((x_min, y_min), (x_max - x_min), (y_max - y_min),
-                                                              linewidth=1, edgecolor='r', facecolor='none'))
-                                plt.text(x_min, y_max, str(obj_id), color='r')
+                                ax.add_patch(Rectangle((x_min, y_min), (x_max - x_min), (y_max - y_min),
+                                                       linewidth=1, edgecolor='r', facecolor='none'))
+                                ax.text(x_min, y_max, str(obj_id), color='r')
 
                         has_influential_object = np.any(min_counts)
 
@@ -251,29 +408,15 @@ class TorchExplainTask(PetastormTransformer):
                             plt.clf()
 
                         if has_influential_object:
-                            # yield original counts
-                            yield {self.counts_field_name: counts,
-                                   self.class_field_name: pred_class,
-                                   self.estimator_field_name: None,
-                                   self.original_image_id_field_name: row_id,
-                                   self.perturbation_image_id_field_name: None}
-
-                            # sample random object counts from the same distribution
-                            for sampled_row in islice(sampling_reader, self.perturbation_factor):
-                                sample_counts = np.zeros((self.num_objects,), dtype=np.uint8)
-                                for box in sampled_row.boxes:
-                                    obj_id = box[0]
-                                    sample_counts[obj_id] += 1
-
-                                # keep all influential objects from the original image,
-                                # change the rest based on the sample → pairwise maximum of counts
-                                combined_counts = np.maximum(min_counts, sample_counts)
-
-                                yield {self.counts_field_name: combined_counts,
-                                       self.class_field_name: pred_class,
-                                       self.estimator_field_name: influence_estimator.id,
-                                       self.original_image_id_field_name: row_id,
-                                       self.perturbation_image_id_field_name: getattr(sampled_row, self.id_field.name)}
+                            for perturber in self.perturbers:
+                                for perturbed_count, image_id in perturber.perturb(min_counts, counts,
+                                                                                   self.sampler(sampling_reader)):
+                                    yield {self.counts_field_name: perturbed_count,
+                                           self.class_field_name: pred,
+                                           self.estimator_field_name: influence_estimator.id,
+                                           self.perturber_field_name: perturber.id,
+                                           self.original_image_id_field_name: row_id,
+                                           self.perturbation_image_id_field_name: image_id}
 
                             hit_counts[influence_estimator.id] += 1
 
