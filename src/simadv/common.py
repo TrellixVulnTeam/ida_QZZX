@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
 import skimage
@@ -122,6 +122,10 @@ class ClassificationTask:
 
 @dataclass
 class Classifier(abc.ABC):
+    """
+    Abstract base class for classifiers.
+    """
+
     # name of this model
     name: str
 
@@ -129,7 +133,11 @@ class Classifier(abc.ABC):
     task: ClassificationTask
 
     @abc.abstractmethod
-    def predict_proba(self, images: np.ndarray) -> np.ndarray:
+    def predict_proba(self, inputs: np.ndarray) -> np.ndarray:
+        """
+        Predicts probability distributions NxC over the C classes for the given N inputs.
+        The distributions are encoded as a float array.
+        """
         pass
 
 
@@ -222,12 +230,12 @@ class TorchImageClassifier(Classifier, Serializable):
         image = (resize(image, self.input_size) - self._means_nested) / self._sds_nested
         return np.transpose(image, (2, 0, 1))
 
-    def predict_proba(self, images: np.ndarray, preprocessed=False) -> np.ndarray:
+    def predict_proba(self, inputs: np.ndarray, preprocessed=False) -> np.ndarray:
         if not preprocessed:
-            images = np.asarray([self.preprocess(img) for img in images])
+            inputs = np.asarray([self.preprocess(img) for img in inputs])
 
         self.torch_model.to(self.torch_cfg.device)
-        image_tensors = torch.from_numpy(images).float().to(self.torch_cfg.device)
+        image_tensors = torch.from_numpy(inputs).float().to(self.torch_cfg.device)
         logits = self.torch_model(image_tensors)
         probs = softmax(logits, dim=1)
         return probs.detach().cpu().numpy()
@@ -253,3 +261,6 @@ class TorchImageClassifierSerialization:
                     self._raise_invalid_path()
             except ModuleNotFoundError:
                 self._raise_invalid_path()
+
+
+RowDict = Dict[str, Any]

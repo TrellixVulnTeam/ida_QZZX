@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import reduce, partial
 from pathlib import Path
-from typing import Optional, Any, Dict, Iterable, Type
+from typing import Optional, Iterable, Type
 
 import numpy as np
 import torch
@@ -30,13 +30,10 @@ from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import IntegerType, FloatType
 
-from simadv.common import PetastormReadConfig, LoggingConfig, PetastormTransformer, TorchConfig
+from simadv.common import PetastormReadConfig, LoggingConfig, PetastormTransformer, TorchConfig, RowDict
 from simadv.places365.hub import Places365Hub
 from simadv.util.functools import cached_property
 from simadv.util.webcache import WebCache
-
-
-RowDict = Dict[str, Any]
 
 
 class DataGenerator(abc.ABC):
