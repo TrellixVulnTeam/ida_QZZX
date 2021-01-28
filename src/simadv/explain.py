@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
+from lime import lime_image
 from matplotlib.patches import Rectangle
 from skimage.segmentation import mark_boundaries
 
@@ -40,6 +41,11 @@ class InfluenceEstimator(abc.ABC):
 
 @dataclass
 class AnchorInfluenceEstimator(InfluenceEstimator):
+    """
+    Uses the anchor approach
+    https://ojs.aaai.org/index.php/AAAI/article/view/11491
+    for determining influential pixels.
+    """
 
     coverage_samples: int = 10000
     stop_on_first: bool = False
@@ -73,11 +79,48 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
         #    negatives: the strongest (?) counter examples, i.e., images where the anchor fails
         segmentation_mask, relevant_segments = explanation
 
-        relevant_mask = np.zeros(segmentation_mask.shape, dtype=int)
+        influence_mask = np.zeros(segmentation_mask.shape, dtype=int)
         for segment_id, _, _, _, _ in relevant_segments:
-            relevant_mask = np.bitwise_or(relevant_mask,
-                                          segmentation_mask == segment_id)
-        return relevant_mask
+            influence_mask = np.bitwise_or(influence_mask,
+                                           segmentation_mask == segment_id)
+        return influence_mask
+
+
+@dataclass
+class LIMEInfluenceEstimator(InfluenceEstimator):
+    """
+    Uses the LIME approach
+    http://doi.acm.org/10.1145/2939672.2939778
+    for determining influential pixels.
+    """
+    top_labels: int = 5
+    search_num_features: int = 100000
+    num_samples: int = 1000
+
+    positive_only: bool = True
+    negative_only: bool = False
+    hide_rest: bool = False
+    explain_num_features: int = 5
+    min_weight: float = 0.
+
+    def __post_init__(self):
+        self.lime = lime_image.LimeImageExplainer()
+
+    @property
+    def id(self) -> str:
+        return 'lime'
+
+    def get_influential_pixels(self, classifier: Classifier, img: np.ndarray) -> np.ndarray:
+        explanation = self.lime.explain_instance(img, classifier.predict_proba,
+                                                 top_labels=self.top_labels,
+                                                 num_features=self.search_num_features,
+                                                 num_samples=self.num_samples)
+        _, influence_mask = explanation.get_image_and_mask(explanation.top_labels[0],
+                                                           positive_only=self.positive_only,
+                                                           negative_only=self.negative_only,
+                                                           num_features=self.explain_num_features,
+                                                           min_weight=self.min_weight)
+        return influence_mask
 
 
 @dataclass
@@ -85,6 +128,7 @@ class TorchExplainTask(PetastormTransformer):
     classifier_serial: TorchImageClassifierSerialization
     torch_cfg: TorchConfig
 
+    lime_ie: LIMEInfluenceEstimator
     anchor_ie: AnchorInfluenceEstimator
 
     num_objects: int
@@ -120,7 +164,7 @@ class TorchExplainTask(PetastormTransformer):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.anchor_ie,)
+        self.influence_estimators = (self.lime_ie, self.anchor_ie)
         self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
                                                      self.read_cfg.pool_type, self.read_cfg.workers_count)
 
