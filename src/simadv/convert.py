@@ -27,7 +27,7 @@ class ConvertTask:
     subset: str = 'validation'
     output_url: Optional[str] = None
     ignore_missing_labels: bool = True
-    image_size: Optional[Tuple[int, int]] = None
+    image_size: Tuple[int, int] = (-1, -1)
     min_length: Optional[int] = None
     max_length: Optional[int] = None
     num_partitions: int = 64 * 3
@@ -67,7 +67,7 @@ class ConvertTask:
             else:
                 image = Image.open(image_path)
 
-                if self.image_size:
+                if self.image_size != (-1, -1):
                     image = image.resize(self.image_size)
                 else:
                     current_min_length = min(*image.size)
