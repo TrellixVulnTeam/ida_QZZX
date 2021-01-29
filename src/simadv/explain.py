@@ -465,7 +465,7 @@ class TorchExplainTask(PetastormTransformer):
                                      .format(total_count, f))
                         last_time = current_time
 
-                    if current_time - start_time > self.time_limit_s:
+                    if self.time_limit_s is not None and current_time - start_time > self.time_limit_s:
                         logging.info('Reached timeout! Stopping.')
                         break
 
