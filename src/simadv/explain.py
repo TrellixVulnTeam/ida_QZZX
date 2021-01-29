@@ -11,7 +11,7 @@ from matplotlib.patches import Rectangle
 from petastorm.reader import Reader
 
 from simadv.util.functools import cached_property
-from itertools import islice
+import itertools as it
 from typing import Optional, Type, Any, Tuple, Iterable
 
 import numpy as np
@@ -219,7 +219,7 @@ class LocalPerturber(Perturber):
     """
     Assumes that given "influential objects" are a locally sufficient condition for the classification, i.e.,
     for images that are similar to the classified image.
-    Hence drops all other, "non-influential" objects -- they are noise.
+    Hence drops all other, "non-influential" objects on this one image randomly -- they are noise.
     """
 
     @property
@@ -228,8 +228,16 @@ class LocalPerturber(Perturber):
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
             -> Tuple[np.ndarray, Any]:
-        # yield original counts
-        yield influential_counts, None
+        droppable_counts = counts - influential_counts
+        gens = []
+        for droppable_index in np.flatnonzero(droppable_counts):
+            gens.append(zip(range(0, droppable_counts[droppable_index] + 1), it.repeat(droppable_index)))
+
+        for drops in it.product(*gens):
+            perturbed = counts.copy()
+            for drop_count, drop_index in drops:
+                perturbed[drop_index] -= drop_count
+            yield perturbed, None
 
 
 @dataclass
@@ -251,11 +259,11 @@ class GlobalPerturber(Perturber):
         Returns the original counts array plus `num_samples` (class parameter) additional arrays.
         The latter are unions of `influential_counts` with random counts drawn from `sampler`.
         """
-        # yield original counts
+        # original counts
         yield counts, None
 
         # sample random object counts from the same distribution
-        for sample_counts, sample_id in islice(sampler, self.num_samples):
+        for sample_counts, sample_id in it.islice(sampler, self.num_samples):
             # keep all influential objects from the original image,
             # change the rest based on the sample → pairwise maximum of counts
             combined_counts = np.maximum(influential_counts, sample_counts)
@@ -301,7 +309,7 @@ class TorchExplainTask(PetastormTransformer):
 
     # if not None, sample the given number of observations from each class instead
     # of reading the dataset once front to end.
-    observations_per_class: int = None
+    observations_per_class: Optional[int] = None
 
     # after which time to automatically stop
     time_limit_s: Optional[int] = None
@@ -343,7 +351,7 @@ class TorchExplainTask(PetastormTransformer):
         class_field = UnischemaField(self.class_field_name, np.uint16, (),
                                      ScalarCodec(IntegerType()), False)
         estimator_field = UnischemaField(self.estimator_field_name, np.unicode_, (), ScalarCodec(StringType()), True)
-        perturber_field = UnischemaField(self.perturber_field_name, np.unicode_, (), ScalarCodec(StringType()), False)
+        perturber_field = UnischemaField(self.perturber_field_name, np.unicode_, (), ScalarCodec(StringType()), True)
         original_image_id_field = UnischemaField(self.original_image_id_field_name, self.id_field.numpy_dtype,
                                                  self.id_field.shape, self.id_field.codec, False)
         perturbation_image_id_field = UnischemaField(self.perturbation_image_id_field_name,
@@ -374,8 +382,20 @@ class TorchExplainTask(PetastormTransformer):
                 for row in reader:
                     pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
 
-                    if count_per_class[pred] >= self.observations_per_class:
+                    if self.observations_per_class is not None and count_per_class[pred] >= self.observations_per_class:
                         continue
+
+                    counts = np.zeros((self.num_objects,), dtype=np.uint8)
+                    for box in row.boxes:
+                        counts[box[0]] += 1
+
+                    # yield the original observation
+                    yield {self.counts_field_name: counts,
+                           self.class_field_name: pred,
+                           self.estimator_field_name: None,
+                           self.perturber_field_name: None,
+                           self.original_image_id_field_name: getattr(row, self.id_field.name),
+                           self.perturbation_image_id_field_name: None}
 
                     total_count += 1
 
@@ -393,7 +413,6 @@ class TorchExplainTask(PetastormTransformer):
                         height, width = influence_mask.shape
                         img_area = float(height * width)
 
-                        counts = np.zeros((self.num_objects,), dtype=np.uint8)
                         min_counts = np.zeros((self.num_objects,), dtype=np.uint8)
                         for box in row.boxes:
                             obj_id, x_min, x_max, y_min, y_max = list(box)[:5]
@@ -404,7 +423,6 @@ class TorchExplainTask(PetastormTransformer):
                             box_area = float((y_max - y_min) * (x_max - x_min))
                             # lift = how much more influence than expected do pixels of the box have?
                             lift = np.sum(influence_mask[y_min:y_max, x_min:x_max]) / (box_area / img_area)
-                            counts[obj_id] += 1
 
                             logging.info('Influence of object {} is {:.2f} times the expected value.'
                                          .format(obj_id, lift))
