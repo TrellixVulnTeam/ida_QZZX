@@ -56,12 +56,13 @@ class PetastormReadConfig:
     pool_type: str = 'thread'
     workers_count: int = 10
 
-    def make_reader(self, schema_fields: [str]):
+    def make_reader(self, schema_fields: [str], **kwargs):
         return make_reader(self.input_url,
                            shuffle_row_groups=self.shuffle,
                            reader_pool_type=self.pool_type,
                            workers_count=self.workers_count,
-                           schema_fields=schema_fields)
+                           schema_fields=schema_fields,
+                           **kwargs)
 
     def make_tf_dataset(self, schema_fields: [str]):
         return make_petastorm_dataset(self.make_reader(schema_fields)).batch(self.batch_size)

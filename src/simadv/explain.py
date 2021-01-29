@@ -106,7 +106,6 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
     http://doi.acm.org/10.1145/2939672.2939778
     for determining influential pixels.
     """
-    top_labels: int = 5
     search_num_features: int = 100000
     num_samples: int = 1000
 
@@ -225,7 +224,7 @@ class LocalPerturber(Perturber):
 
     @property
     def id(self) -> str:
-        return 'drop'
+        return 'local'
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
             -> Tuple[np.ndarray, Any]:
@@ -244,7 +243,7 @@ class GlobalPerturber(Perturber):
 
     @property
     def id(self) -> str:
-        return 'sampling'
+        return 'global'
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
             -> Tuple[np.ndarray, Any]:
@@ -300,8 +299,9 @@ class TorchExplainTask(PetastormTransformer):
     # exceeds the fraction 'object area' / 'image area' by a factor lift_threshold`.
     lift_threshold: float = 1.5
 
-    # number of perturbed object counts to generate based on each influence mask
-    perturbation_factor: int = 10
+    # if not None, sample the given number of observations from each class instead
+    # of reading the dataset once front to end.
+    observations_per_class: int = None
 
     # after which time to automatically stop
     time_limit_s: Optional[int] = None
@@ -363,18 +363,23 @@ class TorchExplainTask(PetastormTransformer):
 
     def _get_perturbations(self):
         last_time = start_time = time.time()
-        processed_images_count = 0
+        total_count = 0
         hit_counts = {est.id: 0 for est in self.influence_estimators}
 
+        count_per_class = np.zeros((self.classifier.task.num_classes,))
+
         with self.read_cfg.make_reader([self.id_field.name, 'image', 'boxes']) as reader:
-            with self.read_cfg.make_reader([self.id_field.name, 'boxes']) as sampling_reader:
+            with self.read_cfg.make_reader([self.id_field.name, 'boxes'], num_epochs=None) as sampling_reader:
                 logging.info('Start reading images...')
                 for row in reader:
-                    row_id = getattr(row, self.id_field.name)
-                    processed_images_count += 1
+                    pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
+
+                    if count_per_class[pred] >= self.observations_per_class:
+                        continue
+
+                    total_count += 1
 
                     for influence_estimator in self.influence_estimators:
-                        pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
                         influence_mask = influence_estimator.get_influence_mask(self.classifier, row.image, pred)
                         if self.debug:
                             fig = plt.figure()
@@ -429,17 +434,17 @@ class TorchExplainTask(PetastormTransformer):
                                            self.class_field_name: pred,
                                            self.estimator_field_name: influence_estimator.id,
                                            self.perturber_field_name: perturber.id,
-                                           self.original_image_id_field_name: row_id,
+                                           self.original_image_id_field_name: getattr(row, self.id_field.name),
                                            self.perturbation_image_id_field_name: image_id}
 
                             hit_counts[influence_estimator.id] += 1
 
                     current_time = time.time()
                     if current_time - last_time > 5:
-                        f = ', '.join(['{}: {:.2f}'.format(est.id, float(hit_counts[est.id]) / processed_images_count)
+                        f = ', '.join(['{}: {:.2f}'.format(est.id, float(hit_counts[est.id]) / total_count)
                                       for est in self.influence_estimators])
                         logging.info('Processed {} images so far. Hit frequencies: {}'
-                                     .format(processed_images_count, f))
+                                     .format(total_count, f))
                         last_time = current_time
 
                     if current_time - start_time > self.time_limit_s:
