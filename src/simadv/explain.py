@@ -90,6 +90,10 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
         for segment_id, _, _, _, _ in relevant_segments:
             influence_mask = np.bitwise_or(influence_mask,
                                            segmentation_mask == segment_id)
+
+        if not np.any(influence_mask):
+            return np.ones(influence_mask.shape) / np.size(influence_mask)
+
         return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
 
 
@@ -128,6 +132,10 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
                                                            negative_only=self.negative_only,
                                                            num_features=self.explain_num_features,
                                                            min_weight=self.min_weight)
+
+        if not np.any(influence_mask):
+            return np.ones(influence_mask.shape) / np.size(influence_mask)
+
         return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
 
 
