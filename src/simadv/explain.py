@@ -53,6 +53,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
     for determining influential pixels.
     """
 
+    beam_size: int = 1
     coverage_samples: int = 10000
     stop_on_first: bool = False
     threshold: float = 0.95
@@ -71,6 +72,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         explanation = self.anchor.explain_instance(img,
                                                    classifier.predict_proba,
+                                                   beam_size=self.beam_size,
                                                    threshold=self.threshold,
                                                    max_anchor_size=self.max_anchor_size,
                                                    coverage_samples=self.coverage_samples,
