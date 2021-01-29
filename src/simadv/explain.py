@@ -442,7 +442,7 @@ class TorchExplainTask(PetastormTransformer):
                                      .format(processed_images_count, f))
                         last_time = current_time
 
-                    if start_time - current_time > self.time_limit_s:
+                    if current_time - start_time > self.time_limit_s:
                         logging.info('Reached timeout! Stopping.')
                         break
 
