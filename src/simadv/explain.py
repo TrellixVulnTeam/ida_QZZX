@@ -303,6 +303,9 @@ class TorchExplainTask(PetastormTransformer):
     # number of perturbed object counts to generate based on each influence mask
     perturbation_factor: int = 10
 
+    # after which time to automatically stop
+    time_limit_s: Optional[int] = None
+
     # whether to visualize the influential pixels for each image and explainer
     debug: bool = False
 
@@ -359,7 +362,7 @@ class TorchExplainTask(PetastormTransformer):
             yield sample_counts, getattr(sampled_row, self.id_field.name)
 
     def _get_perturbations(self):
-        last_time = time.time()
+        last_time = start_time = time.time()
         processed_images_count = 0
         hit_counts = {est.id: 0 for est in self.influence_estimators}
 
@@ -438,6 +441,10 @@ class TorchExplainTask(PetastormTransformer):
                         logging.info('Processed {} images so far. Hit frequencies: {}'
                                      .format(processed_images_count, f))
                         last_time = current_time
+
+                    if start_time - current_time > self.time_limit_s:
+                        logging.info('Reached timeout! Stopping.')
+                        break
 
     def run(self):
         spark_schema = self.schema.as_spark_schema()
