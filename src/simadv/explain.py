@@ -313,7 +313,7 @@ class TorchExplainTask(PetastormTransformer):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.anchor_ie, self.lime_ie, self.saliency_ie, self.igrad_ie)
+        self.influence_estimators = (self.lime_ie, self.saliency_ie, self.igrad_ie)
         self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
                                                      self.read_cfg.pool_type, self.read_cfg.workers_count)
         self.perturbers = (self.drop_perturber, self.sampling_perturber)
