@@ -196,7 +196,7 @@ class Perturber(abc.ABC):
 
     @abc.abstractmethod
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
-            -> Tuple[np.ndarray, Any]:
+            -> Iterable[Tuple[np.ndarray, Any]]:
         """
         Takes in two arrays `counts` and `influential_counts` of the same dimension 1xO,
         where O is the number of objects in a classification task.
@@ -222,13 +222,24 @@ class LocalPerturber(Perturber):
     Hence drops all other, "non-influential" objects on this one image randomly -- they are noise.
     """
 
+    # upper bound for perturbations to generate
+    max_perturbations: int = 10
+
     @property
     def id(self) -> str:
         return 'local'
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
-            -> Tuple[np.ndarray, Any]:
+            -> Iterable[Tuple[np.ndarray, Any]]:
         droppable_counts = counts - influential_counts
+
+        if 2 ** np.count_nonzero(droppable_counts) > self.max_perturbations:
+            yield from self._perturb_random(counts, droppable_counts)
+        else:
+            yield from self._perturb_exhaustive(counts, droppable_counts)
+
+    @staticmethod
+    def _perturb_exhaustive(counts, droppable_counts):
         gens = []
         for droppable_index in np.flatnonzero(droppable_counts):
             gens.append(zip(range(0, droppable_counts[droppable_index] + 1), it.repeat(droppable_index)))
@@ -236,6 +247,14 @@ class LocalPerturber(Perturber):
         for drops in it.product(*gens):
             perturbed = counts.copy()
             for drop_count, drop_index in drops:
+                perturbed[drop_index] -= drop_count
+            yield perturbed, None
+
+    def _perturb_random(self, counts, droppable_counts):
+        for _ in range(self.max_perturbations):
+            perturbed = counts.copy()
+            for drop_index in np.flatnonzero(droppable_counts):
+                drop_count = np.random.randint(droppable_counts[drop_index] + 1)
                 perturbed[drop_index] -= drop_count
             yield perturbed, None
 
@@ -247,7 +266,8 @@ class GlobalPerturber(Perturber):
     Hence replaces all other objects randomly and assumes that the classification stays the same.
     """
 
-    num_samples: int = 10
+    # how many perturbed object counts to generate for each image
+    num_perturbations: int = 10
 
     @property
     def id(self) -> str:
@@ -263,7 +283,7 @@ class GlobalPerturber(Perturber):
         yield counts, None
 
         # sample random object counts from the same distribution
-        for sample_counts, sample_id in it.islice(sampler, self.num_samples):
+        for sample_counts, sample_id in it.islice(sampler, self.num_perturbations):
             # keep all influential objects from the original image,
             # change the rest based on the sample → pairwise maximum of counts
             combined_counts = np.maximum(influential_counts, sample_counts)
