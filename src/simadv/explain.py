@@ -382,8 +382,13 @@ class TorchExplainTask(PetastormTransformer):
                 for row in reader:
                     pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
 
-                    if self.observations_per_class is not None and count_per_class[pred] >= self.observations_per_class:
-                        continue
+                    if self.observations_per_class is not None:
+                        if count_per_class[pred] >= self.observations_per_class:
+                            continue
+                        elif np.sum(count_per_class) >= self.classifier.task.num_classes * self.observations_per_class:
+                            break
+
+                    count_per_class[pred] += 1
 
                     counts = np.zeros((self.num_objects,), dtype=np.uint8)
                     for box in row.boxes:
