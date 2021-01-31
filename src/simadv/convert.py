@@ -38,7 +38,7 @@ class ConvertTask:
         self.images_dir = self.images_dir.expanduser()
         assert self.images_dir.exists()
 
-        assert self.subset in ['validation', 'test']
+        assert self.subset in ['train', 'test', 'validation']
         if self.output_url is None:
             self.output_url = 'file://' + str(self.images_dir.absolute() /
                                               '{}.parquet'.format(self.subset))
