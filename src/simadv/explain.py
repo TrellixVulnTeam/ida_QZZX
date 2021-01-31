@@ -233,7 +233,7 @@ class LocalPerturber(Perturber):
             -> Iterable[Tuple[np.ndarray, Any]]:
         droppable_counts = counts - influential_counts
 
-        if 2 ** np.count_nonzero(droppable_counts) > self.max_perturbations:
+        if np.multiply.reduce(droppable_counts + 1) > self.max_perturbations:
             yield from self._perturb_random(counts, droppable_counts)
         else:
             yield from self._perturb_exhaustive(counts, droppable_counts)
@@ -408,6 +408,7 @@ class TorchExplainTask(PetastormTransformer):
                             logging.info('Skipping, we already have enough observations of class {}.'.format(pred))
                             continue
                         elif np.sum(count_per_class) >= self.classifier.task.num_classes * self.observations_per_class:
+                            logging.info('Stopping, now have enough observations of all classes.')
                             break
 
                     count_per_class[pred] += 1
@@ -451,13 +452,14 @@ class TorchExplainTask(PetastormTransformer):
                             # lift = how much more influence than expected do pixels of the box have?
                             lift = np.sum(influence_mask[y_min:y_max, x_min:x_max]) / (box_area / img_area)
 
-                            logging.info('Influence of object {} is {:.2f} times the expected value.'
-                                         .format(obj_id, lift))
+                            logging.info('[{}] Influence of object {} is {:.2f} times the expected value.'
+                                         .format(influence_estimator, obj_id, lift))
 
                             if lift > self.lift_threshold:
                                 min_counts[obj_id] += 1
-                                logging.info('Object {} has exceptional influence: {:.2f} times the expected value.'
-                                             .format(obj_id, lift))
+                                logging.info('[{}] Object {} has exceptional influence: '
+                                             '{:.2f} times the expected value.'
+                                             .format(influence_estimator, obj_id, lift))
 
                             if self.debug:
                                 ax.add_patch(Rectangle((x_min, y_min), (x_max - x_min), (y_max - y_min),
