@@ -2,7 +2,7 @@ import csv
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Mapping, Optional, Union
+from typing import Mapping, Optional, Union, Literal
 import numpy as np
 from petastorm.codecs import ScalarCodec, NdarrayCodec
 from petastorm.unischema import UnischemaField
@@ -52,7 +52,6 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
     """
 
     _DOWNLOAD_URL = 'https://storage.googleapis.com/openimages/2018_04/'
-    _VALIDATION_URL = _DOWNLOAD_URL + 'validation/'
 
     def __init__(self, cache: Optional[WebCache] = None):
         """
@@ -119,10 +118,13 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             csv_reader = csv.reader(object_names_file, delimiter=',')
             return ['__background__'] + [row[1] for row in csv_reader]
 
-    def _boxes_map(self, labels_file_name: str):
+    @lru_cache(None)
+    def boxes_map(self, subset: Literal['train', 'test', 'validation']) -> Mapping[str, np.ndarray]:
+        assert subset in ['train', 'test', 'validation']
         label_id_by_name = {label_name: label_id for label_id, label_name in enumerate(self.label_names)}
 
-        with self.cache.open(labels_file_name, self._VALIDATION_URL) \
+        with self.cache.open('{}-annotations-bbox.csv'.format(subset),
+                             self._DOWNLOAD_URL + '/{}'.format(subset)) \
                 as validation_labels_file:
             csv_reader = csv.DictReader(validation_labels_file, delimiter=',')
             boxes_row_map = {}
@@ -153,17 +155,10 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             return boxes_map
 
     @lru_cache(None)
-    def boxes_map(self, subset: str) -> Mapping[str, np.ndarray]:
+    def image_label_map(self, subset: Literal['train', 'test', 'validation']) -> Mapping[str, np.ndarray]:
         assert subset in ['train', 'test', 'validation']
-        return self._boxes_map('{}-annotations-bbox.csv'.format(subset))
-
-    def _image_label_map(self, labels_file_name: str):
-        with self.cache.open(labels_file_name, self._VALIDATION_URL) \
+        with self.cache.open('{}-annotations-human-imagelabels-boxable.csv'.format(subset),
+                             self._DOWNLOAD_URL + '/{}'.format(subset)) \
                 as validation_labels_file:
             csv_reader = csv.DictReader(validation_labels_file, delimiter=',')
             return {row['ImageID']: row['LabelName'] for row in csv_reader}
-
-    @lru_cache(None)
-    def image_label_map(self, subset: str) -> Mapping[str, np.ndarray]:
-        assert subset in ['train', 'test', 'validation']
-        return self._image_label_map('{}-annotations-bbox.csv'.format(subset))
