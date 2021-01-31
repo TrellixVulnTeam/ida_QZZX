@@ -124,7 +124,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
         label_id_by_name = {label_name: label_id for label_id, label_name in enumerate(self.label_names)}
 
         with self.cache.open('{}-annotations-bbox.csv'.format(subset),
-                             self._DOWNLOAD_URL + '/{}'.format(subset)) \
+                             self._DOWNLOAD_URL + '{}/'.format(subset)) \
                 as validation_labels_file:
             csv_reader = csv.DictReader(validation_labels_file, delimiter=',')
             boxes_row_map = {}
@@ -158,7 +158,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
     def image_label_map(self, subset: str) -> Mapping[str, np.ndarray]:
         assert subset in ['train', 'test', 'validation']
         with self.cache.open('{}-annotations-human-imagelabels-boxable.csv'.format(subset),
-                             self._DOWNLOAD_URL + '/{}'.format(subset)) \
+                             self._DOWNLOAD_URL + '{}/'.format(subset)) \
                 as validation_labels_file:
             csv_reader = csv.DictReader(validation_labels_file, delimiter=',')
             return {row['ImageID']: row['LabelName'] for row in csv_reader}
