@@ -263,7 +263,8 @@ class LocalPerturber(Perturber):
 class GlobalPerturber(Perturber):
     """
     Assumes that given "influential objects" are a globally sufficient condition for the classification.
-    Hence replaces all other objects randomly and assumes that the classification stays the same.
+    Hence replaces all other objects randomly with objects from other images from the same distribution,
+    and assumes that the classification stays the same.
     """
 
     # how many perturbed object counts to generate for each image
