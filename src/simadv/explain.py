@@ -217,9 +217,11 @@ class Perturber(abc.ABC):
 @dataclass
 class LocalPerturber(Perturber):
     """
-    Assumes that given "influential objects" are a locally sufficient condition for the classification, i.e.,
-    for images that are similar to the classified image.
-    Hence drops all other, "non-influential" objects on this one image randomly -- they are noise.
+    Assumes that given "influential objects" on an image are a locally sufficient condition for its classification,
+    i.e., for images that are similar.
+    Derives object counts for "similar" images by dropping all other, "non-influential" objects from the given image.
+    Generates all combinations of dropped object counts if they are less than `max_perturbations`, else generates
+    `max_perturbations` combinations randomly.
     """
 
     # upper bound for perturbations to generate
@@ -262,7 +264,7 @@ class LocalPerturber(Perturber):
 @dataclass
 class GlobalPerturber(Perturber):
     """
-    Assumes that given "influential objects" are a globally sufficient condition for the classification.
+    Assumes that given "influential objects" on an image are a globally sufficient condition for its classification.
     Hence replaces all other objects randomly with objects from other images from the same distribution,
     and assumes that the classification stays the same.
     """
@@ -277,7 +279,7 @@ class GlobalPerturber(Perturber):
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
             -> Tuple[np.ndarray, Any]:
         """
-        Returns the original counts array plus `num_samples` (class parameter) additional arrays.
+        Returns the original counts array plus `num_perturbations` (class parameter) additional arrays.
         The latter are unions of `influential_counts` with random counts drawn from `sampler`.
         """
         # original counts
