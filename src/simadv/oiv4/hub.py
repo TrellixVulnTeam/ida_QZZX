@@ -2,7 +2,7 @@ import csv
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Mapping, Optional, Union, Literal
+from typing import Mapping, Optional, Union
 import numpy as np
 from petastorm.codecs import ScalarCodec, NdarrayCodec
 from petastorm.unischema import UnischemaField
@@ -119,7 +119,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             return ['__background__'] + [row[1] for row in csv_reader]
 
     @lru_cache(None)
-    def boxes_map(self, subset: Literal['train', 'test', 'validation']) -> Mapping[str, np.ndarray]:
+    def boxes_map(self, subset: str) -> Mapping[str, np.ndarray]:
         assert subset in ['train', 'test', 'validation']
         label_id_by_name = {label_name: label_id for label_id, label_name in enumerate(self.label_names)}
 
@@ -155,7 +155,7 @@ class OpenImagesV4Hub(SupervisedImageDataset, metaclass=OpenImagesV4HubMeta):
             return boxes_map
 
     @lru_cache(None)
-    def image_label_map(self, subset: Literal['train', 'test', 'validation']) -> Mapping[str, np.ndarray]:
+    def image_label_map(self, subset: str) -> Mapping[str, np.ndarray]:
         assert subset in ['train', 'test', 'validation']
         with self.cache.open('{}-annotations-human-imagelabels-boxable.csv'.format(subset),
                              self._DOWNLOAD_URL + '/{}'.format(subset)) \
