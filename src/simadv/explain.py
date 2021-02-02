@@ -277,7 +277,7 @@ class GlobalPerturber(Perturber):
         return 'global'
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[np.ndarray, Any]]) \
-            -> Tuple[np.ndarray, Any]:
+            -> Iterable[Tuple[np.ndarray, Any]]:
         """
         Returns the original counts array plus `num_perturbations` (class parameter) additional arrays.
         The latter are unions of `influential_counts` with random counts drawn from `sampler`.
@@ -325,6 +325,9 @@ class TorchExplainTask(PetastormTransformer):
 
     perturbation_image_id_field_name: str = field(default='perturbation_image_id', init=False)
 
+    # which influence estimators to use
+    used_influence_estimators: [str] = field(default_factory=list)
+
     # an object is considered relevant for the prediction of the classifier
     # if the sum of influence values in the objects bounding box
     # exceeds the fraction 'object area' / 'image area' by a factor lift_threshold`.
@@ -347,7 +350,7 @@ class TorchExplainTask(PetastormTransformer):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.lime_ie, self.saliency_ie, self.igrad_ie)
+        self.influence_estimators = (self.anchor_ie, self.lime_ie, self.saliency_ie, self.igrad_ie)
         self.sampling_read_cfg = PetastormReadConfig(self.read_cfg.input_url, self.read_cfg.batch_size, True,
                                                      self.read_cfg.pool_type, self.read_cfg.workers_count)
         self.perturbers = (self.drop_perturber, self.sampling_perturber)
@@ -430,6 +433,10 @@ class TorchExplainTask(PetastormTransformer):
                     total_count += 1
 
                     for influence_estimator in self.influence_estimators:
+                        if self.used_influence_estimators \
+                                and influence_estimator not in self.used_influence_estimators:
+                            continue
+
                         influence_mask = influence_estimator.get_influence_mask(self.classifier, row.image, pred)
                         if self.debug:
                             fig = plt.figure()
