@@ -67,6 +67,10 @@ class TreeSurrogate:
         assert len(self.all_classes) > 1
         self.multi_class = len(self.all_classes) > 2
 
+    @property
+    def all_class_ids(self):
+        return list(range(len(self.all_classes)))
+
     def fit_and_score(self, X_train, y_train, X_test, y_test) -> Union[GridSearchCV, Score]:
         metric = 'roc_auc_ovo' if self.multi_class else 'roc_auc'
         search = GridSearchCV(self.pipeline, self.param_grid,
@@ -91,7 +95,7 @@ class TreeSurrogate:
         """
         proba_ordered = np.zeros((probs.shape[0], len(self.all_classes),), dtype=np.float)
         sorter = np.argsort(self.all_classes)  # http://stackoverflow.com/a/32191125/395857
-        idx = sorter[np.searchsorted(list(range(len(self.all_classes))), classes_, sorter=sorter)]
+        idx = sorter[np.searchsorted(self.all_class_ids, classes_, sorter=sorter)]
         proba_ordered[:, idx] = probs
         return proba_ordered
 
@@ -170,7 +174,7 @@ class TreeSurrogate:
     def _gini_score(self, y_true, y_pred):
         multi_class = 'ovo' if self.multi_class else 'raise'
         auc = roc_auc_score(y_true, y_pred, average='macro',
-                            multi_class=multi_class, labels=self.all_classes)
+                            multi_class=multi_class, labels=self.all_class_ids)
         return 2. * auc - 1.
 
 
