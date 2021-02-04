@@ -83,17 +83,15 @@ class TreeSurrogate:
     def _spread_probs_to_all_classes(self, probs, classes_):
         """
         probs: list of probabilities, output of predict_proba
-        classes_: clf.classes_
-        all_classes: all possible classes (superset of classes_)
+        classes_: classes that the classifier has seen during training (integer ids)
 
         Returns a list of probabilities indexed by *all* class ids,
         not only those that the classifier has seen during training.
         See https://stackoverflow.com/questions/30036473/
         """
-        all_classes = np.asarray(self.all_classes)
-        proba_ordered = np.zeros((probs.shape[0], all_classes.size), dtype=np.float)
-        sorter = np.argsort(all_classes)  # http://stackoverflow.com/a/32191125/395857
-        idx = sorter[np.searchsorted(all_classes, classes_, sorter=sorter)]
+        proba_ordered = np.zeros((probs.shape[0], len(self.all_classes),), dtype=np.float)
+        sorter = np.argsort(self.all_classes)  # http://stackoverflow.com/a/32191125/395857
+        idx = sorter[np.searchsorted(list(range(len(self.all_classes))), classes_, sorter=sorter)]
         proba_ordered[:, idx] = probs
         return proba_ordered
 
