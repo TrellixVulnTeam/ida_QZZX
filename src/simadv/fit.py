@@ -204,7 +204,7 @@ class TrainObservations(ObjectCountObservations):
     perturber: str
     detector: str
 
-    def class_counts(self, all_classes: Optional[Iterable[str]] = None) -> [Tuple[str, int]]:
+    def class_counts(self, all_classes: Iterable[str] = tuple()) -> [Tuple[str, int]]:
         """
         Returns tuples of class names and corresponding counts of observations in the training data.
         """
@@ -213,7 +213,7 @@ class TrainObservations(ObjectCountObservations):
         return sorted(((s, c - m) for s, c in counts.items()),
                       key=lambda x: (1.0 / (x[1] + 1), x[0]))
 
-    def filter_for_split(self, num_splits=5, security_factor=1.2, all_classes: Optional[Iterable[str]] = None):
+    def filter_for_split(self, num_splits=5, security_factor=1.2, all_classes: Iterable[str] = tuple()):
         """
         Takes in a boolean array `subset` that specifies a subset of the training data.
         Filters the subset so that all predicted classes appear at least `ceil(security_factor * num_splits)` times.
@@ -280,7 +280,8 @@ class FitSurrogatesTask:
         groups = train_df.select(Field.INFLUENCE_ESTIMATOR.name, Field.PERTURBER.name,
                                  Field.DETECTOR.name).distinct()
         
-        for influence_estimator, perturber, detector in groups:
+        for influence_estimator, perturber, detector in groups.collect():
+            logging.info('Fitting for:\n{}\n{}\n{}'.format(influence_estimator, perturber, detector))
             group_df = train_df.filter((train_df.influence_estimator == influence_estimator)
                                        & (train_df.perturber == perturber)
                                        & (train_df.detector == detector))
