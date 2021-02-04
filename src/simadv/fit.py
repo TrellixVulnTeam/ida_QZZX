@@ -271,6 +271,7 @@ class FitSurrogatesTask:
         assert set(test_schema.fields) >= set(Schema.TEST.fields)
         test_df = self.spark_cfg.session.read.parquet(self.test_input_url)
         test_obs = TestObservations(*self._decode(test_df, test_schema))
+        logging.info('Test data comprises {} observations.'.format(len(test_obs)))
 
         scores = []
         influence_estimators = []
