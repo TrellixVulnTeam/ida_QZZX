@@ -288,11 +288,12 @@ class FitSurrogatesTask:
             group_df = train_df.filter((train_df.influence_estimator == influence_estimator)
                                        & (train_df.perturber == perturber)
                                        & (train_df.detector == detector))
+            logging.info('We have {} candidate observations.'.format(group_df.count()))
             train_obs = TrainObservations(*self._decode(group_df, train_schema),
                                           influence_estimator, perturber, detector)
 
             indices = train_obs.filter_for_split(self.tree.k_folds)
-            logging.info('Fit uses {} observations.'.format(np.count_nonzero(indices)))
+            logging.info('After filtering for CV, {} observations remain.'.format(np.count_nonzero(indices)))
             score = self.tree.fit_and_score(train_obs.object_counts[indices], train_obs.predicted_classes[indices],
                                             test_obs.object_counts, test_obs.predicted_classes)
 
