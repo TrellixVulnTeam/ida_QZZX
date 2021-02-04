@@ -7,6 +7,7 @@ from typing import Union, Any, Dict, Optional, Iterable, Tuple
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
 from petastorm.unischema import Unischema
 from petastorm.utils import decode_row
+from pyspark.sql import DataFrame
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel
 from sklearn.metrics import roc_auc_score
@@ -248,12 +249,12 @@ class FitSurrogatesTask:
     tree: TreeSurrogate
 
     @staticmethod
-    def _decode(df, schema) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _decode(df: DataFrame, schema) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         image_ids = []
         object_counts = []
         predicted_classes = []
 
-        for df_row in df.collect():
+        for df_row in df.toPandas().to_dict('records'):
             row = decode_row(df_row, schema)
             image_ids.append(row[Field.IMAGE_ID.name])
             object_counts.append(row[Field.OBJECT_COUNTS.name])
