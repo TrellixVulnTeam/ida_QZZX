@@ -2,7 +2,7 @@ import logging
 import math
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Union, Any, Dict, Optional, Iterable, Tuple
+from typing import Union, Any, Dict, Iterable, Tuple
 
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
 from petastorm.unischema import Unischema
@@ -289,6 +289,7 @@ class FitSurrogatesTask:
                                           influence_estimator, perturber, detector)
 
             indices = train_obs.filter_for_split(self.tree.k_folds)
+            logging.info('Fit uses {} observations.'.format(np.count_nonzero(indices)))
             score = self.tree.fit_and_score(train_obs.object_counts[indices], train_obs.predicted_classes[indices],
                                             test_obs.object_counts, test_obs.predicted_classes)
 
