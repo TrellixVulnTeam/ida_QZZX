@@ -3,15 +3,17 @@ import logging
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Iterable, List
 
 import numpy as np
 import torch
 import torchvision
 from petastorm import make_reader
-from petastorm.etl.dataset_metadata import materialize_dataset
+from petastorm.codecs import ScalarCodec, NdarrayCodec, CompressedNdarrayCodec, CompressedImageCodec
+from petastorm.etl.dataset_metadata import materialize_dataset, get_schema_from_dataset_url
 from petastorm.tf_utils import make_petastorm_dataset
-from petastorm.unischema import UnischemaField
+from petastorm.unischema import UnischemaField, dict_to_spark_row, Unischema
+from pyspark.sql.types import StringType, IntegerType
 from skimage import img_as_float
 from skimage.transform import resize
 from torch.nn.functional import softmax
@@ -20,6 +22,43 @@ from pyspark.sql import SparkSession
 from simple_parsing import Serializable
 
 from simadv.util.webcache import WebCache
+
+
+class Field:
+    """
+    All data fields used by the different submodules.
+    """
+    IMAGE = UnischemaField('image', np.uint8, (None, None, 3), CompressedImageCodec('png'), False)
+    IMAGE_ID = UnischemaField('image_id', np.unicode_, (),
+                              ScalarCodec(StringType()), False)
+    BOXES = UnischemaField('boxes', np.void, (None,), NdarrayCodec(), False)
+    # CONCEPT_NAME = UnischemaField('concept_name',  np.unicode_, (), ScalarCodec(StringType()), False)
+    # CONCEPT_MASK = UnischemaField('concept_mask', np.void, (None,), NdarrayCodec(), False)
+    INFLUENCE_MASK = UnischemaField('influence_mask', np.float, (None, None), CompressedNdarrayCodec(), False)
+    PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16, (), ScalarCodec(IntegerType()), False)
+    INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
+    PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(StringType()), True)
+    DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(StringType()), True)
+    OBJECT_COUNTS = UnischemaField('object_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
+    PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
+
+
+class Schema:
+    """
+    All data schemas used by the different submodules.
+    """
+    OBJECT_BOXES = Unischema('ObjectBoxes', [Field.IMAGE_ID, Field.IMAGE, Field.BOXES])
+    TEST = Unischema('Test', [Field.IMAGE_ID, Field.OBJECT_COUNTS, Field.PREDICTED_CLASS])
+    # CONCEPT_MASKS = Unischema('ConceptMasks', [Field.IMAGE_ID, Field.IMAGE, Field.CONCEPT_NAME, Field.CONCEPT_MASK])
+    PIXEL_INFLUENCES = Unischema('PixelInfluences', [Field.IMAGE_ID, Field.BOXES, Field.PREDICTED_CLASS,
+                                                     Field.INFLUENCE_MASK, Field.INFLUENCE_ESTIMATOR])
+    PERTURBED_OBJECT_COUNTS = Unischema('PerturbedObjectCounts',
+                                        [Field.IMAGE_ID, Field.OBJECT_COUNTS, Field.PREDICTED_CLASS,
+                                         Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
+                                         Field.PERTURBED_IMAGE_ID])
+
+
+RowDict = Dict[str, Any]
 
 
 @dataclass
@@ -50,13 +89,17 @@ class TorchConfig:
 
 @dataclass
 class PetastormReadConfig:
+    input_schema: Unischema
     input_url: str
     batch_size: int
     shuffle: bool = False
     pool_type: str = 'thread'
     workers_count: int = 10
 
-    def make_reader(self, schema_fields: [str], **kwargs):
+    def make_reader(self, schema_fields: Optional[List[str]] = None, **kwargs):
+        actual_schema = get_schema_from_dataset_url(self.input_url)
+        assert actual_schema.fields == self.input_schema.fields
+
         return make_reader(self.input_url,
                            shuffle_row_groups=self.shuffle,
                            reader_pool_type=self.pool_type,
@@ -64,16 +107,15 @@ class PetastormReadConfig:
                            schema_fields=schema_fields,
                            **kwargs)
 
-    def make_tf_dataset(self, schema_fields: [str]):
+    def make_tf_dataset(self, schema_fields: Optional[List[str]] = None):
         return make_petastorm_dataset(self.make_reader(schema_fields)).batch(self.batch_size)
 
 
 @dataclass
-class PetastormWriteConfig:
+class SparkSessionConfig:
     spark_master: str
     spark_driver_memory: str
     spark_exec_memory: str
-    row_size: int
 
     def __post_init__(self):
         self.builder = SparkSession.builder \
@@ -87,11 +129,24 @@ class PetastormWriteConfig:
     def session(self):
         return self.builder.getOrCreate()
 
-    def write_parquet(self, out_df, schema, output_url):
+
+@dataclass
+class PetastormWriteConfig(SparkSessionConfig):
+    output_schema: Unischema
+    output_url: str
+    row_size: int
+
+    def write_parquet(self, row_dicts: Iterable[RowDict]):
+        spark_schema = self.output_schema.as_spark_schema()
+        rows = [dict_to_spark_row(self.output_schema, row_dict) for row_dict in row_dicts]
+        out_df = self.session.createDataFrame(rows, spark_schema)
+        logging.info('Writing {} object count observations to petastorm parquet store.'.format(out_df.count()))
+
+        output_url = self.output_url
         while True:
             try:
                 with materialize_dataset(self.session, output_url,
-                                         schema, self.row_size):
+                                         self.output_schema, self.row_size):
                     out_df.write.mode('error').parquet(output_url)
             except Exception as e:
                 logging.error('Encountered exception: {}'.format(e))
@@ -103,14 +158,6 @@ class PetastormWriteConfig:
                 output_url = other_url
             else:
                 break
-
-
-@dataclass
-class PetastormTransformer:
-    id_field: UnischemaField
-    output_url: str
-    read_cfg: PetastormReadConfig
-    write_cfg: PetastormWriteConfig
 
 
 @dataclass
@@ -260,6 +307,3 @@ class TorchImageClassifierSerialization:
                     self._raise_invalid_path()
             except ModuleNotFoundError:
                 self._raise_invalid_path()
-
-
-RowDict = Dict[str, Any]

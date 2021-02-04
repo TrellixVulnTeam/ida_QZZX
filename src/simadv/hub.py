@@ -23,14 +23,6 @@ class SupervisedImageDatasetMeta(abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def image_id_field(cls) -> UnischemaField:
-        """
-        A field that encodes image IDs in this dataset.
-        """
-        pass
-
-    @property
-    @abc.abstractmethod
     def label_field(cls) -> UnischemaField:
         """
         A field that encodes image labels in this dataset.
@@ -49,13 +41,6 @@ class SupervisedImageDataset(abc.ABC, metaclass=SupervisedImageDatasetMeta):
         The name of the dataset.
         """
         return type(self).dataset_name
-
-    @property
-    def image_id_field(self) -> UnischemaField:
-        """
-        A field that encodes image IDs in this dataset.
-        """
-        return type(self).image_id_field
 
     @property
     def label_field(self) -> UnischemaField:
