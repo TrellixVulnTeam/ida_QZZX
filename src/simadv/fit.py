@@ -253,7 +253,7 @@ class FitSurrogatesTask:
         object_counts = []
         predicted_classes = []
 
-        for df_row in df:
+        for df_row in df.collect():
             row = decode_row(df_row, schema)
             image_ids.append(row[Field.IMAGE_ID.name])
             object_counts.append(row[Field.OBJECT_COUNTS.name])
