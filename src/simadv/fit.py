@@ -285,9 +285,17 @@ class FitSurrogatesTask:
         
         for influence_estimator, perturber, detector in groups.collect():
             logging.info('Fitting for:\n{}\n{}\n{}'.format(influence_estimator, perturber, detector))
-            group_df = train_df.filter((train_df.influence_estimator == influence_estimator)
-                                       & (train_df.perturber == perturber)
-                                       & (train_df.detector == detector))
+            group_key = {influence_estimator, perturber, detector}
+            if None in group_key:
+                if group_key != {None}:
+                    raise ValueError('Influence_estimator, perturber and detector must either all three be None'
+                                     'or all three must be a string.')
+                group_df = train_df.filter(train_df.influence_estimator.isNull() & train_df.perturber.isNull()
+                                           & train_df.detector.isNull())
+            else:
+                group_df = train_df.filter((train_df.influence_estimator == influence_estimator)
+                                           & (train_df.perturber == perturber)
+                                           & (train_df.detector == detector))
             logging.info('We have {} candidate observations.'.format(group_df.count()))
             train_obs = TrainObservations(*self._decode(group_df, train_schema),
                                           influence_estimator, perturber, detector)
