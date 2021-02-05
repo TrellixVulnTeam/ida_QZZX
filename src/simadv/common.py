@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, Iterable, List
+from unittest import mock
 
 import numpy as np
 import torch
@@ -21,6 +22,7 @@ from torch.nn.functional import softmax
 from pyspark.sql import SparkSession
 from simple_parsing import Serializable
 
+from simadv.util.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simadv.util.webcache import WebCache
 
 
@@ -237,32 +239,33 @@ class TorchImageClassifier(Classifier, Serializable):
 
     @property
     def torch_model(self):
-        if self.torch_cfg is None:
-            raise RuntimeError('Attribute torch_cfg must be set before the model can be accessed.')
+        with mock.patch.object(torchvision.models.resnet, 'BasicBlock', AdjustedBasicBlock):
+            if self.torch_cfg is None:
+                raise RuntimeError('Attribute torch_cfg must be set before the model can be accessed.')
 
-        if self._model is not None:
-            return self._model
+            if self._model is not None:
+                return self._model
 
-        if self.param_url is None:
-            self._model = torchvision.models.__dict__[self.name](pretrained=True)
-        else:
-            if self.is_latin1:
-                self._convert_latin1_to_unicode_and_cache()
-
-            with self.cache.open(self.file_name, self.url, None, 'rb') as param_file:
-                checkpoint = torch.load(param_file,
-                                        map_location=self.torch_cfg.device)
-            if type(checkpoint).__name__ == 'OrderedDict' or type(checkpoint).__name__ == 'dict':
-                self._model = torchvision.models.__dict__[self.name](num_classes=self.task.num_classes)
-                if self.is_parallel:
-                    # the data parallel layer will add 'module' before each layer name:
-                    state_dict = {str.replace(k, 'module.', ''): v
-                                  for k, v in checkpoint['state_dict'].items()}
-                else:
-                    state_dict = checkpoint
-                self._model.load_state_dict(state_dict)
+            if self.param_url is None:
+                self._model = torchvision.models.__dict__[self.name](pretrained=True)
             else:
-                self._model = checkpoint
+                if self.is_latin1:
+                    self._convert_latin1_to_unicode_and_cache()
+
+                with self.cache.open(self.file_name, self.url, None, 'rb') as param_file:
+                    checkpoint = torch.load(param_file,
+                                            map_location=self.torch_cfg.device)
+                if type(checkpoint).__name__ == 'OrderedDict' or type(checkpoint).__name__ == 'dict':
+                    self._model = torchvision.models.__dict__[self.name](num_classes=self.task.num_classes)
+                    if self.is_parallel:
+                        # the data parallel layer will add 'module' before each layer name:
+                        state_dict = {str.replace(k, 'module.', ''): v
+                                      for k, v in checkpoint['state_dict'].items()}
+                    else:
+                        state_dict = checkpoint
+                    self._model.load_state_dict(state_dict)
+                else:
+                    self._model = checkpoint
 
         self._model.eval()
         return self._model
