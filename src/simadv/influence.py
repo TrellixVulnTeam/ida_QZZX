@@ -21,6 +21,7 @@ from simadv.common import LoggingConfig, TorchConfig, \
 from anchor import anchor_image
 
 
+@dataclass(unsafe_hash=True)
 class InfluenceEstimator(abc.ABC):
     """
     A method to estimate the most influential pixels for a given classifier prediction.
@@ -40,7 +41,7 @@ class InfluenceEstimator(abc.ABC):
         pass
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class AnchorInfluenceEstimator(InfluenceEstimator):
     """
     Uses the anchor approach
@@ -94,7 +95,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
         return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class LIMEInfluenceEstimator(InfluenceEstimator):
     """
     Uses the LIME approach
@@ -135,7 +136,7 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
         return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
     """
     Wrapper for influence estimators from the `captum` package.
@@ -155,7 +156,7 @@ class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
         return attr / np.sum(attr)
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class IntegratedGradientsInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=IntegratedGradients, init=False)
 
@@ -164,7 +165,7 @@ class IntegratedGradientsInfluenceEstimator(CaptumInfluenceEstimator):
         return 'igrad'
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class SaliencyInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=Saliency, init=False)
 
@@ -173,7 +174,7 @@ class SaliencyInfluenceEstimator(CaptumInfluenceEstimator):
         return 'saliency'
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=DeepLift, init=False)
 
