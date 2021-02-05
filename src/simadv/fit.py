@@ -2,6 +2,7 @@ import logging
 import math
 from collections import Counter
 from dataclasses import dataclass, field
+from functools import total_ordering
 from typing import Union, Any, Dict, Iterable, Tuple
 
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
@@ -10,7 +11,7 @@ from petastorm.utils import decode_row
 from pyspark.sql import DataFrame
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, log_loss
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
@@ -24,9 +25,11 @@ from simadv.common import SparkSessionConfig, Field, Schema
 @dataclass
 class TreeSurrogate:
 
+    @total_ordering
     @dataclass
     class Score:
         cv: GridSearchCV
+        cross_entropy: float
         gini: float
         top_k_acc: int
         acc: float
@@ -34,22 +37,28 @@ class TreeSurrogate:
 
         def __str__(self):
             res = self.cv.cv_results_
-            aucs = np.asarray([res['split{}_test_score'.format(i)][self.cv.best_index_]
-                               for i in range(self.cv.n_splits_)])
-            ginis = 2. * aucs - 1.
+            entropies = np.asarray([res['split{}_test_score'.format(i)][self.cv.best_index_]
+                                   for i in range(self.cv.n_splits_)])
 
             s = 'Best model has\n' \
-                '-> Mean Gini Training Score: {}\n' \
+                '-> Mean Training Cross-entropy: {}\n' \
                 '-> Training StdDev: {}\n' \
                 '-> Params:\n' \
-                .format(np.mean(ginis), np.std(ginis))
+                .format(np.mean(entropies), np.std(entropies))
 
             for k, v in self.cv.best_params_.items():
                 s += '    \'{}\': {}\n'.format(k, v)
 
+            s += 'Expected cross-entropy: {:.3f}\n'.format(self.cross_entropy)
             s += 'Expected gini: {:.3f}\n'.format(self.gini)
             s += 'Expected top-{}-acc: {:.3f}\n'.format(self.top_k_acc, self.acc)
             return s
+
+        def __eq__(self, other):
+            return self.cross_entropy == other.cross_entropy
+
+        def __lt__(self, other):
+            return self.cross_entropy < other.cross_entropy
 
     param_grid: Dict[str, Any]
     random_state: int
@@ -72,10 +81,9 @@ class TreeSurrogate:
         return list(range(len(self.all_classes)))
 
     def fit_and_score(self, X_train, y_train, X_test, y_test) -> Union[GridSearchCV, Score]:
-        metric = 'roc_auc_ovo' if self.multi_class else 'roc_auc'
         search = GridSearchCV(self.pipeline, self.param_grid,
                               cv=self.k_folds, n_jobs=self.n_jobs,
-                              scoring=metric)
+                              scoring='neg_log_loss')
         cv = search.fit(X_train, y_train)
 
         try:
@@ -111,6 +119,7 @@ class TreeSurrogate:
             # binary case
             y_test_pred = y_test_pred[:, 1]
 
+        cross_entropy = log_loss(y_test, y_test_pred)
         gini = self._gini_score(y_test, y_test_pred)
 
         top_k_acc = self.top_k_acc if self.multi_class else 1
@@ -122,7 +131,7 @@ class TreeSurrogate:
             logging.error('The following exception occurred while computing node counts:\n{}'.format(str(e)))
             counts = None
 
-        return TreeSurrogate.Score(cv, gini, top_k_acc, acc, counts)
+        return TreeSurrogate.Score(cv, cross_entropy, gini, top_k_acc, acc, counts)
 
     @staticmethod
     def _get_class_counts_in_nodes(best_pipeline, X_test, y_test):
