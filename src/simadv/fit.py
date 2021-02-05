@@ -119,7 +119,7 @@ class TreeSurrogate:
         try:
             counts = self._get_class_counts_in_nodes(best_pipeline, X_test, y_test)
         except Exception as e:
-            print('The following exception occurred while computing node counts:\n{}'.format(str(e)))
+            logging.error('The following exception occurred while computing node counts:\n{}'.format(str(e)))
             counts = None
 
         return TreeSurrogate.Score(cv, gini, top_k_acc, acc, counts)
