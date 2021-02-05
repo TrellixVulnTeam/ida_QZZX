@@ -8,7 +8,7 @@ import torch
 from captum.attr import IntegratedGradients, Saliency, DeepLift, visualization as viz, GradientAttribution
 from lime import lime_image
 
-from typing import Optional, Type, Any, Tuple, Iterable, Dict
+from typing import Optional, Type, Any, Tuple, Iterable, Dict, List
 
 import numpy as np
 from petastorm.unischema import Unischema
@@ -28,7 +28,7 @@ class InfluenceEstimator(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def id(self) -> str:
+    def abbreviation(self):
         pass
 
     @abc.abstractmethod
@@ -61,7 +61,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
         self.anchor = anchor_image.AnchorImage()
 
     @property
-    def id(self) -> str:
+    def abbreviation(self):
         return 'anchor'
 
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
@@ -114,7 +114,7 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
         self.lime = lime_image.LimeImageExplainer()
 
     @property
-    def id(self) -> str:
+    def abbreviation(self):
         return 'lime'
 
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
@@ -160,7 +160,7 @@ class IntegratedGradientsInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=IntegratedGradients, init=False)
 
     @property
-    def id(self) -> str:
+    def abbreviation(self):
         return 'igrad'
 
 
@@ -169,7 +169,7 @@ class SaliencyInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=Saliency, init=False)
 
     @property
-    def id(self) -> str:
+    def abbreviation(self):
         return 'saliency'
 
 
@@ -178,7 +178,7 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=DeepLift, init=False)
 
     @property
-    def id(self) -> str:
+    def abbreviation(self):
         return 'deeplift'
 
 
@@ -204,11 +204,12 @@ class TorchInfluenceTask:
     anchor_ie: AnchorInfluenceEstimator
     igrad_ie: IntegratedGradientsInfluenceEstimator
     saliency_ie: SaliencyInfluenceEstimator
+    deep_lift_ie: DeepLiftInfluenceEstimator
 
     image_size: Tuple[int, int] = (224, 224)
 
     # which influence estimators to use
-    used_influence_estimators: [str] = field(default_factory=list)
+    used_influence_estimators: List[str] = field(default_factory=list)
 
     # an object is considered relevant for the prediction of the classifier
     # if the sum of influence values in the objects bounding box
@@ -232,12 +233,20 @@ class TorchInfluenceTask:
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.anchor_ie, self.lime_ie, self.saliency_ie, self.igrad_ie)
+        self.influence_estimators = (self.deep_lift_ie,
+                                     self.saliency_ie,
+                                     self.igrad_ie,
+                                     self.anchor_ie,
+                                     self.lime_ie)
+
+        unknown_ies = set(self.used_influence_estimators) - set(est.abbreviation for est in self.influence_estimators)
+        if unknown_ies:
+            raise ValueError('Unknown influence estimators: {}'.format(unknown_ies))
 
     def generate(self) -> Iterable[Dict[str, Any]]:
         last_time = start_time = time.time()
         total_count = 0
-        hit_counts = {est.id: 0 for est in self.influence_estimators}
+        hit_counts = {est: 0 for est in self.influence_estimators}
 
         count_per_class = np.zeros((self.classifier.task.num_classes,))
 
@@ -280,7 +289,7 @@ class TorchInfluenceTask:
 
                 current_time = time.time()
                 if current_time - last_time > 5:
-                    f = ', '.join(['{}: {:.2f}'.format(est.id, float(hit_counts[est.id]) / total_count)
+                    f = ', '.join(['{}: {:.2f}'.format(est, float(hit_counts[est]) / total_count)
                                   for est in self.influence_estimators])
                     logging.info('Processed {} images so far. Hit frequencies: {}'
                                  .format(total_count, f))
