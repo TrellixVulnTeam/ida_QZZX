@@ -4,7 +4,7 @@ import numpy as np
 import skimage
 
 from simadv.io import Field
-from simadv.describe.common import DictBasedImageDescriber
+from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
 
 
 @dataclass
@@ -14,9 +14,11 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     Each color mask represents all pixels of one perceivable color.
     """
 
+    read_cfg: ImageReadConfig
+
     concept_group_name: str = field(default='perceivable_colors', init=False)
 
-    #
+    # names of all perceivable colors used by this describer
     COLOR_NAMES = np.char.array(['red', 'orange', 'gold', 'yellow',
                                  'green', 'turquoise', 'blue',
                                  'purple', 'magenta',

@@ -1,8 +1,9 @@
+import abc
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Iterable
 from unittest import mock
 
 import numpy as np
@@ -14,8 +15,9 @@ from skimage.transform import resize
 from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
-from simadv.common import Classifier
-from simadv.util.adjusted_resnet_basic_block import AdjustedBasicBlock
+from simadv.common import Classifier, RowDict
+from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
+from simadv.describe.torch_based.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simadv.util.webcache import WebCache
 
 
@@ -32,7 +34,7 @@ class TorchConfig:
     def set_device(self):
         """
         Context manager that executes the contained code with the
-        configured torch device.
+        configured torch_based device.
         """
         return torch.cuda.device(self.device if self.use_cuda else -1)
 
@@ -47,7 +49,7 @@ class TorchImageClassifier(Classifier, Serializable):
     # whether this model uses `DataParallel`
     is_parallel: bool
 
-    # torch configuration to use
+    # torch_based configuration to use
     torch_cfg: TorchConfig
 
     # required input size of the model
@@ -56,7 +58,7 @@ class TorchImageClassifier(Classifier, Serializable):
     # where to cache downloaded information
     cache: WebCache = WebCache()
 
-    # whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch versions)
+    # whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch_based versions)
     is_latin1: bool = False
 
     def __post_init__(self):
@@ -66,7 +68,7 @@ class TorchImageClassifier(Classifier, Serializable):
 
         self._model = None
 
-        # magic constants in the torch community
+        # magic constants in the torch_based community
         means, sds = np.asarray([0.485, 0.456, 0.406]), np.asarray([0.229, 0.224, 0.225])
         self._means_nested = means[None, None, :]
         self._sds_nested = sds[None, None, :]
@@ -160,3 +162,72 @@ class TorchImageClassifierSerialization:
                     self._raise_invalid_path()
             except ModuleNotFoundError:
                 self._raise_invalid_path()
+
+
+@dataclass
+class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
+    """
+    Reads batches of image data from a petastorm store
+    and converts these images to Torch tensors.
+
+    Attention: If the input images can have different sizes, you *must*
+    set `read_cfg.batch_size` to 1!
+
+    Subclasses can describe the produced tensors as other data
+    batch-wise by implementing the `describe_batch` method.
+    """
+
+    read_cfg: ImageReadConfig
+    classifier_serial: TorchImageClassifierSerialization
+    torch_cfg: TorchConfig
+
+    def __post_init__(self):
+        # load the classifier from its name
+        @dataclass
+        class PartialTorchImageClassifier(TorchImageClassifier):
+            torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
+
+        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
+
+    def batch_iter(self):
+        def to_tensor(batch_columns):
+            row_ids, image_arrays = batch_columns
+            image_tensors = torch.as_tensor(image_arrays) \
+                .to(self.torch_cfg.device, torch.float) \
+                .div(255)
+
+            return row_ids, image_tensors
+
+        current_batch = []
+        reader = self.read_cfg.make_reader(None)
+
+        for row in reader:
+            current_batch.append((row.image_id, row.image))
+
+            if len(current_batch) < self.read_cfg.batch_size:
+                continue
+
+            yield to_tensor(list(zip(*current_batch)))
+            current_batch.clear()
+
+        if current_batch:
+            yield to_tensor(list(zip(*current_batch)))
+
+    @abc.abstractmethod
+    def describe_batch(self, ids, batch) -> Iterable[RowDict]:
+        pass
+
+    def cleanup(self):
+        """
+        Can be overridden to clean up more stuff.
+        """
+        torch.cuda.empty_cache()  # release all memory that can be released
+
+    def generate(self):
+        self.classifier.torch_model.to(self.torch_cfg.device)  # move model to CUDA before tensors
+
+        with torch.no_grad():
+            for ids, batch in self.batch_iter():
+                yield from self.describe_batch(ids, batch)
+
+        self.cleanup()

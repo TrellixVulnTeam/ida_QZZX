@@ -14,11 +14,11 @@ from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, Classifier
 from simadv.io import Field, Schema, PetastormWriteConfig
-from simadv.torch import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
+from simadv.describe.torch_based.base import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image
 
-from simadv.describe.common import DictBasedImageDescriber
+from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
 
 
 @dataclass(unsafe_hash=True)
@@ -133,7 +133,7 @@ class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
 
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         if not isinstance(classifier, TorchImageClassifier):
-            raise NotImplementedError('The captum algorithms only work for torch classifiers.')
+            raise NotImplementedError('The captum algorithms only work for torch_based classifiers.')
 
         img_tensor = torch.from_numpy(img).float().to(classifier.torch_cfg.device).permute(2, 0, 1).unsqueeze(0)
         algo = self.algorithm(classifier.torch_model)
@@ -159,13 +159,8 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 
 
 @dataclass
-class InfluenceWriteConfig(PetastormWriteConfig):
-    output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
-
-
-@dataclass
 class TorchInfluenceImageDescriber(DictBasedImageDescriber):
-    write_cfg: InfluenceWriteConfig
+    read_cfg: ImageReadConfig
 
     classifier_serial: TorchImageClassifierSerialization
     torch_cfg: TorchConfig
@@ -236,7 +231,13 @@ class CLTorchInfluenceImageDescriber(TorchInfluenceImageDescriber):
 
 
 @dataclass
+class InfluenceWriteConfig(PetastormWriteConfig):
+    output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
+
+
+@dataclass
 class CLInterface:
+    write_cfg: InfluenceWriteConfig
     describer: CLTorchInfluenceImageDescriber
 
     lime_ie: LIMEInfluenceEstimator
@@ -260,7 +261,7 @@ class CLInterface:
             self.describer.influence_estimators = [ies[k] for k in self.used_influence_estimators]
 
     def run(self):
-        self.describer.to_parquet()
+        self.write_cfg.write_parquet(self.describer.to_df())
 
 
 if __name__ == '__main__':

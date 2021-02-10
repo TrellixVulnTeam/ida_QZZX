@@ -7,7 +7,7 @@ from petastorm.unischema import Unischema, dict_to_spark_row
 from pyspark.sql import DataFrame
 
 from simadv.common import RowDict, LoggingMixin
-from simadv.io import Field, Schema, PetastormReadConfig, PetastormWriteConfig
+from simadv.io import Schema, PetastormReadConfig, SparkSessionConfig
 
 
 @dataclass
@@ -18,12 +18,7 @@ class ImageReadConfig(PetastormReadConfig):
 @dataclass
 class ImageDescriber(LoggingMixin, abc.ABC):
 
-    read_cfg: ImageReadConfig
-    write_cfg: PetastormWriteConfig
     concept_group_name: str
-
-    def __post_init__(self):
-        assert Field.IMAGE_ID in self.write_cfg.output_schema.fields
 
     @abc.abstractmethod
     def to_df(self) -> DataFrame:
@@ -32,18 +27,15 @@ class ImageDescriber(LoggingMixin, abc.ABC):
         and returns them as a spark dataframe.
         """
 
-    def to_parquet(self):
-        """
-        Generates descriptions for all input images configured by `read_cfg`
-        and stores them in a Parquet store according to `write_cfg`.
-        """
-        self.write_cfg.write_parquet(self.to_df())
 
-
+@dataclass
 class DictBasedImageDescriber(ImageDescriber):
 
+    output_schema: Unischema
+    spark_cfg: SparkSessionConfig
+
     # after which time to automatically stop
-    time_limit_s: Optional[int] = None
+    time_limit_s: Optional[int]
 
     @abc.abstractmethod
     def generate(self) -> Iterator[RowDict]:
@@ -70,5 +62,5 @@ class DictBasedImageDescriber(ImageDescriber):
                     break
 
     def to_df(self) -> DataFrame:
-        rows = [dict_to_spark_row(self.write_cfg.output_schema, row_dict) for row_dict in self._generate_with_logging()]
-        return self.write_cfg.session.createDataFrame(rows, self.write_cfg.output_schema.as_spark_schema())
+        rows = [dict_to_spark_row(self.output_schema, row_dict) for row_dict in self._generate_with_logging()]
+        return self.spark_cfg.session.createDataFrame(rows, self.output_schema.as_spark_schema())

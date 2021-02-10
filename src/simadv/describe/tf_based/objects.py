@@ -10,7 +10,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from simadv.common import LoggingMixin
-from simadv.describe.common import DictBasedImageDescriber
+from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
 from simadv.io import Field
 from simadv.oiv4.metadata import OIV4MetadataProvider
 
@@ -25,6 +25,7 @@ class TFDescriber(DictBasedImageDescriber, abc.ABC):
 
     FIXME: this describer currently only works if all images have the same size
     """
+    read_cfg: ImageReadConfig
 
     def batch_iter(self):
         for schema_view in self.read_cfg.make_tf_dataset([Field.IMAGE.name, Field.IMAGE_ID.name]):
@@ -82,7 +83,7 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     def __post_init__(self):
         assert 0. <= self.threshold < 1.
 
-        num_gpus = torch.cuda.device_count()  # sadly, tf does not have an equally nice method
+        num_gpus = torch.cuda.device_count()  # sadly, tf_based does not have an equally nice method
         gpus = range(num_gpus) if num_gpus > 0 else (None,)
 
         self.in_queue = mp.JoinableQueue(maxsize=max(1, num_gpus))
