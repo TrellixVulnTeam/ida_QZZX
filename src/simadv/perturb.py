@@ -1,7 +1,7 @@
 import abc
 import logging
 from dataclasses import dataclass, field
-from typing import Iterable, Tuple, Any, Dict
+from typing import Iterable, Tuple, Any, Iterator
 
 import numpy as np
 import itertools as it
@@ -9,8 +9,8 @@ import itertools as it
 from petastorm.reader import Reader
 from petastorm.unischema import Unischema
 
-from simadv.common import PetastormReadConfig, Field, Schema, \
-    PetastormWriteConfig
+from simadv.common import RowDict
+from simadv.io import Field, Schema, PetastormReadConfig, PetastormWriteConfig
 
 
 class Perturber(abc.ABC):
@@ -173,19 +173,18 @@ class PerturbTask:
                 sample_counts[obj_id] += 1
             yield sample_counts, sampled_row.image_id
 
-    def generate(self) -> Iterable[Dict[str, Any]]:
-        with self.read_cfg.make_reader([Field.IMAGE_ID.name, Field.BOXES.name, Field.INFLUENCE_MASK.name,
-                                        Field.INFLUENCE_ESTIMATOR.name]) as reader:
-            with self.sampling_read_cfg.make_reader([Field.IMAGE_ID.name, Field.BOXES.name],
-                                                    num_epochs=None) as sampling_reader:
+    def generate(self) -> Iterator[RowDict]:
+        with self.read_cfg.make_reader(None) as reader:
+            with self.sampling_read_cfg.make_reader([Field.IMAGE_ID.name, Field.CONCEPT_NAMES.name,
+                                                     Field.CONCEPT_MASKS.name], num_epochs=None) as sampling_reader:
                 logging.info('Start reading images...')
                 for row in reader:
 
                     counts = np.zeros((self.num_objects,), dtype=np.uint8)
-                    for box in row.boxes:
-                        counts[box[0]] += 1
+                    for concept_name in row.concept_names:
+                        counts[concept_name] += 1
 
-                    yield {Field.OBJECT_COUNTS.name: counts,
+                    yield {Field.CONCEPT_COUNTS.name: counts,
                            Field.PREDICTED_CLASS.name: row.predicted_class,
                            Field.INFLUENCE_ESTIMATOR.name: None,
                            Field.PERTURBER.name: None,
@@ -206,7 +205,7 @@ class PerturbTask:
                         for perturber in self.perturbers:
                             for perturbed_counts, perturbed_image_id \
                                     in perturber.perturb(min_counts, counts, self.sampler(sampling_reader)):
-                                yield {Field.OBJECT_COUNTS.name: perturbed_counts,
+                                yield {Field.CONCEPT_COUNTS.name: perturbed_counts,
                                        Field.PREDICTED_CLASS.name: row.predicted_class,
                                        Field.INFLUENCE_ESTIMATOR.name: row.influence_estimator,
                                        Field.PERTURBER.name: perturber,

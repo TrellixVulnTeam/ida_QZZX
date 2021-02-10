@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 
+from simadv.common import ImageIdProvider
 from simadv.convert import main, ConvertTask
-from simadv.hub import SupervisedImageDataset
-from simadv.places365.hub import Places365Hub
+from simadv.places365.metadata import Places365MetadataProvider
 
 
 @dataclass
 class Places365ConvertTask(ConvertTask):
-    hub: SupervisedImageDataset = field(default_factory=Places365Hub, init=False)
+    meta: ImageIdProvider = field(default_factory=Places365MetadataProvider, init=False)
 
 
 if __name__ == '__main__':

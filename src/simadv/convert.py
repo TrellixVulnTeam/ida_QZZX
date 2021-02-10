@@ -1,32 +1,34 @@
-import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
 from typing import Union, Optional, Tuple, Type
 
 import numpy as np
 from PIL import Image
-from petastorm.codecs import CompressedImageCodec
 
-from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
+from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
 
-from simadv.common import PetastormWriteConfig, LoggingConfig
-from simadv.hub import SupervisedImageDataset
+from simadv.common import LoggingConfig, ImageIdProvider
+from simadv.io import Field, Schema, PetastormWriteConfig
+
+
+@dataclass
+class ConvertWriteConfig(PetastormWriteConfig):
+    output_schema: Unischema = field(default=Schema.IMAGES, init=False)
 
 
 @dataclass
 class ConvertTask:
 
     images_dir: Union[str, Path]
-    write_cfg: PetastormWriteConfig
-    hub: SupervisedImageDataset
+    write_cfg: ConvertWriteConfig
+    meta: ImageIdProvider
 
+    ids_only: bool = False
     glob: str = '*.jpg'
     sample_size: Optional[int] = None
     subset: str = 'validation'
-    output_url: Optional[str] = None
-    ignore_missing_labels: bool = True
     image_size: Tuple[int, int] = (-1, -1)
     min_length: Optional[int] = None
     max_length: Optional[int] = None
@@ -39,82 +41,52 @@ class ConvertTask:
         assert self.images_dir.exists()
 
         assert self.subset in ['train', 'test', 'validation']
-        if self.output_url is None:
-            self.output_url = 'file://' + str(self.images_dir.absolute() /
-                                              '{}.parquet'.format(self.subset))
 
-    def _get_schema(self):
-        image_data_field = UnischemaField('image', np.uint8, (None, None, 3),
-                                          CompressedImageCodec('png'), False)
+    def generate(self):
+        img_stream = islice(self.images_dir.glob(self.glob), self.sample_size)
+        for image_path in img_stream:
+            image_id = self.meta.get_image_id(image_path, self.subset)
+            image = Image.open(image_path)
 
-        return Unischema('{}SupervisedSchema'.format(self.hub.dataset_name),
-                         [self.hub.image_id_field,
-                          image_data_field,
-                          self.hub.label_field])
+            if self.image_size != (-1, -1):
+                image = image.resize(self.image_size)
+            else:
+                current_min_length = min(*image.size)
+                current_max_length = max(*image.size)
+
+                # compute the minimum and maximum scale factors:
+
+                if self.min_length:
+                    min_scale = float(self.min_length) / \
+                                float(current_min_length)
+                else:
+                    min_scale = 0.
+
+                if self.max_length:
+                    max_scale = float(self.max_length) / \
+                                float(current_max_length)
+                else:
+                    max_scale = 1.
+
+                # scale at most to max_scale
+                # scale at least to min_scale (overrules max_scale)
+                scale = max(min_scale, min(max_scale, 1.))
+
+                if scale != 1.:
+                    w, h = image.size
+                    image = image.resize((round(w * scale),
+                                          round(h * scale)))
+
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            yield {Field.IMAGE.name: np.asarray(image),
+                   Field.IMAGE_ID.name: image_id}
 
     def run(self):
-        spark_ctx = self.write_cfg.session.sparkContext
-
-        def generate_row(image_path: Path):
-            try:
-                image_id = self.hub.get_image_id(image_path, self.subset)
-                label = self.hub.get_image_label(image_path, self.subset)
-            except KeyError as e:
-                if self.ignore_missing_labels:
-                    return None
-                else:
-                    raise e
-            else:
-                image = Image.open(image_path)
-
-                if self.image_size != (-1, -1):
-                    image = image.resize(self.image_size)
-                else:
-                    current_min_length = min(*image.size)
-                    current_max_length = max(*image.size)
-
-                    # compute the minimum and maximum scale factors:
-
-                    if self.min_length:
-                        min_scale = float(self.min_length) / \
-                                    float(current_min_length)
-                    else:
-                        min_scale = 0.
-
-                    if self.max_length:
-                        max_scale = float(self.max_length) / \
-                                    float(current_max_length)
-                    else:
-                        max_scale = 1.
-
-                    # scale at most to max_scale
-                    # scale at least to min_scale (overrules max_scale)
-                    scale = max(min_scale, min(max_scale, 1.))
-
-                    if scale != 1.:
-                        w, h = image.size
-                        image = image.resize((round(w * scale),
-                                              round(h * scale)))
-
-                if image.mode != 'RGB':
-                    image = image.convert('RGB')
-
-                return {'image': np.asarray(image),
-                        self.hub.image_id_field.name: image_id,
-                        self.hub.label_field.name: label}
-
-        schema = self._get_schema()
-
-        img_stream = islice(self.images_dir.glob(self.glob), self.sample_size)
-        rows_rdd = spark_ctx.parallelize(img_stream) \
-            .repartition(self.num_partitions) \
-            .map(generate_row) \
-            .filter(lambda x: x is not None) \
-            .map(lambda x: dict_to_spark_row(schema, x))
-
-        df = self.write_cfg.session.createDataFrame(rows_rdd, schema.as_spark_schema())
-        logging.info('Converted {} images into petastorm parquet store.'.format(df.count()))
-        self.write_cfg.write_parquet(df, schema, self.output_url)
+        rows = [dict_to_spark_row(self.write_cfg.output_schema, row_dict) for row_dict in self.generate()]
+        df = self.write_cfg.session.createDataFrame(rows, self.write_cfg.output_schema.as_spark_schema())
+        self.write_cfg.write_parquet(df)
 
 
 def main(convert_task: Type[ConvertTask]):
@@ -126,4 +98,4 @@ def main(convert_task: Type[ConvertTask]):
     parser.add_arguments(convert_task, dest='convert_task')
     parser.add_arguments(LoggingConfig, dest='logging')
     args = parser.parse_args()
-    args.convert_task.run()
+    args.convert_task.to_parquet()

@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 
+from simadv.common import ImageIdProvider
 from simadv.convert import main, ConvertTask
-from simadv.hub import SupervisedImageDataset
-from simadv.oiv4.hub import OpenImagesV4Hub
+from simadv.oiv4.metadata import OIV4MetadataProvider
 
 
 @dataclass
 class OIV4ConvertTask(ConvertTask):
-    hub: SupervisedImageDataset = field(default_factory=OpenImagesV4Hub, init=False)
+    meta: ImageIdProvider = field(default_factory=OIV4MetadataProvider, init=False)
 
 
 if __name__ == '__main__':

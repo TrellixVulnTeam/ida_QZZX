@@ -1,9 +1,6 @@
 {
   "name": "resnet50",
-  "task": {
-    "name": "Places365Challenge",
-    "num_classes": 365
-  },
+  "num_classes": 365,
   "param_url": "http://places2.csail.mit.edu/models_places365/densenet161_places365.pth.tar",
   "is_parallel": true,
   "is_latin1": true

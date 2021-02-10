@@ -1,6 +1,4 @@
 import abc
-import logging
-import time
 from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
@@ -14,11 +12,13 @@ import numpy as np
 from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
-from simadv.common import LoggingConfig, TorchConfig, \
-    TorchImageClassifier, TorchImageClassifierSerialization, Classifier, \
-    PetastormReadConfig, Schema, PetastormWriteConfig, Field
+from simadv.common import LoggingConfig, Classifier
+from simadv.io import Field, Schema, PetastormWriteConfig
+from simadv.torch import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image
+
+from simadv.describe.common import DictBasedImageDescriber
 
 
 @dataclass(unsafe_hash=True)
@@ -26,11 +26,6 @@ class InfluenceEstimator(abc.ABC):
     """
     A method to estimate the most influential pixels for a given classifier prediction.
     """
-
-    @property
-    @abc.abstractmethod
-    def abbreviation(self):
-        pass
 
     @abc.abstractmethod
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
@@ -60,10 +55,6 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
 
     def __post_init__(self):
         self.anchor = anchor_image.AnchorImage()
-
-    @property
-    def abbreviation(self):
-        return 'anchor'
 
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         explanation = self.anchor.explain_instance(img,
@@ -114,10 +105,6 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
     def __post_init__(self):
         self.lime = lime_image.LimeImageExplainer()
 
-    @property
-    def abbreviation(self):
-        return 'lime'
-
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         explanation = self.lime.explain_instance(img, classifier.predict_proba,
                                                  labels=(pred_class,),
@@ -160,32 +147,15 @@ class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
 class IntegratedGradientsInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=IntegratedGradients, init=False)
 
-    @property
-    def abbreviation(self):
-        return 'igrad'
-
 
 @dataclass(unsafe_hash=True)
 class SaliencyInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=Saliency, init=False)
 
-    @property
-    def abbreviation(self):
-        return 'saliency'
-
 
 @dataclass(unsafe_hash=True)
 class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=DeepLift, init=False)
-
-    @property
-    def abbreviation(self):
-        return 'deeplift'
-
-
-@dataclass
-class InfluenceReadConfig(PetastormReadConfig):
-    input_schema: Unischema = field(default=Schema.OBJECT_BOXES, init=False)
 
 
 @dataclass
@@ -194,38 +164,27 @@ class InfluenceWriteConfig(PetastormWriteConfig):
 
 
 @dataclass
-class TorchInfluenceTask:
-    read_cfg: InfluenceReadConfig
+class TorchInfluenceImageDescriber(DictBasedImageDescriber):
     write_cfg: InfluenceWriteConfig
 
     classifier_serial: TorchImageClassifierSerialization
     torch_cfg: TorchConfig
 
-    lime_ie: LIMEInfluenceEstimator
-    anchor_ie: AnchorInfluenceEstimator
-    igrad_ie: IntegratedGradientsInfluenceEstimator
-    saliency_ie: SaliencyInfluenceEstimator
-    deep_lift_ie: DeepLiftInfluenceEstimator
+    influence_estimators: List[InfluenceEstimator]
 
     image_size: Tuple[int, int] = (224, 224)
 
-    # which influence estimators to use
-    used_influence_estimators: List[str] = field(default_factory=list)
-
-    # an object is considered relevant for the prediction of the classifier
-    # if the sum of influence values in the objects bounding box
-    # exceeds the fraction 'object area' / 'image area' by a factor lift_threshold`.
-    lift_threshold: float = 1.5
+    concept_group_name: str = field(default='pixel_influences', init=False)
 
     # if not None, sample the given number of observations from each class instead
     # of reading the dataset once front to end.
     observations_per_class: Optional[int] = None
 
-    # after which time to automatically stop
-    time_limit_s: Optional[int] = None
-
-    # whether to visualize the influential pixels for each image and explainer
+    # whether to visualize the influential pixels for each image and estimator
     debug: bool = False
+
+    # after how many observations to output a log message with hit frequencies of the different estimators
+    hit_freq_logging: int = 30
 
     def __post_init__(self):
         # load the classifier from its name
@@ -234,44 +193,27 @@ class TorchInfluenceTask:
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-        self.influence_estimators = (self.deep_lift_ie,
-                                     self.saliency_ie,
-                                     self.igrad_ie,
-                                     self.anchor_ie,
-                                     self.lime_ie)
-
-        unknown_ies = set(self.used_influence_estimators) - set(est.abbreviation for est in self.influence_estimators)
-        if unknown_ies:
-            raise ValueError('Unknown influence estimators: {}'.format(unknown_ies))
 
     def generate(self) -> Iterable[Dict[str, Any]]:
-        last_time = start_time = time.time()
         total_count = 0
-        hit_counts = {est: 0 for est in self.influence_estimators}
-
-        count_per_class = np.zeros((self.classifier.task.num_classes,))
+        count_per_class = np.zeros((self.classifier.num_classes,))
 
         with self.read_cfg.make_reader(None) as reader:
-            logging.info('Start reading images...')
             for row in reader:
                 pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
 
                 if self.observations_per_class is not None:
                     if count_per_class[pred] >= self.observations_per_class:
-                        logging.info('Skipping, we already have enough observations of class {}.'.format(pred))
+                        self._log_item('Skipping, we already have enough observations of class {}.'.format(pred))
                         continue
-                    elif np.sum(count_per_class) >= self.classifier.task.num_classes * self.observations_per_class:
-                        logging.info('Stopping, we now have enough observations of all classes.')
+                    elif np.sum(count_per_class) >= self.classifier.num_classes * self.observations_per_class:
+                        self._log_item('Stopping, we now have enough observations of all classes.')
                         break
 
                 count_per_class[pred] += 1
                 total_count += 1
 
                 for influence_estimator in self.influence_estimators:
-                    if self.used_influence_estimators \
-                            and influence_estimator not in self.used_influence_estimators:
-                        continue
-
                     influence_mask = influence_estimator.get_influence_mask(self.classifier, row.image, pred)
                     if self.debug:
                         fig = plt.figure()
@@ -283,25 +225,42 @@ class TorchInfluenceTask:
                                                  plt_fig_axis=(fig, ax))
 
                     yield {Field.IMAGE_ID.name: row.image_id,
-                           Field.BOXES.name: row.boxes[:, :5],
                            Field.INFLUENCE_MASK.name: influence_mask,
                            Field.PREDICTED_CLASS.name: pred,
-                           Field.INFLUENCE_ESTIMATOR.name: influence_estimator}
+                           Field.INFLUENCE_ESTIMATOR.name: str(influence_estimator)}
 
-                current_time = time.time()
-                if current_time - last_time > 5:
-                    f = ', '.join(['{}: {:.2f}'.format(est, float(hit_counts[est]) / total_count)
-                                  for est in self.influence_estimators])
-                    logging.info('Processed {} images so far. Hit frequencies: {}'
-                                 .format(total_count, f))
-                    last_time = current_time
 
-                if self.time_limit_s is not None and current_time - start_time > self.time_limit_s:
-                    logging.info('Reached timeout! Stopping.')
-                    break
+@dataclass
+class CLTorchInfluenceImageDescriber(TorchInfluenceImageDescriber):
+    influence_estimators: List[InfluenceEstimator] = field(default=list, init=False)
+
+
+@dataclass
+class CLInterface:
+    describer: CLTorchInfluenceImageDescriber
+
+    lime_ie: LIMEInfluenceEstimator
+    anchor_ie: AnchorInfluenceEstimator
+    igrad_ie: IntegratedGradientsInfluenceEstimator
+    saliency_ie: SaliencyInfluenceEstimator
+    deep_lift_ie: DeepLiftInfluenceEstimator
+
+    # which influence estimators to use
+    used_influence_estimators: List[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        ies = {'deeplift': self.deep_lift_ie,
+               'saliency': self.saliency_ie,
+               'igrad': self.igrad_ie,
+               'anchor': self.anchor_ie,
+               'lime': self.lime_ie}
+        if not self.used_influence_estimators:
+            self.describer.influence_estimators = ies.values()  # use all
+        else:
+            self.describer.influence_estimators = [ies[k] for k in self.used_influence_estimators]
 
     def run(self):
-        self.write_cfg.write_parquet(self.generate())
+        self.describer.to_parquet()
 
 
 if __name__ == '__main__':
@@ -314,13 +273,11 @@ if __name__ == '__main__':
         This field is specified by the caller of this method as `id_field`.
       - A field holding image data encoded with the petastorm png encoder.
         This field must be named *image*.
-      - A field holding bounding boxes of visible objects on the image.
-        This field must be named *boxes*.
 
     Use one of the implementations in the submodules of this package.
     """
     parser = ArgumentParser(description='Compute pixel influences.')
-    parser.add_arguments(TorchInfluenceTask, dest='task')
+    parser.add_arguments(CLInterface, dest='task')
     parser.add_arguments(LoggingConfig, dest='logging')
     args = parser.parse_args()
     args.task.run()
