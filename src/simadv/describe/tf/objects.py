@@ -1,5 +1,5 @@
 import abc
-import multiprocessing as mp
+import multiprocessing
 import os
 import queue
 from dataclasses import dataclass
@@ -13,6 +13,8 @@ from simadv.common import LoggingMixin
 from simadv.describe.common import DictBasedImageDescriber
 from simadv.io import Field
 from simadv.oiv4.metadata import OIV4MetadataProvider
+
+mp = multiprocessing.get_context('spawn')
 
 
 class TFDescriber(DictBasedImageDescriber, abc.ABC):
