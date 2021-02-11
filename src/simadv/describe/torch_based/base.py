@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
-from typing import Optional, Tuple, Iterable
+from typing import Optional, Tuple, Iterable, Union
 from unittest import mock
 
 import numpy as np
@@ -24,8 +24,6 @@ from simadv.util.webcache import WebCache
 @dataclass
 class TorchConfig:
     use_cuda: bool = True  # whether to use CUDA if available
-    read_batch_size: int = 64  # number of samples to read at once
-    read_num_workers: int = 4  # number of parallel data loading processes
 
     def __post_init__(self):
         self.use_cuda = self.use_cuda and torch.cuda.is_available()
@@ -178,16 +176,17 @@ class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
     """
 
     read_cfg: ImageReadConfig
-    classifier_serial: TorchImageClassifierSerialization
+    classifier: Union[TorchImageClassifierSerialization, TorchImageClassifier]
     torch_cfg: TorchConfig
 
     def __post_init__(self):
-        # load the classifier from its name
-        @dataclass
-        class PartialTorchImageClassifier(TorchImageClassifier):
-            torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
+        if isinstance(self.classifier, TorchImageClassifierSerialization):
+            # load the classifier from its name
+            @dataclass
+            class PartialTorchImageClassifier(TorchImageClassifier):
+                torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
-        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
+            self.classifier = PartialTorchImageClassifier.load(self.classifier.path)
 
     def batch_iter(self):
         def to_tensor(batch_columns):
