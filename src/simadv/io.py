@@ -16,18 +16,18 @@ class Field:
     """
     All data fields used by the different submodules.
     """
-    IMAGE = UnischemaField('image', np.uint8, (None, None, 3), CompressedImageCodec('png'), False)
+    IMAGE = UnischemaField('image', np.uint8_, (None, None, 3), CompressedImageCodec('png'), False)
     IMAGE_ID = UnischemaField('image_id', np.unicode_, (), ScalarCodec(StringType()), False)
     DESCRIBER = UnischemaField('describer', np.unicode_, (), ScalarCodec(StringType()), False)
     CONCEPT_NAMES = UnischemaField('concept_names',  np.unicode_, (None,), CompressedNdarrayCodec(), False)
-    CONCEPT_MASKS = UnischemaField('concept_masks', np.bool, (None, None, None), CompressedNdarrayCodec(), False)
-    INFLUENCE_MASK = UnischemaField('influence_mask', np.float32, (None, None), CompressedNdarrayCodec(), False)
-    PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16, (), ScalarCodec(IntegerType()), False)
+    CONCEPT_MASKS = UnischemaField('concept_masks', np.bool_, (None, None, None), CompressedNdarrayCodec(), False)
+    INFLUENCE_MASK = UnischemaField('influence_mask', np.float32_, (None, None), CompressedNdarrayCodec(), False)
+    PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16_, (), ScalarCodec(IntegerType()), False)
     INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
     PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(StringType()), True)
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(StringType()), True)
     DESCRIBERS = UnischemaField('describers', np.unicode_, (None,), CompressedNdarrayCodec(), False)
-    CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
+    CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8_, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
 
 
