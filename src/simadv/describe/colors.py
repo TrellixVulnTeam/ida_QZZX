@@ -41,7 +41,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     resize_to: int = 100
 
     def __post_init__(self):
-        self._hue_bin_names = np.asarray(self.HUE_MAP.values())
+        self._hue_bin_names = np.asarray(list(self.HUE_MAP.values()))
         self._hue_bins = np.array([0.] + list(self.HUE_MAP.keys())) / 360. * 255.
         self._pool = None
 
