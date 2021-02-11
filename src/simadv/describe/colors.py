@@ -2,8 +2,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import skimage
+from petastorm.unischema import Unischema
 
-from simadv.io import Field
+from simadv.io import Field, Schema
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
 
 
@@ -15,6 +16,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     """
 
     read_cfg: ImageReadConfig
+    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
 
     concept_group_name: str = field(default='perceivable_colors', init=False)
 

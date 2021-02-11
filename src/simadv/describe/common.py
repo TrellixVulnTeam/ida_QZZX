@@ -31,7 +31,10 @@ class ImageDescriber(LoggingMixin, abc.ABC):
 @dataclass
 class DictBasedImageDescriber(ImageDescriber):
 
+    # how to interpret generated row dicts
     output_schema: Unischema
+
+    # spark session for creating the result dataframe
     spark_cfg: SparkSessionConfig
 
     # after which time to automatically stop

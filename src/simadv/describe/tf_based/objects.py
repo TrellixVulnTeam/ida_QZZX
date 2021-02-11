@@ -2,16 +2,17 @@ import abc
 import multiprocessing
 import os
 import queue
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
+from petastorm.unischema import Unischema
 
 from simadv.common import LoggingMixin
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
-from simadv.io import Field
+from simadv.io import Field, Schema
 from simadv.oiv4.metadata import OIV4MetadataProvider
 
 mp = multiprocessing.get_context('spawn')
@@ -26,6 +27,7 @@ class TFDescriber(DictBasedImageDescriber, abc.ABC):
     FIXME: this describer currently only works if all images have the same size
     """
     read_cfg: ImageReadConfig
+    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
 
     def batch_iter(self):
         for schema_view in self.read_cfg.make_tf_dataset([Field.IMAGE.name, Field.IMAGE_ID.name]):

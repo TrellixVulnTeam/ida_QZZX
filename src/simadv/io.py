@@ -1,7 +1,6 @@
-import abc
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Iterable
+from typing import Optional, List
 
 import numpy as np
 from petastorm import make_reader
@@ -18,8 +17,7 @@ class Field:
     All data fields used by the different submodules.
     """
     IMAGE = UnischemaField('image', np.uint8, (None, None, 3), CompressedImageCodec('png'), False)
-    IMAGE_ID = UnischemaField('image_id', np.unicode_, (),
-                              ScalarCodec(StringType()), False)
+    IMAGE_ID = UnischemaField('image_id', np.unicode_, (), ScalarCodec(StringType()), False)
     CONCEPT_GROUP = UnischemaField('concept_group', np.unicode_, (), ScalarCodec(StringType()), False)
     CONCEPT_NAMES = UnischemaField('concept_names',  np.unicode_, (None,), ScalarCodec(StringType()), False)
     CONCEPT_MASKS = UnischemaField('concept_masks', np.bool, (None, None, None), NdarrayCodec(), False)
@@ -28,7 +26,8 @@ class Field:
     INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
     PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(StringType()), True)
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(StringType()), True)
-    OBJECT_COUNTS = UnischemaField('object_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
+    CONCEPT_GROUPS = UnischemaField('concept_groups', np.unicode_, (None,), ScalarCodec(StringType()), False)
+    CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
 
 
@@ -37,15 +36,16 @@ class Schema:
     All data schemas used by the different submodules.
     """
     IMAGES = Unischema('Images', [Field.IMAGE_ID, Field.IMAGE])
-    TEST = Unischema('Test', [Field.IMAGE_ID, Field.OBJECT_COUNTS, Field.PREDICTED_CLASS])
+    TEST = Unischema('Test', [Field.IMAGE_ID, Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS])
     CONCEPT_MASKS = Unischema('ConceptMasks', [Field.IMAGE_ID, Field.CONCEPT_GROUP, Field.CONCEPT_NAMES,
                                                Field.CONCEPT_MASKS])
     PIXEL_INFLUENCES = Unischema('PixelInfluences', [Field.IMAGE_ID, Field.PREDICTED_CLASS,
                                                      Field.INFLUENCE_MASK, Field.INFLUENCE_ESTIMATOR])
-    PERTURBED_OBJECT_COUNTS = Unischema('PerturbedObjectCounts',
-                                        [Field.IMAGE_ID, Field.OBJECT_COUNTS, Field.PREDICTED_CLASS,
-                                         Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
-                                         Field.PERTURBED_IMAGE_ID])
+    PERTURBED_CONCEPT_COUNTS = Unischema('PerturbedConceptCounts',
+                                         [Field.IMAGE_ID, Field.CONCEPT_GROUPS, Field.CONCEPT_NAMES,
+                                          Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS,
+                                          Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
+                                          Field.PERTURBED_IMAGE_ID])
 
 
 @dataclass
@@ -73,6 +73,13 @@ class PetastormReadConfig:
 
 
 @dataclass
+class PetastormWriteConfig:
+    output_schema: Unischema
+    output_url: str
+    row_size: int
+
+
+@dataclass
 class SparkSessionConfig:
     spark_master: str
     spark_driver_memory: str
@@ -90,21 +97,14 @@ class SparkSessionConfig:
     def session(self):
         return self.builder.getOrCreate()
 
-
-@dataclass
-class PetastormWriteConfig(SparkSessionConfig):
-    output_schema: Unischema
-    output_url: str
-    row_size: int
-
-    def write_parquet(self, out_df: DataFrame):
+    def write_petastorm(self, out_df: DataFrame, write_cfg: PetastormWriteConfig):
         logging.info('Writing {} object count observations to petastorm parquet store.'.format(out_df.count()))
 
-        output_url = self.output_url
+        output_url = write_cfg.output_url
         while True:
             try:
                 with materialize_dataset(self.session, output_url,
-                                         self.output_schema, self.row_size):
+                                         write_cfg.output_schema, write_cfg.row_size):
                     out_df.write.mode('error').parquet(output_url)
             except Exception as e:
                 logging.error('Encountered exception: {}'.format(e))
@@ -116,4 +116,3 @@ class PetastormWriteConfig(SparkSessionConfig):
                 output_url = other_url
             else:
                 break
-

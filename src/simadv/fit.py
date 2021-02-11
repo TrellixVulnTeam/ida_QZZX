@@ -251,7 +251,7 @@ class FitSurrogatesTask:
         detectors: np.ndarray
     
     train_input_url: str
-    train_schema: Unischema = field(default=Schema.PERTURBED_OBJECT_COUNTS, init=False)
+    train_schema: Unischema = field(default=Schema.PERTURBED_CONCEPT_COUNTS, init=False)
 
     test_input_url: str
     test_schema: Unischema = field(default=Schema.TEST, init=False)
@@ -268,14 +268,14 @@ class FitSurrogatesTask:
         for df_row in df.toPandas().to_dict('records'):
             row = decode_row(df_row, schema)
             image_ids.append(row[Field.IMAGE_ID.name])
-            object_counts.append(row[Field.OBJECT_COUNTS.name])
+            object_counts.append(row[Field.CONCEPT_COUNTS.name])
             predicted_classes.append(row[Field.PREDICTED_CLASS.name])
 
         return np.asarray(image_ids), np.asarray(object_counts), np.asarray(predicted_classes)
 
     def run(self) -> Results:
         train_schema = get_schema_from_dataset_url(self.train_input_url)
-        assert set(train_schema.fields) >= set(Schema.PERTURBED_OBJECT_COUNTS.fields)
+        assert set(train_schema.fields) >= set(Schema.PERTURBED_CONCEPT_COUNTS.fields)
         train_df = self.spark_cfg.session.read.parquet(self.train_input_url)
 
         test_schema = get_schema_from_dataset_url(self.test_input_url)

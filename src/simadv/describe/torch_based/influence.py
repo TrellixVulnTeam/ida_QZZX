@@ -13,7 +13,7 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, Classifier
-from simadv.io import Field, Schema, PetastormWriteConfig
+from simadv.io import Field, Schema, PetastormWriteConfig, SparkSessionConfig
 from simadv.describe.torch_based.base import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image
@@ -161,6 +161,7 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 @dataclass
 class TorchInfluenceImageDescriber(DictBasedImageDescriber):
     read_cfg: ImageReadConfig
+    output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
 
     classifier_serial: TorchImageClassifierSerialization
     torch_cfg: TorchConfig
@@ -261,7 +262,7 @@ class CLInterface:
             self.describer.influence_estimators = [ies[k] for k in self.used_influence_estimators]
 
     def run(self):
-        self.write_cfg.write_parquet(self.describer.to_df())
+        self.describer.spark_cfg.write_petastorm(self.describer.to_df(), self.write_cfg)
 
 
 if __name__ == '__main__':

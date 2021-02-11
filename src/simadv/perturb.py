@@ -145,7 +145,7 @@ class PerturbReadConfig(PetastormReadConfig):
 
 @dataclass
 class PerturbWriteConfig(PetastormWriteConfig):
-    output_schema: Unischema = field(default=Schema.PERTURBED_OBJECT_COUNTS, init=False)
+    output_schema: Unischema = field(default=Schema.PERTURBED_CONCEPT_COUNTS, init=False)
 
 
 @dataclass

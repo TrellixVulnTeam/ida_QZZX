@@ -2,10 +2,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from PIL import ImageDraw
+from petastorm.unischema import Unischema
 from torchvision.transforms.functional import to_pil_image
 
 from simadv.describe.torch_based.base import BatchedTorchImageDescriber
-from simadv.io import Field
+from simadv.io import Field, Schema
 
 
 @dataclass
@@ -34,6 +35,7 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
         'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
     ]
 
+    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
     concept_group_name: str = field(default='coco_objects', init=False)
     threshold: float = 0.5
     debug: bool = False
