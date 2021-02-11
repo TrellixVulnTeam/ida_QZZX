@@ -25,7 +25,7 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
     # optional subset of the dataset for which the image ids are unique
     subset: Optional[str]
 
-    name: str = field(default='perceivable_colors', init=False)
+    name: str = field(default='ground_truth_objects', init=False)
 
     def generate(self) -> Iterator[RowDict]:
         with self.read_cfg.make_reader(None) as reader:
