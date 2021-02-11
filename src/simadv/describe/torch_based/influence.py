@@ -133,7 +133,7 @@ class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
 
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         if not isinstance(classifier, TorchImageClassifier):
-            raise NotImplementedError('The captum algorithms only work for torch_based classifiers.')
+            raise NotImplementedError('The captum algorithms only work for torch classifiers.')
 
         img_tensor = torch.from_numpy(img).float().to(classifier.torch_cfg.device).permute(2, 0, 1).unsqueeze(0)
         algo = self.algorithm(classifier.torch_model)

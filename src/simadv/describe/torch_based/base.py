@@ -34,7 +34,7 @@ class TorchConfig:
     def set_device(self):
         """
         Context manager that executes the contained code with the
-        configured torch_based device.
+        configured torch device.
         """
         return torch.cuda.device(self.device if self.use_cuda else -1)
 
@@ -49,7 +49,7 @@ class TorchImageClassifier(Classifier, Serializable):
     # whether this model uses `DataParallel`
     is_parallel: bool
 
-    # torch_based configuration to use
+    # torch configuration to use
     torch_cfg: TorchConfig
 
     # required input size of the model
@@ -58,7 +58,7 @@ class TorchImageClassifier(Classifier, Serializable):
     # where to cache downloaded information
     cache: WebCache = WebCache()
 
-    # whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch_based versions)
+    # whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch versions)
     is_latin1: bool = False
 
     def __post_init__(self):
@@ -68,7 +68,7 @@ class TorchImageClassifier(Classifier, Serializable):
 
         self._model = None
 
-        # magic constants in the torch_based community
+        # magic constants in the torch community
         means, sds = np.asarray([0.485, 0.456, 0.406]), np.asarray([0.229, 0.224, 0.225])
         self._means_nested = means[None, None, :]
         self._sds_nested = sds[None, None, :]
