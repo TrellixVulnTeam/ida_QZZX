@@ -23,7 +23,10 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
     gt_object_provider: ImageObjectProvider
 
     # optional subset of the dataset for which the image ids are unique
-    subset: Optional[str]
+    subset: Optional[str] = None
+
+    # whether to ignore or fail when an image has no assigned object bounding boxes
+    ignore_images_without_objects: bool = True
 
     name: str = field(default='ground_truth_objects', init=False)
 
@@ -32,7 +35,12 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
             for row in reader:
                 height, width = row.image.shape[:2]  # image has shape H, W, C
 
-                boxes = list(self.gt_object_provider.get_object_bounding_boxes(row.image_id, self.subset))
+                try:
+                    boxes = list(self.gt_object_provider.get_object_bounding_boxes(row.image_id, self.subset))
+                except KeyError as e:
+                    if self.ignore_images_without_objects:
+                        continue
+                    raise e
 
                 masks = np.zeros((len(boxes), height, width))
                 concept_names = []
