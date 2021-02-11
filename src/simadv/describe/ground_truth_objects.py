@@ -25,7 +25,7 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
     # optional subset of the dataset for which the image ids are unique
     subset: Optional[str]
 
-    concept_group_name: str = field(default='perceivable_colors', init=False)
+    name: str = field(default='perceivable_colors', init=False)
 
     def generate(self) -> Iterator[RowDict]:
         with self.read_cfg.make_reader(None) as reader:
@@ -43,6 +43,6 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
                 concept_names = np.asarray(concept_names, dtype=np.unicode_)
 
                 yield {Field.IMAGE_ID.name: row.image_id,
-                       Field.CONCEPT_GROUP.name: self.concept_group_name,
+                       Field.DESCRIBER.name: self.name,
                        Field.CONCEPT_NAMES.name: concept_names,
                        Field.CONCEPT_MASKS.name: masks}

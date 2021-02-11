@@ -36,7 +36,7 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
     ]
 
     output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
-    concept_group_name: str = field(default='coco_objects', init=False)
+    name: str = field(default='coco_objects', init=False)
     threshold: float = 0.5
     debug: bool = False
 
@@ -75,6 +75,6 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
                 input('--- press enter to continue ---')
 
             yield {Field.IMAGE_ID.name: image_id,
-                   Field.CONCEPT_GROUP: self.concept_group_name,
+                   Field.DESCRIBER: self.name,  # TODO: make this specific to the used classifier
                    Field.CONCEPT_NAMES: concept_names,
                    Field.CONCEPT_MASKS: masks}

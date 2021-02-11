@@ -18,7 +18,8 @@ class ImageReadConfig(PetastormReadConfig):
 @dataclass
 class ImageDescriber(LoggingMixin, abc.ABC):
 
-    concept_group_name: str
+    # unique identifier for this describer
+    name: str
 
     @abc.abstractmethod
     def to_df(self) -> DataFrame:
@@ -48,7 +49,7 @@ class DictBasedImageDescriber(ImageDescriber):
         """
 
     def _generate_with_logging(self):
-        with self._log_task('Describing with: {}'.format(self.concept_group_name)):
+        with self._log_task('Describing with: {}'.format(self.name)):
             start_time = time.time()
             last_time = start_time
 

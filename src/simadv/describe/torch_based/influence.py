@@ -170,7 +170,7 @@ class TorchInfluenceImageDescriber(DictBasedImageDescriber):
 
     image_size: Tuple[int, int] = (224, 224)
 
-    concept_group_name: str = field(default='pixel_influences', init=False)
+    name: str = field(default='pixel_influences', init=False)
 
     # if not None, sample the given number of observations from each class instead
     # of reading the dataset once front to end.

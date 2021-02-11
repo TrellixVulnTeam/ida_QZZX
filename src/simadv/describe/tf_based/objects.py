@@ -82,6 +82,8 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     meta: OIV4MetadataProvider
     debug: bool = False
 
+    name: str = field(default='oiv4_objects', init=False)
+
     def __post_init__(self):
         assert 0. <= self.threshold < 1.
 
@@ -153,6 +155,6 @@ class OIV4ObjectsImageDescriber(TFDescriber):
                     input('--- press enter to continue ---')
 
                 yield {Field.IMAGE_ID.name: image_id,
-                       Field.CONCEPT_GROUP: self.concept_group_name,
+                       Field.DESCRIBER: self.model_name,
                        Field.CONCEPT_NAMES: concept_names,
                        Field.CONCEPT_MASKS: masks}

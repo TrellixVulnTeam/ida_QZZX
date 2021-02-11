@@ -18,15 +18,15 @@ class Field:
     """
     IMAGE = UnischemaField('image', np.uint8, (None, None, 3), CompressedImageCodec('png'), False)
     IMAGE_ID = UnischemaField('image_id', np.unicode_, (), ScalarCodec(StringType()), False)
-    CONCEPT_GROUP = UnischemaField('concept_group', np.unicode_, (), ScalarCodec(StringType()), False)
-    CONCEPT_NAMES = UnischemaField('concept_names',  np.unicode_, (None,), ScalarCodec(StringType()), False)
-    CONCEPT_MASKS = UnischemaField('concept_masks', np.bool, (None, None, None), NdarrayCodec(), False)
+    DESCRIBER = UnischemaField('describer', np.unicode_, (), ScalarCodec(StringType()), False)
+    CONCEPT_NAMES = UnischemaField('concept_names',  np.unicode_, (None,), CompressedNdarrayCodec(), False)
+    CONCEPT_MASKS = UnischemaField('concept_masks', np.bool, (None, None, None), CompressedNdarrayCodec(), False)
     INFLUENCE_MASK = UnischemaField('influence_mask', np.float32, (None, None), CompressedNdarrayCodec(), False)
     PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16, (), ScalarCodec(IntegerType()), False)
     INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
     PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(StringType()), True)
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(StringType()), True)
-    CONCEPT_GROUPS = UnischemaField('concept_groups', np.unicode_, (None,), ScalarCodec(StringType()), False)
+    DESCRIBERS = UnischemaField('describers', np.unicode_, (None,), CompressedNdarrayCodec(), False)
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
 
@@ -37,12 +37,12 @@ class Schema:
     """
     IMAGES = Unischema('Images', [Field.IMAGE_ID, Field.IMAGE])
     TEST = Unischema('Test', [Field.IMAGE_ID, Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS])
-    CONCEPT_MASKS = Unischema('ConceptMasks', [Field.IMAGE_ID, Field.CONCEPT_GROUP, Field.CONCEPT_NAMES,
+    CONCEPT_MASKS = Unischema('ConceptMasks', [Field.IMAGE_ID, Field.DESCRIBER, Field.CONCEPT_NAMES,
                                                Field.CONCEPT_MASKS])
     PIXEL_INFLUENCES = Unischema('PixelInfluences', [Field.IMAGE_ID, Field.PREDICTED_CLASS,
                                                      Field.INFLUENCE_MASK, Field.INFLUENCE_ESTIMATOR])
     PERTURBED_CONCEPT_COUNTS = Unischema('PerturbedConceptCounts',
-                                         [Field.IMAGE_ID, Field.CONCEPT_GROUPS, Field.CONCEPT_NAMES,
+                                         [Field.IMAGE_ID, Field.DESCRIBERS, Field.CONCEPT_NAMES,
                                           Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS,
                                           Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
                                           Field.PERTURBED_IMAGE_ID])

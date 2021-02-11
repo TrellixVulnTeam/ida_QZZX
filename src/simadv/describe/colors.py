@@ -18,8 +18,6 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     read_cfg: ImageReadConfig
     output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
 
-    concept_group_name: str = field(default='perceivable_colors', init=False)
-
     # names of all perceivable colors used by this describer
     COLOR_NAMES = np.char.array(['red', 'orange', 'gold', 'yellow',
                                  'green', 'turquoise', 'blue',
@@ -102,6 +100,5 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
                     remaining = np.bitwise_and(remaining, np.logical_not(hue_map))
 
                 yield {Field.IMAGE_ID.name: row.image_id,
-                       Field.CONCEPT_GROUP.name: self.concept_group_name,
-                       Field.CONCEPT_NAMES.name: np.asarray(maps.keys()),
-                       Field.CONCEPT_MASKS.name: np.asarray(maps.values())}
+                       Field.CONCEPT_NAMES.name: 'perceivable_colors.' + np.char.asarray(list(maps.keys())),
+                       Field.CONCEPT_MASKS.name: np.asarray(list(maps.values()))}
