@@ -1,7 +1,6 @@
 import csv
 import re
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 from typing import Mapping, Optional, Union, Iterable, Tuple
 import numpy as np
@@ -43,6 +42,8 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
 
     LABELS_URL = 'https://storage.googleapis.com/openimages/2018_04/'
 
+    _boxes_cache = {}
+
     def get_image_id(self, image_path: Union[str, Path], subset: Optional[str] = None):
         if isinstance(image_path, Path):
             image_path = image_path.name
@@ -60,6 +61,8 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
             else:
                 raise ValueError('No boxes found for the given image id.')
 
+        print(subset)
+        print(self.boxes_map(subset))
         for box in self.boxes_map(subset)[image_id]:
             yield box['class_id'], box['x_min'], box['y_min'], box['x_max'], box['y_max']
 
@@ -94,8 +97,12 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
             csv_reader = csv.reader(object_names_file, delimiter=',')
             return ['__background__'] + [row[1] for row in csv_reader]
 
-    @lru_cache(None)
     def boxes_map(self, subset: str) -> Mapping[str, np.ndarray]:
+        try:
+            return self._boxes_cache[subset]
+        except KeyError:
+            pass
+
         assert subset in ['train', 'test', 'validation']
         label_id_by_name = {label_name: label_id for label_id, label_name in enumerate(self.object_names)}
 
@@ -128,4 +135,5 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
                 for image_id, boxes_rows in boxes_row_map.items()
             }
 
+            self._boxes_cache[subset] = boxes_map
             return boxes_map
