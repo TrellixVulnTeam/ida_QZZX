@@ -1,9 +1,9 @@
 import abc
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Optional, Tuple, Iterable, Union
+from typing import Optional, Tuple, Iterable
 from unittest import mock
 
 import numpy as np
@@ -176,17 +176,7 @@ class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
     """
 
     read_cfg: ImageReadConfig
-    classifier: Union[TorchImageClassifierSerialization, TorchImageClassifier]
     torch_cfg: TorchConfig
-
-    def __post_init__(self):
-        if isinstance(self.classifier, TorchImageClassifierSerialization):
-            # load the classifier from its name
-            @dataclass
-            class PartialTorchImageClassifier(TorchImageClassifier):
-                torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
-
-            self.classifier = PartialTorchImageClassifier.load(self.classifier.path)
 
     def batch_iter(self):
         def to_tensor(batch_columns):
@@ -198,9 +188,8 @@ class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
             return row_ids, image_tensors
 
         current_batch = []
-        reader = self.read_cfg.make_reader(None)
 
-        for row in reader:
+        for row in self.read_cfg.make_reader(None):
             current_batch.append((row.image_id, row.image))
 
             if len(current_batch) < self.read_cfg.batch_size:
@@ -216,17 +205,15 @@ class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
     def describe_batch(self, ids, batch) -> Iterable[RowDict]:
         pass
 
-    def cleanup(self):
+    def clean_up(self):
         """
         Can be overridden to clean up more stuff.
         """
         torch.cuda.empty_cache()  # release all memory that can be released
 
     def generate(self):
-        self.classifier.torch_model.to(self.torch_cfg.device)  # move model to CUDA before tensors
-
         with torch.no_grad():
             for ids, batch in self.batch_iter():
                 yield from self.describe_batch(ids, batch)
 
-        self.cleanup()
+        self.clean_up()

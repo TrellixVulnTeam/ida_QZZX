@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 import numpy as np
+import torchvision
 from PIL import ImageDraw
 from petastorm.unischema import Unischema
 from torchvision.transforms.functional import to_pil_image
@@ -43,22 +44,35 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
     def __post_init__(self):
         assert 0. <= self.threshold < 1.
 
+        self.detection_model = torchvision.models.detection\
+            .fasterrcnn_resnet50_fpn(pretrained=True)\
+            .to(self.torch_cfg.device)
+
     @property
     def object_names(self):
         return CocoObjectsImageDescriber._OBJECT_NAMES
 
+    def generate(self):
+        self.detection_model.to(self.torch_cfg.device).eval()  # move model to CUDA before tensors
+        yield from super().generate()
+
     def describe_batch(self, ids, image_tensors):
         # transform (H, W, C) images to (C, H, W) images
-        height, width = image_tensors.size[1:3]  # shape is B, H, W, C -- we want H, W
+        height, width = image_tensors.size()[1:3]  # shape is B, H, W, C -- we want H, W
         image_tensors = image_tensors.permute(0, 3, 1, 2)
 
-        for image_id, image_tensor, result in zip(ids, image_tensors, self.classifier.torch_model(image_tensors)):
+        for image_id, image_tensor, result in zip(ids, image_tensors, self.detection_model(image_tensors)):
             obj_ids, boxes, scores = result['labels'], result['boxes'], result['scores']
             indices = scores > self.threshold
 
             concept_names = np.asarray([self.object_names[obj_id] for obj_id in obj_ids[indices]])
             masks = np.zeros((len(concept_names), height, width))
-            for mask_no, x_0, y_0, x_1, y_1 in enumerate(boxes[indices]):
+            for mask_no, box in enumerate(boxes[indices]):
+                x_0, y_0, x_1, y_1 = box
+                x_0 = int(x_0)
+                y_0 = int(y_0)
+                x_1 = int(np.ceil(x_1))
+                y_1 = int(np.ceil(y_1))
                 masks[mask_no, y_0:y_1, x_0:x_1] = True
 
             if self.debug:
@@ -75,6 +89,6 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
                 input('--- press enter to continue ---')
 
             yield {Field.IMAGE_ID.name: image_id,
-                   Field.DESCRIBER: self.name,  # TODO: make this specific to the used classifier
+                   Field.DESCRIBER.name: self.name,  # TODO: make this specific to the used classifier
                    Field.CONCEPT_NAMES: concept_names,
                    Field.CONCEPT_MASKS: masks}

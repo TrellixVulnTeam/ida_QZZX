@@ -10,7 +10,7 @@ from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, ImageIdProvider
-from simadv.spark import Field, Schema, PetastormWriteConfig
+from simadv.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
 
 
 @dataclass
@@ -22,6 +22,7 @@ class ConvertWriteConfig(PetastormWriteConfig):
 class ConvertTask:
 
     images_dir: Union[str, Path]
+    spark_cfg: SparkSessionConfig
     write_cfg: ConvertWriteConfig
     meta: ImageIdProvider
 
@@ -85,8 +86,8 @@ class ConvertTask:
 
     def run(self):
         rows = [dict_to_spark_row(self.write_cfg.output_schema, row_dict) for row_dict in self.generate()]
-        df = self.write_cfg.session.createDataFrame(rows, self.write_cfg.output_schema.as_spark_schema())
-        self.write_cfg.write_parquet(df)
+        df = self.spark_cfg.session.createDataFrame(rows, self.write_cfg.output_schema.as_spark_schema())
+        self.spark_cfg.write_petastorm(df, self.write_cfg)
 
 
 def main(convert_task: Type[ConvertTask]):
@@ -98,4 +99,4 @@ def main(convert_task: Type[ConvertTask]):
     parser.add_arguments(convert_task, dest='convert_task')
     parser.add_arguments(LoggingConfig, dest='logging')
     args = parser.parse_args()
-    args.convert_task.to_parquet()
+    args.convert_task.run()

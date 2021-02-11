@@ -155,6 +155,6 @@ class OIV4ObjectsImageDescriber(TFDescriber):
                     input('--- press enter to continue ---')
 
                 yield {Field.IMAGE_ID.name: image_id,
-                       Field.DESCRIBER: self.model_name,
+                       Field.DESCRIBER.name: self.model_name,
                        Field.CONCEPT_NAMES: concept_names,
                        Field.CONCEPT_MASKS: masks}
