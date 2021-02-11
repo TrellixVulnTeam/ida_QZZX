@@ -90,5 +90,5 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
 
             yield {Field.IMAGE_ID.name: image_id,
                    Field.DESCRIBER.name: self.name,  # TODO: make this specific to the used classifier
-                   Field.CONCEPT_NAMES: concept_names,
-                   Field.CONCEPT_MASKS: masks}
+                   Field.CONCEPT_NAMES.name: concept_names,
+                   Field.CONCEPT_MASKS.name: masks}

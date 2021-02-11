@@ -18,6 +18,7 @@ from simadv.oiv4.metadata import OIV4MetadataProvider
 mp = multiprocessing.get_context('spawn')
 
 
+@dataclass
 class TFDescriber(DictBasedImageDescriber, abc.ABC):
     """
     Reads batches of image data from a petastorm store
@@ -156,5 +157,5 @@ class OIV4ObjectsImageDescriber(TFDescriber):
 
                 yield {Field.IMAGE_ID.name: image_id,
                        Field.DESCRIBER.name: self.model_name,
-                       Field.CONCEPT_NAMES: concept_names,
-                       Field.CONCEPT_MASKS: masks}
+                       Field.CONCEPT_NAMES.name: concept_names,
+                       Field.CONCEPT_MASKS.name: masks}
