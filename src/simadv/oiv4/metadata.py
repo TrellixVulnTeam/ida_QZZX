@@ -59,10 +59,8 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
             elif image_id in self.boxes_map('validation'):
                 subset = 'validation'
             else:
-                raise ValueError('No boxes found for the given image id.')
+                raise KeyError('No boxes found for the given image id.')
 
-        print(subset)
-        print(self.boxes_map(subset))
         for box in self.boxes_map(subset)[image_id]:
             yield box['class_id'], box['x_min'], box['y_min'], box['x_max'], box['y_max']
 
