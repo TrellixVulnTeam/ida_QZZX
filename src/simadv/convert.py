@@ -10,7 +10,7 @@ from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, ImageIdProvider
-from simadv.io import Field, Schema, PetastormWriteConfig
+from simadv.spark import Field, Schema, PetastormWriteConfig
 
 
 @dataclass

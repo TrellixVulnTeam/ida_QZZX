@@ -5,7 +5,7 @@ import numpy as np
 from petastorm.unischema import Unischema
 
 from simadv.common import ImageObjectProvider, RowDict
-from simadv.io import Field, Schema
+from simadv.spark import Field, Schema
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
 
 

@@ -10,7 +10,7 @@ from petastorm.reader import Reader
 from petastorm.unischema import Unischema
 
 from simadv.common import RowDict
-from simadv.io import Field, Schema, PetastormReadConfig, PetastormWriteConfig
+from simadv.spark import Field, Schema, PetastormReadConfig, PetastormWriteConfig
 
 
 class Perturber(abc.ABC):

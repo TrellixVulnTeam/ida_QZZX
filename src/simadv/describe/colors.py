@@ -4,7 +4,7 @@ import numpy as np
 import skimage
 from petastorm.unischema import Unischema
 
-from simadv.io import Field, Schema
+from simadv.spark import Field, Schema
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
 
 
@@ -42,7 +42,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
 
     def __post_init__(self):
         self._hue_bin_names = np.asarray(list(self.HUE_MAP.values()))
-        self._hue_bins = np.array([0.] + list(self.HUE_MAP.keys())) / 360. * 255.
+        self._hue_bins = np.array([0.] + list(self.HUE_MAP.keys())) / 360.
         self._pool = None
 
     @staticmethod
@@ -79,7 +79,8 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     def generate(self):
         with self.read_cfg.make_reader(None) as reader:
             for row in reader:
-                hue, sat, light = self._rgb_to_hsl(row.image)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    hue, sat, light = self._rgb_to_hsl(row.image)
 
                 maps = {'black': light < .1}
                 remaining = np.logical_not(maps['black'])
@@ -88,8 +89,9 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
                 remaining = np.bitwise_and(remaining, np.logical_not(maps['white']))
 
                 grey_or_white_map = np.bitwise_and(remaining, sat < 0.1)
-                maps['grey'] = grey_or_white_map = np.bitwise_and(grey_or_white_map, light > 0.85)
-                maps['white'] = np.bitwise_and(grey_or_white_map, np.bitwise_not(maps['grey']))
+                maps['grey'] = np.bitwise_and(grey_or_white_map, light > 0.85)
+                maps['white'] = np.bitwise_or(maps['white'],
+                                              np.bitwise_and(grey_or_white_map, np.bitwise_not(maps['grey'])))
                 remaining = np.bitwise_and(remaining, np.logical_not(grey_or_white_map))
 
                 maps['none'] = np.bitwise_and(remaining, sat < 0.7)  # color of pixel is undefined, not clear enough
@@ -98,8 +100,13 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
                 hue_maps = self._hue_bins[:, None, None] > hue
                 for hue_map, hue_name in zip(hue_maps, self._hue_bin_names):
                     hue_map = np.bitwise_and(hue_map, remaining)
-                    maps[hue_name] = hue_map
+                    if hue_name == 'red' and 'red' in maps:
+                        maps['red'] = np.bitwise_or(maps['red'], hue_map)
+                    else:
+                        maps[hue_name] = hue_map
                     remaining = np.bitwise_and(remaining, np.logical_not(hue_map))
+
+                maps['red'] = np.bitwise_or(maps['red'], remaining)  # the remaining are pixels with hue 1 = max. red
 
                 yield {Field.IMAGE_ID.name: row.image_id,
                        Field.DESCRIBER.name: self.name,

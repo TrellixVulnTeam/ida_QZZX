@@ -13,7 +13,7 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, Classifier
-from simadv.io import Field, Schema, PetastormWriteConfig, SparkSessionConfig
+from simadv.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
 from simadv.describe.torch_based.base import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image

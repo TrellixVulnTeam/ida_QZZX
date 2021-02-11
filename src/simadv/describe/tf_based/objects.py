@@ -12,7 +12,7 @@ from petastorm.unischema import Unischema
 
 from simadv.common import LoggingMixin
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
-from simadv.io import Field, Schema
+from simadv.spark import Field, Schema
 from simadv.oiv4.metadata import OIV4MetadataProvider
 
 mp = multiprocessing.get_context('spawn')

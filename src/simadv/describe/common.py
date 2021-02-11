@@ -7,7 +7,7 @@ from petastorm.unischema import Unischema, dict_to_spark_row
 from pyspark.sql import DataFrame
 
 from simadv.common import RowDict, LoggingMixin
-from simadv.io import Schema, PetastormReadConfig, SparkSessionConfig
+from simadv.spark import Schema, PetastormReadConfig, SparkSessionConfig
 
 
 @dataclass

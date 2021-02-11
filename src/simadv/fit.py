@@ -19,7 +19,7 @@ from sklearn.tree import DecisionTreeClassifier
 import numpy as np
 import itertools as it
 
-from simadv.io import Field, Schema, SparkSessionConfig
+from simadv.spark import Field, Schema, SparkSessionConfig
 
 
 @dataclass

@@ -6,7 +6,7 @@ from petastorm.unischema import Unischema
 from torchvision.transforms.functional import to_pil_image
 
 from simadv.describe.torch_based.base import BatchedTorchImageDescriber
-from simadv.io import Field, Schema
+from simadv.spark import Field, Schema
 
 
 @dataclass
