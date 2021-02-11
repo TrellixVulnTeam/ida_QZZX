@@ -51,9 +51,15 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
     def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) \
             -> Iterable[Tuple[str, int, int, int, int]]:
         if subset is None:
-            raise ValueError('To find out the correct label we must know '
-                             'whether the image is part of the train, test or'
-                             'validation subset.')
+            if image_id in self.boxes_map('train'):
+                subset = 'train'
+            elif image_id in self.boxes_map('test'):
+                subset = 'test'
+            elif image_id in self.boxes_map('validation'):
+                subset = 'validation'
+            else:
+                raise ValueError('No boxes found for the given image id.')
+
         for box in self.boxes_map(subset)[image_id]:
             yield box['class_id'], box['x_min'], box['y_min'], box['x_max'], box['y_max']
 
