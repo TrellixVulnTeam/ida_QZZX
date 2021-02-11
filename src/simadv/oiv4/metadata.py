@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Mapping, Optional, Union
+from typing import Mapping, Optional, Union, Iterable, Tuple
 import numpy as np
 
 from simadv.common import ImageIdProvider, ImageObjectProvider
@@ -34,7 +34,7 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
     Provides image ids and object bounding boxes for the OpenImages V4 dataset.
     """
 
-    BOXES_DTYPE = [('label_id', '<i2'),
+    BOXES_DTYPE = [('class_id', '<i2'),
                    ('x_min', '<f4'), ('x_max', '<f4'),
                    ('y_min', '<f4'), ('y_max', '<f4'),
                    ('is_occluded', '?'),
@@ -48,12 +48,14 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
             image_path = image_path.name
         return _RE_IMAGE_ID.fullmatch(image_path).group(1)
 
-    def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) -> np.ndarray:
+    def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) \
+            -> Iterable[Tuple[str, int, int, int, int]]:
         if subset is None:
             raise ValueError('To find out the correct label we must know '
                              'whether the image is part of the train, test or'
                              'validation subset.')
-        return self.boxes_map(subset)[image_id]
+        for box in self.boxes_map(subset)[image_id]:
+            yield box['class_id'], box['x_min'], box['y_min'], box['x_max'], box['y_max']
 
     @cached_property
     def _object_names_by_label_id(self) -> Mapping[str, str]:

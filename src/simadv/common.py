@@ -3,7 +3,7 @@ import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Iterable, Tuple
 
 import numpy as np
 
@@ -102,9 +102,11 @@ class ImageClassProvider(abc.ABC):
 class ImageObjectProvider(abc.ABC):
 
     @abc.abstractmethod
-    def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) -> np.ndarray:
+    def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) \
+            -> Iterable[Tuple[str, int, int, int, int]]:
         """
         Returns the ground-truth bounding boxes for the image identified by `image_id`.
+        Each box is a 5-tuple of concept name, x_min, y_min, x_max, y_max.
         In some datasets image ids are only unique per `subset`, i.e. validation or train subset.
         In this case, the subset must be specified.
         Raises a `KeyError` if no bounding box is known for `image_id`.
