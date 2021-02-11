@@ -48,6 +48,12 @@ class TFObjectDetectionProcess(mp.Process, LoggingMixin):
     out_queue: mp.Queue
     gpu_id: Optional[int]
 
+    def __eq__(self, other):
+        return self is other
+
+    def __hash__(self):
+        return hash(id(self))
+
     def run(self):
         if self.gpu_id is not None:
             # set GPU id before importing tensorflow
