@@ -65,8 +65,8 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
             obj_ids, boxes, scores = result['labels'], result['boxes'], result['scores']
             indices = scores > self.threshold
 
-            concept_names = np.asarray([self.object_names[obj_id] for obj_id in obj_ids[indices]])
-            masks = np.zeros((len(concept_names), height, width))
+            concept_names = np.asarray([self.object_names[obj_id] for obj_id in obj_ids[indices]], dtype=np.unicode_)
+            masks = np.zeros((len(concept_names), height, width), dtype=np.bool_)
             for mask_no, box in enumerate(boxes[indices]):
                 x_0, y_0, x_1, y_1 = box
                 x_0 = int(x_0)
