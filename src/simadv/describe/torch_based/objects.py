@@ -12,7 +12,7 @@ from simadv.io import Field, Schema
 @dataclass
 class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
     """
-    Translates each image to counts of detected objects from the COCO task.
+    Describes each image with a set of masks for detected objects from the COCO task.
     The COCO task includes 91 objects.
     """
 
