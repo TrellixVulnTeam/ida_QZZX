@@ -76,13 +76,11 @@ class CocoObjectsImageDescriber(BatchedTorchImageDescriber):
                 masks[mask_no, y_0:y_1, x_0:x_1] = True
 
             if self.debug:
-                boxes = result['boxes'].tolist()
-
                 image = to_pil_image(image_tensor, 'RGB')
                 draw = ImageDraw.Draw(image)
                 for obj_id, box, score in zip(obj_ids[indices], boxes[indices], scores[indices]):
                     draw.rectangle(list(box))
-                    draw.text(box[:2], '{} ({})'.format(self.object_names[obj_id], score))
+                    draw.text(list(box[:2]), '{} ({})'.format(self.object_names[obj_id], score))
 
                 image.show()
 
