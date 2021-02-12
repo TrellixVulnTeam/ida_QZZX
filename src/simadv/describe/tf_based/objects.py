@@ -48,6 +48,9 @@ class TFObjectDetectionProcess(mp.Process, LoggingMixin):
     out_queue: mp.Queue
     gpu_id: Optional[int]
 
+    def __post_init__(self):
+        super().__init__()
+
     def __eq__(self, other):
         return self is other
 
@@ -139,18 +142,19 @@ class OIV4ObjectsImageDescriber(TFDescriber):
             for image_id, image_tensor, obj_ids, scores, boxes in zip(ids, image_tensors, obj_ids_batches,
                                                                       scores_batches, boxes_batches):
                 indices = scores > self.threshold
-                concept_names = np.asarray([self.meta.object_names[obj_id] for obj_id in obj_ids[indices]])
-                masks = np.zeros((len(concept_names), height, width))
+                concept_names = np.asarray([self.meta.object_names[obj_id] for obj_id in obj_ids[indices]],
+                                           dtype=np.unicode_)
+                masks = np.zeros((len(concept_names), height, width), dtype=np.bool_)
 
                 if self.debug:
                     image = Image.fromarray(image_tensor.numpy(), 'RGB')
                     draw = ImageDraw.Draw(image)
 
-                for mask_no, y_0, x_0, y_1, x_1, score in enumerate(zip(boxes[indices], scores[indices])):
+                for mask_no, ((y_0, x_0, y_1, x_1), score) in enumerate(zip(boxes[indices], scores[indices])):
                     y_0 = np.clip(y_0 * height, 0, height).astype(int)
-                    y_1 = np.ceil(np.clip(y_1 * height, 0, height))
+                    y_1 = np.ceil(np.clip(y_1 * height, 0, height)).astype(int)
                     x_0 = np.clip(x_0 * width, 0, width).astype(int)
-                    x_1 = np.ceil(np.clip(x_1 * width, 0, width))
+                    x_1 = np.ceil(np.clip(x_1 * width, 0, width)).astype(int)
                     masks[mask_no, y_0:y_1, x_0:x_1] = True
 
                     if self.debug:
