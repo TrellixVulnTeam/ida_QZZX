@@ -1,11 +1,13 @@
+import multiprocessing as mp
 from dataclasses import dataclass, field
+from typing import Optional
 
 import numpy as np
 import skimage
 from petastorm.unischema import Unischema
 
-from simadv.spark import Field, Schema
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
+from simadv.spark import Field, Schema
 
 
 @dataclass
@@ -17,6 +19,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
 
     read_cfg: ImageReadConfig
     output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
+    num_processes: Optional[int] = None
 
     name: str = field(default='perceivable_colors', init=False)
 
@@ -76,39 +79,42 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
 
         return hue, sat, light
 
+    def process_row(self, row):
+        with np.errstate(divide='ignore', invalid='ignore'):
+            hue, sat, light = self._rgb_to_hsl(row.image)
+
+        maps = {'black': light < .1}
+        remaining = np.logical_not(maps['black'])
+
+        maps['white'] = np.bitwise_and(remaining, light > .9)
+        remaining = np.bitwise_and(remaining, np.logical_not(maps['white']))
+
+        grey_or_white_map = np.bitwise_and(remaining, sat < 0.1)
+        maps['grey'] = np.bitwise_and(grey_or_white_map, light > 0.85)
+        maps['white'] = np.bitwise_or(maps['white'],
+                                      np.bitwise_and(grey_or_white_map, np.bitwise_not(maps['grey'])))
+        remaining = np.bitwise_and(remaining, np.logical_not(grey_or_white_map))
+
+        maps['none'] = np.bitwise_and(remaining, sat < 0.7)  # color of pixel is undefined, not clear enough
+        remaining = np.bitwise_and(remaining, np.logical_not(maps['none']))
+
+        hue_maps = self._hue_bins[:, None, None] > hue
+        for hue_map, hue_name in zip(hue_maps, self._hue_bin_names):
+            hue_map = np.bitwise_and(hue_map, remaining)
+            if hue_name == 'red' and 'red' in maps:
+                maps['red'] = np.bitwise_or(maps['red'], hue_map)
+            else:
+                maps[hue_name] = hue_map
+            remaining = np.bitwise_and(remaining, np.logical_not(hue_map))
+
+        maps['red'] = np.bitwise_or(maps['red'], remaining)  # the remaining are pixels with hue 1 = max. red
+
+        return {Field.IMAGE_ID.name: row.image_id,
+                Field.DESCRIBER.name: self.name,
+                Field.CONCEPT_NAMES.name: np.asarray(list(maps.keys())),
+                Field.CONCEPT_MASKS.name: np.asarray(list(maps.values()))}
+
     def generate(self):
         with self.read_cfg.make_reader(None) as reader:
-            for row in reader:
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    hue, sat, light = self._rgb_to_hsl(row.image)
-
-                maps = {'black': light < .1}
-                remaining = np.logical_not(maps['black'])
-
-                maps['white'] = np.bitwise_and(remaining, light > .9)
-                remaining = np.bitwise_and(remaining, np.logical_not(maps['white']))
-
-                grey_or_white_map = np.bitwise_and(remaining, sat < 0.1)
-                maps['grey'] = np.bitwise_and(grey_or_white_map, light > 0.85)
-                maps['white'] = np.bitwise_or(maps['white'],
-                                              np.bitwise_and(grey_or_white_map, np.bitwise_not(maps['grey'])))
-                remaining = np.bitwise_and(remaining, np.logical_not(grey_or_white_map))
-
-                maps['none'] = np.bitwise_and(remaining, sat < 0.7)  # color of pixel is undefined, not clear enough
-                remaining = np.bitwise_and(remaining, np.logical_not(maps['none']))
-
-                hue_maps = self._hue_bins[:, None, None] > hue
-                for hue_map, hue_name in zip(hue_maps, self._hue_bin_names):
-                    hue_map = np.bitwise_and(hue_map, remaining)
-                    if hue_name == 'red' and 'red' in maps:
-                        maps['red'] = np.bitwise_or(maps['red'], hue_map)
-                    else:
-                        maps[hue_name] = hue_map
-                    remaining = np.bitwise_and(remaining, np.logical_not(hue_map))
-
-                maps['red'] = np.bitwise_or(maps['red'], remaining)  # the remaining are pixels with hue 1 = max. red
-
-                yield {Field.IMAGE_ID.name: row.image_id,
-                       Field.DESCRIBER.name: self.name,
-                       Field.CONCEPT_NAMES.name: np.asarray(list(maps.keys())),
-                       Field.CONCEPT_MASKS.name: np.asarray(list(maps.values()))}
+            with mp.Pool(processes=self.num_processes) as pool:
+                yield from pool.imap(self.process_row, reader)
