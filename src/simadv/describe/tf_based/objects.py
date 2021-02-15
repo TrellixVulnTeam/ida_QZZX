@@ -39,7 +39,7 @@ class TFDescriber(DictBasedImageDescriber, abc.ABC):
 
 
 @dataclass
-class TFObjectDetectionProcess(mp.Process, LoggingMixin):
+class TFObjectDetectionProcess(mp.Process):
     """
     Executes an object detection model in a separate process
     and delivers the results with a queue.
@@ -73,7 +73,7 @@ class TFObjectDetectionProcess(mp.Process, LoggingMixin):
         while True:
             ids, in_batch = self.in_queue.get()
             if in_batch is None:
-                self._log_item('Exiting Process for GPU {}'.format(self.gpu_id))
+                print('Exiting Process for GPU {}'.format(self.gpu_id))
                 self.in_queue.task_done()
                 break
 
