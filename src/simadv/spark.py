@@ -4,7 +4,7 @@ from typing import Optional, List
 
 import numpy as np
 from petastorm import make_reader
-from petastorm.codecs import CompressedImageCodec, ScalarCodec, NdarrayCodec, CompressedNdarrayCodec
+from petastorm.codecs import CompressedImageCodec, ScalarCodec, CompressedNdarrayCodec
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url, materialize_dataset
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, Unischema
