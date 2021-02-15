@@ -20,6 +20,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     read_cfg: ImageReadConfig
     output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
     num_processes: Optional[int] = None
+    chunk_size: int = 1000
 
     name: str = field(default='perceivable_colors', init=False)
 
@@ -117,4 +118,4 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     def generate(self):
         with self.read_cfg.make_reader(None) as reader:
             with mp.Pool(processes=self.num_processes) as pool:
-                yield from pool.imap(self.process_row, reader)
+                yield from pool.imap(self.process_row, reader, chunksize=self.chunk_size)
