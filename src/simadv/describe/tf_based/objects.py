@@ -65,6 +65,8 @@ class TFObjectDetectionProcess(mp.Process):
         # import tensorflow locally in the process
         import tensorflow as tf
 
+        physical_devices = tf.config.list_physical_devices('GPU')
+        tf.config.experimental.set_memory_growth(physical_devices[0], True)
         model = tf.saved_model.load(self.model_dir)
         model = model.signatures['serving_default']
 
