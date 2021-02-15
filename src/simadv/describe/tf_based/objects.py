@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-import tensorflow as tf
 from PIL import Image, ImageDraw
 from petastorm.unischema import Unischema
 
@@ -96,10 +95,20 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     debug: bool = False
     name: str = field(default='oiv4_objects', init=False)
 
+    @staticmethod
+    def _get_gpus():
+
+        def query():
+            import tensorflow as tf
+            return tf.config.list_physical_devices('GPU')
+
+        with mp.Pool(1) as p:
+            return p.apply(query)
+
     def __post_init__(self):
         assert 0. <= self.threshold < 1.
 
-        num_gpus = len(tf.config.list_physical_devices('GPU'))
+        num_gpus = len(self._get_gpus())
         gpus = range(num_gpus) if num_gpus > 0 else (None,)
 
         self.in_queue = mp.JoinableQueue(maxsize=max(1, num_gpus))
