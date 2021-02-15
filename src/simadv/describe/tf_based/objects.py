@@ -69,6 +69,8 @@ class TFObjectDetectionProcess(mp.Process):
         model = tf.saved_model.load(self.model_dir)
         model = model.signatures['serving_default']
 
+        self.out_queue.put(None)  # signal readiness
+
         while True:
             ids, in_batch = self.in_queue.get()
             if in_batch is None:
@@ -108,6 +110,10 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     def result_iter(self):
         for p in self.processes:
             p.start()
+
+        # wait until processes have allocated their ML models on the GPU
+        for _ in self.processes:
+            self.out_queue.get()
 
         pending_count = 0
         for ids, batch in self.batch_iter():
