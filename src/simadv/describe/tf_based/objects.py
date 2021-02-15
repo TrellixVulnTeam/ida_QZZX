@@ -28,8 +28,8 @@ class TFDescriber(DictBasedImageDescriber, abc.ABC):
     FIXME: this describer currently only works if all images have the same size
     """
     read_cfg: ImageReadConfig
-    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
     batch_size: int
+    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
 
     def batch_iter(self):
         dataset = self.read_cfg.make_tf_dataset([Field.IMAGE.name, Field.IMAGE_ID.name]).batch(self.batch_size)
@@ -93,8 +93,6 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     model_name: str
     meta: OIV4MetadataProvider
     debug: bool = False
-
-    batch_size: int = 1024
     name: str = field(default='oiv4_objects', init=False)
 
     def __post_init__(self):
