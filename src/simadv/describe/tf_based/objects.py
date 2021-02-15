@@ -96,14 +96,14 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     name: str = field(default='oiv4_objects', init=False)
 
     @staticmethod
+    def _tf_gpu_query():
+        import tensorflow as tf
+        return tf.config.list_physical_devices('GPU')
+
+    @staticmethod
     def _get_gpus():
-
-        def query():
-            import tensorflow as tf
-            return tf.config.list_physical_devices('GPU')
-
         with mp.Pool(1) as p:
-            return p.apply(query)
+            return p.apply(OIV4ObjectsImageDescriber._tf_gpu_query)
 
     def __post_init__(self):
         assert 0. <= self.threshold < 1.
