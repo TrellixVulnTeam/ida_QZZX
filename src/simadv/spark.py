@@ -97,7 +97,7 @@ class SparkSessionConfig:
         return self.builder.getOrCreate()
 
     def write_petastorm(self, out_df: DataFrame, write_cfg: PetastormWriteConfig):
-        logging.info('Writing {} object count observations to petastorm parquet store.'.format(out_df.count()))
+        logging.info('Writing {} rows to petastorm parquet store.'.format(out_df.count()))
 
         output_url = write_cfg.output_url
         while True:
