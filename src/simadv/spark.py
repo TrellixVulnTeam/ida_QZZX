@@ -52,7 +52,6 @@ class Schema:
 class PetastormReadConfig:
     input_schema: Unischema
     input_url: str
-    batch_size: int
     shuffle: bool = False
     pool_type: str = 'thread'
     workers_count: int = 10
@@ -69,7 +68,7 @@ class PetastormReadConfig:
                            **kwargs)
 
     def make_tf_dataset(self, schema_fields: Optional[List[str]] = None):
-        return make_petastorm_dataset(self.make_reader(schema_fields)).batch(self.batch_size)
+        return make_petastorm_dataset(self.make_reader(schema_fields))
 
 
 @dataclass

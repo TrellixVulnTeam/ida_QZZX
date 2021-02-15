@@ -177,6 +177,7 @@ class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
 
     read_cfg: ImageReadConfig
     torch_cfg: TorchConfig
+    batch_size: int
 
     def batch_iter(self):
         def to_tensor(batch_columns):
@@ -192,7 +193,7 @@ class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
         for row in self.read_cfg.make_reader(None):
             current_batch.append((row.image_id, row.image))
 
-            if len(current_batch) < self.read_cfg.batch_size:
+            if len(current_batch) < self.batch_size:
                 continue
 
             yield to_tensor(list(zip(*current_batch)))

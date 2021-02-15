@@ -29,9 +29,11 @@ class TFDescriber(DictBasedImageDescriber, abc.ABC):
     """
     read_cfg: ImageReadConfig
     output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
+    batch_size: int
 
     def batch_iter(self):
-        for schema_view in self.read_cfg.make_tf_dataset([Field.IMAGE.name, Field.IMAGE_ID.name]):
+        dataset = self.read_cfg.make_tf_dataset([Field.IMAGE.name, Field.IMAGE_ID.name]).batch(self.batch_size)
+        for schema_view in dataset:
             ids = schema_view.image_id.numpy().astype(Field.IMAGE_ID.numpy_dtype).tolist()
             yield ids, schema_view.image
 
@@ -92,6 +94,7 @@ class OIV4ObjectsImageDescriber(TFDescriber):
     meta: OIV4MetadataProvider
     debug: bool = False
 
+    batch_size: int = 1024
     name: str = field(default='oiv4_objects', init=False)
 
     def __post_init__(self):
@@ -101,7 +104,7 @@ class OIV4ObjectsImageDescriber(TFDescriber):
         gpus = range(num_gpus) if num_gpus > 0 else (None,)
 
         self.in_queue = mp.JoinableQueue(maxsize=max(1, num_gpus))
-        self.out_queue = mp.Queue(maxsize=self.read_cfg.batch_size)
+        self.out_queue = mp.Queue(maxsize=self.batch_size)
         model_dir = self.meta.cache_pretrained_model(self.model_name)
         self.processes = [TFObjectDetectionProcess(model_dir, self.in_queue, self.out_queue, gpu) for gpu in gpus]
 
