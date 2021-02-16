@@ -75,7 +75,6 @@ class TFObjectDetectionProcess(mp.Process):
         while True:
             ids, in_batch = self.in_queue.get()
             if in_batch is None:
-                print('Exiting Process for GPU {}'.format(self.gpu_id))
                 self.in_queue.task_done()
                 break
 
@@ -104,7 +103,7 @@ class OIV4ObjectsImageDescriber(TFDescriber):
 
     @staticmethod
     def _get_gpus():
-        with mp.Pool(1) as p:
+        with mp.Pool(1) as p:  # run in separate process to make sure no memory is kept allocated
             return p.apply(OIV4ObjectsImageDescriber._tf_gpu_query)
 
     def __post_init__(self):
@@ -124,7 +123,8 @@ class OIV4ObjectsImageDescriber(TFDescriber):
 
         # wait until processes have allocated their ML models on the GPU
         for _ in self.processes:
-            self.out_queue.get()
+            start_signal = self.out_queue.get()
+            assert start_signal is None
 
         pending_count = 0
         for ids, batch in self.batch_iter():
