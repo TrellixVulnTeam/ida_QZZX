@@ -8,9 +8,11 @@ from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw
 from petastorm.unischema import Unischema
+from simple_parsing import ArgumentParser
 
+from simadv.common import LoggingConfig
 from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
-from simadv.spark import Field, Schema
+from simadv.spark import Field, Schema, PetastormWriteConfig
 from simadv.oiv4.metadata import OIV4MetadataProvider
 
 mp = multiprocessing.get_context('spawn')
@@ -66,7 +68,9 @@ class TFObjectDetectionProcess(mp.Process):
         import tensorflow as tf
 
         physical_devices = tf.config.list_physical_devices('GPU')
-        tf.config.experimental.set_memory_growth(physical_devices[0], True)
+        if physical_devices:
+            assert len(physical_devices) == 1
+            tf.config.experimental.set_memory_growth(physical_devices[0], True)
         model = tf.saved_model.load(self.model_dir)
         model = model.signatures['serving_default']
 
@@ -92,7 +96,7 @@ class OIV4ObjectsImageDescriber(TFDescriber):
 
     threshold: float
     model_name: str
-    meta: OIV4MetadataProvider
+    meta: OIV4MetadataProvider = field(default_factory=OIV4MetadataProvider)
     debug: bool = False
     name: str = field(default='oiv4_objects', init=False)
 
@@ -154,10 +158,16 @@ class OIV4ObjectsImageDescriber(TFDescriber):
             scores_batches = results['detection_scores'].numpy()
             boxes_batches = results['detection_boxes'].numpy()
 
+            if not np.any(scores_batches > self.threshold):
+                continue
+
             height, width = image_tensors.shape[1:3]  # shape is B, H, W, C
 
             for image_id, image_tensor, obj_ids, scores, boxes in zip(ids, image_tensors, obj_ids_batches,
                                                                       scores_batches, boxes_batches):
+                if not np.any(scores > self.threshold):
+                    continue
+
                 indices = scores > self.threshold
                 concept_names = np.asarray([self.meta.object_names[obj_id] for obj_id in obj_ids[indices]],
                                            dtype=np.unicode_)
@@ -186,3 +196,19 @@ class OIV4ObjectsImageDescriber(TFDescriber):
                        Field.DESCRIBER.name: self.model_name,
                        Field.CONCEPT_NAMES.name: concept_names,
                        Field.CONCEPT_MASKS.name: masks}
+
+
+@dataclass
+class ConceptsWriteConfig(PetastormWriteConfig):
+    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description='Describe images with visible OIV4 objects.')
+    parser.add_arguments(OIV4ObjectsImageDescriber, dest='describer')
+    parser.add_arguments(ConceptsWriteConfig, dest='write_cfg')
+    parser.add_arguments(LoggingConfig, dest='logging')
+    args = parser.parse_args()
+
+    df = args.describer.to_df()
+    args.describer.spark_cfg.write_petastorm(df, args.write_cfg)
