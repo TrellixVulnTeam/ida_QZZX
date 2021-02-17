@@ -16,7 +16,8 @@ from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
 from simadv.common import Classifier, RowDict
-from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
+from simadv.describe.common import ImageReadConfig
+from simadv.spark import DictBasedDataGenerator
 from simadv.describe.torch_based.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simadv.util.webcache import WebCache
 
@@ -163,7 +164,7 @@ class TorchImageClassifierSerialization:
 
 
 @dataclass
-class BatchedTorchImageDescriber(DictBasedImageDescriber, abc.ABC):
+class BatchedTorchImageDescriber(DictBasedDataGenerator, abc.ABC):
     """
     Reads batches of image data from a petastorm store
     and converts these images to Torch tensors.

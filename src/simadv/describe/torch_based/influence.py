@@ -13,12 +13,12 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, Classifier
-from simadv.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
+from simadv.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
 from simadv.describe.torch_based.base import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image
 
-from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
+from simadv.describe.common import ImageReadConfig
 
 
 @dataclass(unsafe_hash=True)
@@ -159,7 +159,7 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 
 
 @dataclass
-class TorchInfluenceImageDescriber(DictBasedImageDescriber):
+class TorchInfluenceImageDescriber(DictBasedDataGenerator):
     read_cfg: ImageReadConfig
     output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
 

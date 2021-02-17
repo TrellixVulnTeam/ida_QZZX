@@ -1,18 +1,24 @@
+import abc
 import logging
+import time
 from dataclasses import dataclass
-from typing import Optional, List
+from decimal import Decimal
+from enum import Enum
+from typing import Optional, List, Iterator
 
 import numpy as np
 from petastorm import make_reader
 from petastorm.codecs import CompressedImageCodec, ScalarCodec, CompressedNdarrayCodec
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url, materialize_dataset
 from petastorm.tf_utils import make_petastorm_dataset
-from petastorm.unischema import UnischemaField, Unischema
+from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StringType, IntegerType
 
+from simadv.common import RowDict, LoggingMixin
 
-class Field:
+
+class Field(UnischemaField, Enum):
     """
     All data fields used by the different submodules.
     """
@@ -30,8 +36,19 @@ class Field:
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
 
+    def decode_from_row_dict(self, row_dict: RowDict):
+        """
+        Factored out from `petastorm.utils.decode_row()`.
+        """
+        if self.codec:
+            return self.codec.decode(self, row_dict[self.name])
+        elif self.numpy_dtype and issubclass(self.numpy_dtype, (np.generic, Decimal)):
+            return self.numpy_dtype(row_dict[self.name])
+        else:
+            return row_dict[self.name]
 
-class Schema:
+
+class Schema(Unischema, Enum):
     """
     All data schemas used by the different submodules.
     """
@@ -46,6 +63,9 @@ class Schema:
                                           Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS,
                                           Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
                                           Field.PERTURBED_IMAGE_ID])
+
+    def decode_row(self, spark_row_dict: RowDict) -> RowDict:
+        return {f.name: Field.decode_from_row_dict(f, spark_row_dict) for f in self.fields}
 
 
 @dataclass
@@ -115,3 +135,58 @@ class SparkSessionConfig:
                 output_url = other_url
             else:
                 break
+
+
+@dataclass
+class DataGenerator(LoggingMixin, abc.ABC):
+
+    # unique identifier for this describer
+    name: str
+
+    @abc.abstractmethod
+    def to_df(self) -> DataFrame:
+        """
+        Generates descriptions for all input images configured by `read_cfg`
+        and returns them as a spark dataframe.
+        """
+
+
+@dataclass
+class DictBasedDataGenerator(DataGenerator):
+
+    # how to interpret generated row dicts
+    output_schema: Unischema
+
+    # spark session for creating the result dataframe
+    spark_cfg: SparkSessionConfig
+
+    # after which time to automatically stop
+    time_limit_s: Optional[int]
+
+    @abc.abstractmethod
+    def generate(self) -> Iterator[RowDict]:
+        """
+        Generate row dicts that conform to `self.write_cfg.output_schema`.
+        The row dicts should be yielded as soon as they are produced, for real-time logging.
+        """
+
+    def _generate_with_logging(self):
+        with self._log_task('Describing with: {}'.format(self.name)):
+            start_time = time.time()
+            last_time = start_time
+
+            for num_rows, row_dict in enumerate(self.generate()):
+                current_time = time.time()
+                if current_time - last_time > 5:
+                    self._log_item('Described {} rows so far.'
+                                   .format(num_rows + 1))
+                    last_time = current_time
+                yield row_dict
+
+                if self.time_limit_s is not None and current_time - start_time > self.time_limit_s:
+                    self._log_item('Reached timeout! Stopping.')
+                    break
+
+    def to_df(self) -> DataFrame:
+        rows = [dict_to_spark_row(self.output_schema, row_dict) for row_dict in self._generate_with_logging()]
+        return self.spark_cfg.session.createDataFrame(rows, self.output_schema.as_spark_schema())

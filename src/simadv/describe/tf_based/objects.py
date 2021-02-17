@@ -11,15 +11,15 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig
-from simadv.describe.common import DictBasedImageDescriber, ImageReadConfig
-from simadv.spark import Field, Schema, PetastormWriteConfig
+from simadv.describe.common import ImageReadConfig
+from simadv.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
 from simadv.oiv4.metadata import OIV4MetadataProvider
 
 mp = multiprocessing.get_context('spawn')
 
 
 @dataclass
-class TFDescriber(DictBasedImageDescriber, abc.ABC):
+class TFDescriber(DictBasedDataGenerator, abc.ABC):
     """
     Reads batches of image data from a petastorm store
     and converts these images to Tensorflow tensors.
