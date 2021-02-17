@@ -5,8 +5,8 @@ import torchvision
 from PIL import ImageDraw
 from torchvision.transforms.functional import to_pil_image
 
-from simadv.describe.torch_based.base import BatchedTorchImageDescriber
-from simadv.spark import Field
+from simexp.describe.torch_based.base import BatchedTorchImageDescriber
+from simexp.spark import Field
 
 
 @dataclass

@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
-from simadv.common import ImageIdProvider
-from simadv.convert import main, ConvertTask
-from simadv.places365.metadata import Places365MetadataProvider
+from simexp.common import ImageIdProvider
+from simexp.convert import main, ConvertTask
+from simexp.places365.metadata import Places365MetadataProvider
 
 
 @dataclass

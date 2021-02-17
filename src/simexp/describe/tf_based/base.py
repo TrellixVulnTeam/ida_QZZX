@@ -1,8 +1,8 @@
 import abc
 from dataclasses import dataclass
 
-from simadv.describe.common import DictBasedImageDescriber
-from simadv.spark import Field
+from simexp.describe.common import DictBasedImageDescriber
+from simexp.spark import Field
 
 
 @dataclass

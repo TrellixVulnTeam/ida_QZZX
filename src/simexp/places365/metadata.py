@@ -3,9 +3,9 @@ import re
 from dataclasses import field, dataclass
 from typing import Mapping
 
-from simadv.common import ImageIdProvider, ImageClassProvider, ClassificationTask
-from simadv.util.functools import cached_property
-from simadv.util.webcache import WebCache
+from simexp.common import ImageIdProvider, ImageClassProvider, ClassificationTask
+from simexp.util.functools import cached_property
+from simexp.util.webcache import WebCache
 
 
 @dataclass

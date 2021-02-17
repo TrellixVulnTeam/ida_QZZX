@@ -3,9 +3,9 @@ from typing import Iterator, Optional
 
 import numpy as np
 
-from simadv.common import ImageObjectProvider, RowDict
-from simadv.describe.common import DictBasedImageDescriber
-from simadv.spark import Field
+from simexp.common import ImageObjectProvider, RowDict
+from simexp.describe.common import DictBasedImageDescriber
+from simexp.spark import Field
 
 
 @dataclass

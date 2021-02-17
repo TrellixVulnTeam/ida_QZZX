@@ -4,12 +4,12 @@ from typing import List, Type, Any
 
 from pyspark.sql import DataFrame
 from simple_parsing import ArgumentParser
-from simadv.common import LoggingConfig
-from simadv.describe.colors import PerceivableColorsImageDescriber
-from simadv.describe.common import ImageDescriber, ImageReadConfig
-from simadv.describe.tf_based.objects import OIV4ObjectsImageDescriber
-from simadv.describe.torch_based.objects import CocoObjectsImageDescriber
-from simadv.io import Field, PetastormWriteConfig
+from simexp.common import LoggingConfig
+from simexp.describe.colors import PerceivableColorsImageDescriber
+from simexp.describe.common import ImageReadConfig
+from simexp.describe.tf_based.objects import OIV4ObjectsImageDescriber
+from simexp.describe.torch_based.objects import CocoObjectsImageDescriber
+from simexp.spark import Field, PetastormWriteConfig, DataGenerator
 
 
 def _partial_describer(cls: Type[Any], read_cfg: ImageReadConfig, write_cfg: PetastormWriteConfig):
@@ -40,12 +40,12 @@ class DescriberConfig:
 
 
 @dataclass
-class JoinedImageDescriber(ImageDescriber):
+class JoinedImageDescriber(DataGenerator):
     """
     Joins the results of multiple image describers.
     """
 
-    describers: [ImageDescriber]
+    describers: [DataGenerator]
 
     def to_df(self):
         dfs = [d.to_df() for d in self.describers]

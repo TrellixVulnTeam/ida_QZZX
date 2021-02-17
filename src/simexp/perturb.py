@@ -13,8 +13,8 @@ import pyspark.sql.functions as sf
 import pyspark.sql.types as st
 from simple_parsing import ArgumentParser
 
-from simadv.common import RowDict, LoggingConfig
-from simadv.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig
+from simexp.common import RowDict, LoggingConfig
+from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig
 
 
 class Perturber(abc.ABC):

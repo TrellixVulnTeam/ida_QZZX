@@ -5,8 +5,8 @@ from typing import Optional
 import numpy as np
 import skimage
 
-from simadv.describe.common import DictBasedImageDescriber
-from simadv.spark import Field
+from simexp.describe.common import DictBasedImageDescriber
+from simexp.spark import Field
 
 
 @dataclass

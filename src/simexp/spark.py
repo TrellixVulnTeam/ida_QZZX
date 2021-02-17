@@ -15,7 +15,7 @@ from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StringType, IntegerType
 
-from simadv.common import RowDict, LoggingMixin
+from simexp.common import RowDict, LoggingMixin
 
 
 class Field(UnischemaField, Enum):

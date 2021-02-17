@@ -9,8 +9,8 @@ from PIL import Image
 from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
 
-from simadv.common import LoggingConfig, ImageIdProvider
-from simadv.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
+from simexp.common import LoggingConfig, ImageIdProvider
+from simexp.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
 
 
 @dataclass

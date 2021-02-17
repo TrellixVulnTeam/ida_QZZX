@@ -14,10 +14,10 @@ from skimage.transform import resize
 from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
-from simadv.common import Classifier
-from simadv.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
-from simadv.describe.torch_based.base import TorchConfig
-from simadv.util.webcache import WebCache
+from simexp.common import Classifier
+from simexp.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
+from simexp.describe.torch_based.base import TorchConfig
+from simexp.util.webcache import WebCache
 
 
 @dataclass
@@ -127,7 +127,7 @@ class TorchImageClassifier(Classifier, Serializable):
 class TorchImageClassifierSerialization:
     path: str  # path to a json serialization of a TorchImageClassifier
 
-    _COLLECTION_PACKAGE = 'simadv.classifier_collection.torch'
+    _COLLECTION_PACKAGE = 'simexp.classifier_collection.torch'
 
     def _raise_invalid_path(self):
         raise ValueError('Classifier path {} is neither a valid path, nor does it point to a valid resource.'

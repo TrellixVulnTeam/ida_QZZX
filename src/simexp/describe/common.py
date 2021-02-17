@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from petastorm.unischema import Unischema
 
-from simadv.spark import Schema, PetastormReadConfig, DictBasedDataGenerator
+from simexp.spark import Schema, PetastormReadConfig, DictBasedDataGenerator
 
 
 @dataclass

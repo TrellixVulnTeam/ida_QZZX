@@ -12,14 +12,14 @@ import numpy as np
 from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
-from simadv.common import LoggingConfig, Classifier
-from simadv.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
-from simadv.describe.torch_based.base import TorchConfig
-from simadv.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierSerialization
+from simexp.common import LoggingConfig, Classifier
+from simexp.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
+from simexp.describe.torch_based.base import TorchConfig
+from simexp.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image
 
-from simadv.describe.common import ImageReadConfig
+from simexp.describe.common import ImageReadConfig
 
 
 @dataclass(unsafe_hash=True)

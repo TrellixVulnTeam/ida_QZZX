@@ -4,8 +4,8 @@ from typing import Iterable
 
 import torch
 
-from simadv.common import RowDict
-from simadv.describe.common import DictBasedImageDescriber
+from simexp.common import RowDict
+from simexp.describe.common import DictBasedImageDescriber
 
 
 @dataclass
