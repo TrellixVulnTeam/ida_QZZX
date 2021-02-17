@@ -160,18 +160,6 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     # which perturbers to use
     perturbers: List[Perturber]
 
-    def sampler(self):
-        assert hasattr(self, 'union_df')
-        while True:
-            sampled_row_dict = self.union_df.rdd.takeSample(True, 1).asDict()
-            counts = np.zeros((self.all_concept_names,), dtype=np.uint8)
-            for concept_name in Field.CONCEPT_NAMES.decode_from_row_dict(sampled_row_dict):
-                counts[self.all_concept_names.index(concept_name)] += 1
-            yield counts, Field.IMAGE_ID.decode_from_row_dict(sampled_row_dict)
-
-    def _get_union_of_describers_df(self):
-        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls])
-
     def __post_init__(self):
         @sf.udf(st.BinaryType())
         def unique_concept_names(describer_name, concept_names):
@@ -194,6 +182,18 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
         concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType), False)
                           for concept_name in self.all_concept_names]
         self.output_schema = Unischema('PerturbedConceptCounts', influence_fields + concept_fields)
+
+    def sampler(self):
+        assert hasattr(self, 'union_df')
+        while True:
+            sampled_row_dict = self.union_df.rdd.takeSample(True, 1).asDict()
+            counts = np.zeros((self.all_concept_names,), dtype=np.uint8)
+            for concept_name in Field.CONCEPT_NAMES.decode_from_row_dict(sampled_row_dict):
+                counts[self.all_concept_names.index(concept_name)] += 1
+            yield counts, Field.IMAGE_ID.decode_from_row_dict(sampled_row_dict)
+
+    def _get_union_of_describers_df(self):
+        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls])
 
     def generate(self) -> Iterator[RowDict]:
         influences_df = self.spark_cfg.session.read.parquet(self.influences_url)
@@ -255,6 +255,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                                    **dict(zip(self.all_concept_names, perturbed_counts))}
 
 
+@dataclass
 class CLInterface(PerturbedConceptCountsGenerator):
     # which detectors to use
     detectors: List[InfluenceDetector] = field(default_factory=list, init=False)
