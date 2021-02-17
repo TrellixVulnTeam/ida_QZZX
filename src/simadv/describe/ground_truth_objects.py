@@ -2,22 +2,18 @@ from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
 import numpy as np
-from petastorm.unischema import Unischema
 
 from simadv.common import ImageObjectProvider, RowDict
-from simadv.spark import Field, Schema, DictBasedDataGenerator
-from simadv.describe.common import ImageReadConfig
+from simadv.describe.common import DictBasedImageDescriber
+from simadv.spark import Field
 
 
 @dataclass
-class GroundTruthObjectsDescriber(DictBasedDataGenerator):
+class GroundTruthObjectsDescriber(DictBasedImageDescriber):
     """
     Describes each image with a set of masks for ground-truth objects,
     taken from an `ImageObjectProvider`.
     """
-
-    read_cfg: ImageReadConfig
-    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
 
     # provider of object bounding boxes for given image ids
     gt_object_provider: ImageObjectProvider

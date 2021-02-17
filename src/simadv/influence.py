@@ -14,7 +14,8 @@ from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig, Classifier
 from simadv.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
-from simadv.describe.torch_based.base import TorchConfig, TorchImageClassifier, TorchImageClassifierSerialization
+from simadv.describe.torch_based.base import TorchConfig
+from simadv.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierSerialization
 
 from anchor import anchor_image
 
@@ -159,7 +160,7 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 
 
 @dataclass
-class TorchInfluenceImageDescriber(DictBasedDataGenerator):
+class TorchInfluenceGenerator(DictBasedDataGenerator):
     read_cfg: ImageReadConfig
     output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
 
@@ -169,8 +170,6 @@ class TorchInfluenceImageDescriber(DictBasedDataGenerator):
     influence_estimators: List[InfluenceEstimator]
 
     image_size: Tuple[int, int] = (224, 224)
-
-    name: str = field(default='pixel_influences', init=False)
 
     # if not None, sample the given number of observations from each class instead
     # of reading the dataset once front to end.
@@ -227,7 +226,7 @@ class TorchInfluenceImageDescriber(DictBasedDataGenerator):
 
 
 @dataclass
-class CLTorchInfluenceImageDescriber(TorchInfluenceImageDescriber):
+class CLTorchInfluenceGenerator(TorchInfluenceGenerator):
     influence_estimators: List[InfluenceEstimator] = field(default=list, init=False)
 
 
@@ -239,7 +238,7 @@ class InfluenceWriteConfig(PetastormWriteConfig):
 @dataclass
 class CLInterface:
     write_cfg: InfluenceWriteConfig
-    describer: CLTorchInfluenceImageDescriber
+    describer: CLTorchInfluenceGenerator
 
     lime_ie: LIMEInfluenceEstimator
     anchor_ie: AnchorInfluenceEstimator

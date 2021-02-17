@@ -4,21 +4,18 @@ from typing import Optional
 
 import numpy as np
 import skimage
-from petastorm.unischema import Unischema
 
-from simadv.describe.common import ImageReadConfig
-from simadv.spark import Field, Schema, DictBasedDataGenerator
+from simadv.describe.common import DictBasedImageDescriber
+from simadv.spark import Field
 
 
 @dataclass
-class PerceivableColorsImageDescriber(DictBasedDataGenerator):
+class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     """
     Describes each image with a set of "color masks".
     Each color mask represents all pixels of one perceivable color.
     """
 
-    read_cfg: ImageReadConfig
-    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
     num_processes: Optional[int] = None
     chunk_size: int = 1000
 

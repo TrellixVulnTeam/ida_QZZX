@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List, Iterator
+from typing import Optional, List, Iterator, Any
 
 import numpy as np
 from petastorm import make_reader
@@ -36,19 +36,22 @@ class Field(UnischemaField, Enum):
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
 
-    def decode_from_row_dict(self, row_dict: RowDict):
+    def decode(self, encoded: Any) -> Any:
         """
         Factored out from `petastorm.utils.decode_row()`.
         """
         if self.codec:
-            return self.codec.decode(self, row_dict[self.name])
+            return self.codec.decode(self, encoded)
         elif self.numpy_dtype and issubclass(self.numpy_dtype, (np.generic, Decimal)):
-            return self.numpy_dtype(row_dict[self.name])
+            return self.numpy_dtype(encoded)
         else:
-            return row_dict[self.name]
+            return encoded
+
+    def decode_from_row_dict(self, row_dict: RowDict) -> Any:
+        return self.decode(row_dict[self.name])
 
 
-class Schema(Unischema, Enum):
+class Schema(Enum):
     """
     All data schemas used by the different submodules.
     """
@@ -63,9 +66,6 @@ class Schema(Unischema, Enum):
                                           Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS,
                                           Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
                                           Field.PERTURBED_IMAGE_ID])
-
-    def decode_row(self, spark_row_dict: RowDict) -> RowDict:
-        return {f.name: Field.decode_from_row_dict(f, spark_row_dict) for f in self.fields}
 
 
 @dataclass
@@ -140,9 +140,6 @@ class SparkSessionConfig:
 @dataclass
 class DataGenerator(LoggingMixin, abc.ABC):
 
-    # unique identifier for this describer
-    name: str
-
     @abc.abstractmethod
     def to_df(self) -> DataFrame:
         """
@@ -153,6 +150,9 @@ class DataGenerator(LoggingMixin, abc.ABC):
 
 @dataclass
 class DictBasedDataGenerator(DataGenerator):
+
+    # unique identifier for this describer
+    name: str
 
     # how to interpret generated row dicts
     output_schema: Unischema

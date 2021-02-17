@@ -1,4 +1,3 @@
-import abc
 import multiprocessing
 import os
 import queue
@@ -11,31 +10,11 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simadv.common import LoggingConfig
-from simadv.describe.common import ImageReadConfig
-from simadv.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
+from simadv.describe.tf_based.base import TFDescriber
+from simadv.spark import Field, Schema, PetastormWriteConfig
 from simadv.oiv4.metadata import OIV4MetadataProvider
 
 mp = multiprocessing.get_context('spawn')
-
-
-@dataclass
-class TFDescriber(DictBasedDataGenerator, abc.ABC):
-    """
-    Reads batches of image data from a petastorm store
-    and converts these images to Tensorflow tensors.
-    Subclasses can describe these tensors as other data.
-
-    FIXME: this describer currently only works if all images have the same size
-    """
-    read_cfg: ImageReadConfig
-    batch_size: int
-    output_schema: Unischema = field(default=Schema.CONCEPT_MASKS, init=False)
-
-    def batch_iter(self):
-        dataset = self.read_cfg.make_tf_dataset([Field.IMAGE.name, Field.IMAGE_ID.name]).batch(self.batch_size)
-        for schema_view in dataset:
-            ids = schema_view.image_id.numpy().astype(Field.IMAGE_ID.numpy_dtype).tolist()
-            yield ids, schema_view.image
 
 
 @dataclass
