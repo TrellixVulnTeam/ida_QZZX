@@ -1,19 +1,18 @@
 import abc
 from dataclasses import dataclass, field
-from typing import Optional, Type, Any, Tuple, Iterable, Dict, List
+from typing import Optional, Type, List
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from captum.attr import IntegratedGradients, Saliency, DeepLift, visualization as viz, GradientAttribution
+from captum.attr import IntegratedGradients, Saliency, DeepLift, GradientAttribution
 from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simexp.common import LoggingConfig, Classifier
-from simexp.describe.common import ImageReadConfig
-from simexp.describe.torch_based.base import TorchConfig
-from simexp.influence.common import InfluenceEstimator, AnchorInfluenceEstimator, LIMEInfluenceEstimator
-from simexp.spark import Field, Schema, PetastormWriteConfig, DictBasedDataGenerator
+from simexp.describe.torch_based.common import TorchConfig
+from simexp.influence.common import InfluenceEstimator, AnchorInfluenceEstimator, LIMEInfluenceEstimator, \
+    InfluenceGenerator
+from simexp.spark import Schema, PetastormWriteConfig
 from simexp.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierSerialization
 
 
@@ -53,25 +52,14 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 
 
 @dataclass
-class TorchInfluenceGenerator(DictBasedDataGenerator):
-    read_cfg: ImageReadConfig
-    output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
+class TorchInfluenceGenerator(InfluenceGenerator):
 
+    classifier: Classifier = field(default_factory=Classifier, init=False)
     classifier_serial: TorchImageClassifierSerialization
     torch_cfg: TorchConfig
 
-    influence_estimators: List[InfluenceEstimator]
-
-    image_size: Tuple[int, int] = (224, 224)
-
-    # if not None, sample the given number of observations from each class instead
-    # of reading the dataset once front to end.
     observations_per_class: Optional[int] = None
-
-    # whether to visualize the influential pixels for each image and estimator
     debug: bool = False
-
-    # after how many observations to output a log message with hit frequencies of the different estimators
     hit_freq_logging: int = 30
 
     def __post_init__(self):
@@ -81,41 +69,6 @@ class TorchInfluenceGenerator(DictBasedDataGenerator):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
-
-    def generate(self) -> Iterable[Dict[str, Any]]:
-        total_count = 0
-        count_per_class = np.zeros((self.classifier.num_classes,))
-
-        with self.read_cfg.make_reader(None) as reader:
-            for row in reader:
-                pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
-
-                if self.observations_per_class is not None:
-                    if count_per_class[pred] >= self.observations_per_class:
-                        self._log_item('Skipping, we already have enough observations of class {}.'.format(pred))
-                        continue
-                    elif np.sum(count_per_class) >= self.classifier.num_classes * self.observations_per_class:
-                        self._log_item('Stopping, we now have enough observations of all classes.')
-                        break
-
-                count_per_class[pred] += 1
-                total_count += 1
-
-                for influence_estimator in self.influence_estimators:
-                    influence_mask = influence_estimator.get_influence_mask(self.classifier, row.image, pred)
-                    if self.debug:
-                        fig = plt.figure()
-                        ax = plt.Axes(fig, [0., 0., 1., 1.])
-                        ax.set_axis_off()
-                        fig.add_axes(ax)
-                        viz.visualize_image_attr(np.expand_dims(influence_mask, 2), row.image,
-                                                 sign='positive', method='blended_heat_map', use_pyplot=False,
-                                                 plt_fig_axis=(fig, ax))
-
-                    yield {Field.IMAGE_ID.name: row.image_id,
-                           Field.INFLUENCE_MASK.name: influence_mask,
-                           Field.PREDICTED_CLASS.name: pred,
-                           Field.INFLUENCE_ESTIMATOR.name: str(influence_estimator)}
 
 
 @dataclass

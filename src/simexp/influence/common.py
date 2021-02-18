@@ -1,12 +1,17 @@
 import abc
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List, Iterable, Dict, Any
 
+import matplotlib.pyplot as plt
 import numpy as np
 from anchor import anchor_image
 from lime import lime_image
+from petastorm.unischema import Unischema
+from captum.attr import visualization as viz
 
 from simexp.common import Classifier
+from simexp.describe.common import ImageReadConfig
+from simexp.spark import DictBasedDataGenerator, Schema, Field
 
 
 @dataclass(unsafe_hash=True)
@@ -22,6 +27,67 @@ class InfluenceEstimator(abc.ABC):
         and represent the influence of each pixel on the classification `pred_class` by `classifier`.
         """
         pass
+
+
+@dataclass
+class InfluenceGenerator(DictBasedDataGenerator):
+
+    # where to read images from
+    read_cfg: ImageReadConfig
+
+    # output schema of this generator
+    output_schema: Unischema = field(default=Schema.PIXEL_INFLUENCES, init=False)
+
+    # which classifier to observe
+    classifier: Classifier
+
+    # which influence estimators to use
+    influence_estimators: List[InfluenceEstimator]
+
+    # if not None, sample the given number of observations from each class instead
+    # of reading the dataset once front to end.
+    observations_per_class: Optional[int]
+
+    # whether to visualize the influential pixels for each image and estimator
+    debug: bool
+
+    # after how many observations to output a log message with hit frequencies of the different estimators
+    hit_freq_logging: int
+
+    def generate(self) -> Iterable[Dict[str, Any]]:
+        total_count = 0
+        count_per_class = np.zeros((self.classifier.num_classes,))
+
+        with self.read_cfg.make_reader(None) as reader:
+            for row in reader:
+                pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
+
+                if self.observations_per_class is not None:
+                    if count_per_class[pred] >= self.observations_per_class:
+                        self._log_item('Skipping, we already have enough observations of class {}.'.format(pred))
+                        continue
+                    elif np.sum(count_per_class) >= self.classifier.num_classes * self.observations_per_class:
+                        self._log_item('Stopping, we now have enough observations of all classes.')
+                        break
+
+                count_per_class[pred] += 1
+                total_count += 1
+
+                for influence_estimator in self.influence_estimators:
+                    influence_mask = influence_estimator.get_influence_mask(self.classifier, row.image, pred)
+                    if self.debug:
+                        fig = plt.figure()
+                        ax = plt.Axes(fig, [0., 0., 1., 1.])
+                        ax.set_axis_off()
+                        fig.add_axes(ax)
+                        viz.visualize_image_attr(np.expand_dims(influence_mask, 2), row.image,
+                                                 sign='positive', method='blended_heat_map', use_pyplot=False,
+                                                 plt_fig_axis=(fig, ax))
+
+                    yield {Field.IMAGE_ID.name: row.image_id,
+                           Field.INFLUENCE_MASK.name: influence_mask,
+                           Field.PREDICTED_CLASS.name: pred,
+                           Field.INFLUENCE_ESTIMATOR.name: str(influence_estimator)}
 
 
 @dataclass(unsafe_hash=True)
