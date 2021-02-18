@@ -16,7 +16,7 @@ from torch.nn.functional import softmax
 
 from simexp.common import Classifier
 from simexp.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
-from simexp.describe.torch_based.base import TorchConfig
+from simexp.describe.torch_based.common import TorchConfig
 from simexp.util.webcache import WebCache
 
 
