@@ -83,6 +83,9 @@ class InfluenceGenerator(DictBasedDataGenerator):
                         viz.visualize_image_attr(np.expand_dims(influence_mask, 2), row.image,
                                                  sign='positive', method='blended_heat_map', use_pyplot=False,
                                                  plt_fig_axis=(fig, ax))
+                        plt.show()
+                        input('--- press enter to continue ---')
+                        plt.clf()
 
                     yield {Field.IMAGE_ID.name: row.image_id,
                            Field.INFLUENCE_MASK.name: influence_mask,
@@ -135,7 +138,7 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
                                            segmentation_mask == segment_id)
 
         if not np.any(influence_mask):
-            return np.ones(influence_mask.shape) / np.size(influence_mask)
+            return np.ones(influence_mask.shape, dtype=np.float) / np.float(np.size(influence_mask))
 
         return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
 
@@ -172,6 +175,6 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
                                                            min_weight=self.min_weight)
 
         if not np.any(influence_mask):
-            return np.ones(influence_mask.shape) / np.size(influence_mask)
+            return np.ones(influence_mask.shape, dtype=np.float) / np.float(np.size(influence_mask))
 
         return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
