@@ -54,9 +54,10 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 @dataclass
 class TorchInfluenceGenerator(InfluenceGenerator):
 
-    classifier: Classifier = field(default_factory=Classifier, init=False)
-    classifier_serial: TorchImageClassifierSerialization
-    torch_cfg: TorchConfig
+    name: str = field(default=None, init=False)
+    classifier_serial: TorchImageClassifierSerialization = None
+    torch_cfg: TorchConfig = None
+    classifier: Classifier = field(default=None, init=False)
 
     observations_per_class: Optional[int] = None
     debug: bool = False
@@ -69,6 +70,7 @@ class TorchInfluenceGenerator(InfluenceGenerator):
             torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
 
         self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
+        self.name = 'pixel_influences({})'.format(self.classifier.name)
 
 
 @dataclass
