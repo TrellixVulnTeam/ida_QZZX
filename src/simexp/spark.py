@@ -27,7 +27,7 @@ class Field(UnischemaField, Enum):
     DESCRIBER = UnischemaField('describer', np.unicode_, (), ScalarCodec(StringType()), False)
     CONCEPT_NAMES = UnischemaField('concept_names',  np.unicode_, (None,), CompressedNdarrayCodec(), False)
     CONCEPT_MASKS = UnischemaField('concept_masks', np.bool_, (None, None, None), CompressedNdarrayCodec(), False)
-    INFLUENCE_MASK = UnischemaField('influence_mask', np.float32, (None, None), CompressedNdarrayCodec(), False)
+    INFLUENCE_MASK = UnischemaField('influence_mask', np.float_, (None, None), CompressedNdarrayCodec(), False)
     PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16, (), ScalarCodec(IntegerType()), False)
     INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
     PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(StringType()), True)
@@ -73,8 +73,8 @@ class PetastormReadConfig:
     input_schema: Unischema
     input_url: str
     shuffle: bool = False
-    pool_type: str = 'thread'
-    workers_count: int = 10
+    pool_type: str = 'process'
+    workers_count: int = 5
 
     def make_reader(self, schema_fields: Optional[List[str]] = None, **kwargs):
         actual_schema = get_schema_from_dataset_url(self.input_url)

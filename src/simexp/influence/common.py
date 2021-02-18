@@ -138,9 +138,9 @@ class AnchorInfluenceEstimator(InfluenceEstimator):
                                            segmentation_mask == segment_id)
 
         if not np.any(influence_mask):
-            return np.ones(influence_mask.shape, dtype=np.float) / np.float(np.size(influence_mask))
+            return np.ones(influence_mask.shape) / np.size(influence_mask)
 
-        return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
+        return influence_mask.astype(np.float_) / np.count_nonzero(influence_mask)
 
 
 @dataclass(unsafe_hash=True)
@@ -175,6 +175,6 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
                                                            min_weight=self.min_weight)
 
         if not np.any(influence_mask):
-            return np.ones(influence_mask.shape, dtype=np.float) / np.float(np.size(influence_mask))
+            return np.ones(influence_mask.shape) / np.size(influence_mask)
 
-        return influence_mask.astype(np.float) / np.float(np.count_nonzero(influence_mask))
+        return influence_mask.astype(np.float_) / np.count_nonzero(influence_mask)

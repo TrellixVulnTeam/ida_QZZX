@@ -31,7 +31,7 @@ class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
         img_tensor = torch.from_numpy(img).float().to(classifier.torch_cfg.device).permute(2, 0, 1).unsqueeze(0)
         algo = self.algorithm(classifier.torch_model)
         attr = algo.attribute(img_tensor, target=int(pred_class))
-        attr = np.sum(np.transpose(attr.squeeze(0).cpu().detach().numpy(), (1, 2, 0)), 2)
+        attr = np.sum(np.transpose(attr.squeeze(0).cpu().detach().numpy().astype(np.float_), (1, 2, 0)), 2)
         attr = attr * (attr > 0)  # we only consider pixels that contribute to the prediction (positive influence value)
         return attr / np.sum(attr)
 
