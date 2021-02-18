@@ -51,7 +51,7 @@ class Field(UnischemaField, Enum):
         return self.decode(row_dict[self.name])
 
 
-class Schema(Enum):
+class Schema:
     """
     All data schemas used by the different submodules.
     """
