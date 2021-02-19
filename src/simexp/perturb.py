@@ -180,7 +180,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
         assert hasattr(self, 'union_df')
         while True:
             sampled_image = self.union_df.rdd.takeSample(True, 1)
-            counts = np.zeros((self.all_concept_names,), dtype=np.uint8)
+            counts = np.zeros((len(self.all_concept_names),), dtype=np.uint8)
 
             for concept_names in sampled_image[Field.CONCEPT_NAMES.name]:
                 for concept_name in concept_names:
