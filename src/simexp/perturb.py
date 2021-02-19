@@ -170,7 +170,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
         all_concept_names_df = self.union_df.select(explode_names).distinct()
         self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
 
-        influence_fields = [Field.IMAGE_ID, Field.INFLUENCE_ESTIMATOR, Field.PERTURBER,
+        influence_fields = [Field.IMAGE_ID, Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.PERTURBER,
                             Field.DETECTOR, Field.PERTURBED_IMAGE_ID]
         concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType), False)
                           for concept_name in self.all_concept_names]
