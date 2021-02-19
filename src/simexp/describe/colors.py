@@ -16,7 +16,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     Each color mask represents all pixels of one perceivable color.
     """
 
-    num_processes: Optional[int] = None
+    num_processes: Optional[int] = 5
     chunk_size: int = 1000
 
     name: str = field(default='perceivable_colors', init=False)
@@ -106,6 +106,8 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
             remaining = np.bitwise_and(remaining, np.logical_not(hue_map))
 
         maps['red'] = np.bitwise_or(maps['red'], remaining)  # the remaining are pixels with hue 1 = max. red
+
+        maps = {color_name: mask for color_name, mask in maps.items() if np.any(mask)}
 
         return {Field.IMAGE_ID.name: row.image_id,
                 Field.DESCRIBER.name: self.name,
