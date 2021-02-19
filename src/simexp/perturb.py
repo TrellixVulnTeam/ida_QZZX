@@ -166,7 +166,8 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     def __post_init__(self):
         @sf.udf(st.ArrayType(st.StringType()))
         def unique_concept_names(describer_name, concept_names):
-            return (describer_name + '.' + np.char.asarray(concept_names).astype(np.unicode_)).tolist()
+            concept_names = Field.CONCEPT_NAMES.decode(concept_names)
+            return (describer_name + '.' + np.char.asarray(np.unique(concept_names))).tolist()
 
         # make concept names unique
         self.union_df = self._get_union_of_describers_df() \
@@ -175,7 +176,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
             .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
             .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name)
 
-        flatten_agg = sf.flatten(sf.collect_list(sf.col(Field.CONCEPT_NAMES.name)))
+        flatten_agg = sf.flatten(sf.collect_set(sf.col(Field.CONCEPT_NAMES.name)))
         all_concept_names_df = self.union_df.agg(flatten_agg).distinct()
         self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
 
