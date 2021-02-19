@@ -1,7 +1,7 @@
 import abc
 from dataclasses import dataclass, field
 from functools import reduce
-from typing import Iterable, Tuple, Any, Iterator, List
+from typing import Iterable, Tuple, Any, Iterator, List, Optional
 
 import numpy as np
 import itertools as it
@@ -164,20 +164,10 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     perturbers: List[Perturber]
 
     def __post_init__(self):
-        @sf.udf(st.ArrayType(st.StringType()))
-        def unique_concept_names(describer_name, concept_names):
-            concept_names = Field.CONCEPT_NAMES.decode(concept_names)
-            return (describer_name + '.' + np.char.asarray(np.unique(concept_names))).tolist()
+        self.union_df = self._get_union_of_describers_df()
 
-        # make concept names unique
-        self.union_df = self._get_union_of_describers_df() \
-            .withColumn('tmp', unique_concept_names(Field.DESCRIBER.name,
-                                                    Field.CONCEPT_NAMES.name)) \
-            .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
-            .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name)
-
-        flatten_agg = sf.flatten(sf.collect_set(sf.col(Field.CONCEPT_NAMES.name)))
-        all_concept_names_df = self.union_df.agg(flatten_agg).distinct()
+        explode_names = sf.explode(sf.flatten(sf.col(Field.CONCEPT_NAMES.name))).alias(Field.CONCEPT_NAMES.name)
+        all_concept_names_df = self.union_df.select(explode_names).distinct()
         self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
 
         influence_fields = [Field.IMAGE_ID, Field.INFLUENCE_ESTIMATOR, Field.PERTURBER,
@@ -189,20 +179,37 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     def sampler(self):
         assert hasattr(self, 'union_df')
         while True:
-            sampled_row = self.union_df.rdd.takeSample(True, 1).asDict()
+            sampled_image = self.union_df.rdd.takeSample(True, 1)
             counts = np.zeros((self.all_concept_names,), dtype=np.uint8)
-            for concept_name in sampled_row[Field.CONCEPT_NAMES.name]:
-                counts[self.all_concept_names.index(concept_name)] += 1
-            yield counts, Field.IMAGE_ID.decode(sampled_row[Field.IMAGE_ID.name])
+
+            for concept_names in sampled_image[Field.CONCEPT_NAMES.name]:
+                for concept_name in concept_names:
+                    counts[self.all_concept_names.index(concept_name)] += 1
+            yield counts, Field.IMAGE_ID.decode(sampled_image[Field.IMAGE_ID.name])
 
     def _get_union_of_describers_df(self):
-        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls])
+        @sf.udf(st.ArrayType(st.StringType()))
+        def unique_concept_names(describer_name, concept_names):
+            concept_names = Field.CONCEPT_NAMES.decode(concept_names)
+            return (describer_name + '.' + np.char.asarray(np.unique(concept_names))).tolist()
+
+        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls]) \
+            .withColumn('tmp', unique_concept_names(Field.DESCRIBER.name,
+                                                    Field.CONCEPT_NAMES.name)) \
+            .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
+            .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name) \
+            .groupBy(Field.IMAGE_ID.name) \
+            .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
+                   for f in [Field.CONCEPT_NAMES, Field.CONCEPT_MASKS]])
+
+    def _get_influences_df(self):
+        return self.spark_cfg.session.read.parquet(self.influences_url) \
+            .groupBy(Field.IMAGE_ID.name) \
+            .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
+                   for f in [Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.INFLUENCE_MASK]])
 
     def generate(self) -> Iterator[RowDict]:
-        influences_df = self.spark_cfg.session.read.parquet(self.influences_url)
-        per_image_df = self.union_df.join(influences_df, on=Field.IMAGE_ID.name, how='inner') \
-            .groupBy(Field.IMAGE_ID.name) \
-            .agg({'*': 'collect_list'})
+        per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
 
         for per_image_row in per_image_df.collect():
             image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
@@ -259,7 +266,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
 
 @dataclass
-class CLInterface(PerturbedConceptCountsGenerator):
+class CLInterface:
     # how to use spark
     spark_cfg: SparkSessionConfig
 
@@ -284,6 +291,9 @@ class CLInterface(PerturbedConceptCountsGenerator):
     # how many perturbed object counts to generate per image using the `LocalPerturber`
     max_local_perturbations_per_image: List[int]
 
+    # after which time to automatically stop
+    time_limit_s: Optional[int] = None
+
     def __post_init__(self):
         detectors = [LiftInfluenceDetector(threshold) for threshold in self.detection_thresholds]
         perturbers = [GlobalPerturber(num_perturbations)
@@ -299,10 +309,10 @@ if __name__ == '__main__':
                                         'to improve the training data for surrogate models of an image classifier.'
                                         'The generated training data is not in the pixel space used by the classifier,'
                                         'but in the space of "concept-counts" on images.')
-    parser.add_arguments(CLInterface, dest='generator')
+    parser.add_arguments(CLInterface, dest='cli')
     parser.add_arguments(LoggingConfig, dest='logging')
     parsed, remaining = parser.parse_known_args()
-    generator: PerturbedConceptCountsGenerator = parsed.generator
+    generator: PerturbedConceptCountsGenerator = parsed.cli.generator
 
     parser = ArgumentParser()
 
