@@ -258,8 +258,8 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                                 in perturber.perturb(influential_counts, counts, self.sampler()):
                             yield {Field.PREDICTED_CLASS.name: predicted_class,
                                    Field.INFLUENCE_ESTIMATOR.name: influence_estimator,
-                                   Field.PERTURBER.name: perturber,
-                                   Field.DETECTOR.name: detector,
+                                   Field.PERTURBER.name: str(perturber),
+                                   Field.DETECTOR.name: str(detector),
                                    Field.IMAGE_ID.name: image_id,
                                    Field.PERTURBED_IMAGE_ID.name: perturbed_image_id,
                                    **dict(zip(self.all_concept_names, perturbed_counts))}
