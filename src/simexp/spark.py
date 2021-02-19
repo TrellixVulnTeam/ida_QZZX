@@ -36,6 +36,9 @@ class Field(UnischemaField, Enum):
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
 
+    def encode(self, value: Any) -> Any:
+        return self.codec.encode(self, value)
+
     def decode(self, encoded: Any) -> Any:
         """
         Factored out from `petastorm.utils.decode_row()`.

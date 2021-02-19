@@ -142,6 +142,9 @@ class LiftInfluenceDetector(InfluenceDetector):
 @dataclass
 class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
+    # name of this generator
+    name: str = field(default='perturbed_concept_counts', init=False)
+
     # the output schema of this data generator.
     output_schema: Unischema = field(init=False)
 
@@ -161,9 +164,9 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     perturbers: List[Perturber]
 
     def __post_init__(self):
-        @sf.udf(st.BinaryType())
+        @sf.udf(st.ArrayType(st.StringType()))
         def unique_concept_names(describer_name, concept_names):
-            return np.asarray(describer_name + '.' + np.char.asarray(concept_names).astype(np.unicode_))
+            return (describer_name + '.' + np.char.asarray(concept_names).astype(np.unicode_)).tolist()
 
         # make concept names unique
         self.union_df = self._get_union_of_describers_df() \
@@ -172,8 +175,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
             .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
             .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name)
 
-        tolist_udf = sf.udf(np.tolist, st.ArrayType(st.StringType()))
-        flatten_agg = sf.flatten(sf.collect_list(tolist_udf(sf.col(Field.CONCEPT_NAMES.name))))
+        flatten_agg = sf.flatten(sf.collect_list(sf.col(Field.CONCEPT_NAMES.name)))
         all_concept_names_df = self.union_df.agg(flatten_agg).distinct()
         self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
 
@@ -186,11 +188,11 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     def sampler(self):
         assert hasattr(self, 'union_df')
         while True:
-            sampled_row_dict = self.union_df.rdd.takeSample(True, 1).asDict()
+            sampled_row = self.union_df.rdd.takeSample(True, 1).asDict()
             counts = np.zeros((self.all_concept_names,), dtype=np.uint8)
-            for concept_name in Field.CONCEPT_NAMES.decode_from_row_dict(sampled_row_dict):
+            for concept_name in sampled_row[Field.CONCEPT_NAMES.name]:
                 counts[self.all_concept_names.index(concept_name)] += 1
-            yield counts, Field.IMAGE_ID.decode_from_row_dict(sampled_row_dict)
+            yield counts, Field.IMAGE_ID.decode(sampled_row[Field.IMAGE_ID.name])
 
     def _get_union_of_describers_df(self):
         return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls])
@@ -257,6 +259,15 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
 @dataclass
 class CLInterface(PerturbedConceptCountsGenerator):
+    # how to use spark
+    spark_cfg: SparkSessionConfig
+
+    # url of petastorm parquet store of schema `Schema.PIXEL_INFLUENCES`
+    influences_url: str
+
+    # urls of petastorm parquet stores of schema `Schema.CONCEPT_MASKS`
+    concept_mask_urls: List[str]
+
     # which detectors to use
     detectors: List[InfluenceDetector] = field(default_factory=list, init=False)
 
@@ -273,11 +284,13 @@ class CLInterface(PerturbedConceptCountsGenerator):
     max_local_perturbations_per_image: List[int]
 
     def __post_init__(self):
-        self.detectors = [LiftInfluenceDetector(threshold) for threshold in self.detection_thresholds]
-        self.perturbers = [GlobalPerturber(num_perturbations)
-                           for num_perturbations in self.global_perturbations_per_image]
-        self.perturbers.extend([LocalPerturber(max_perturbations)
-                                for max_perturbations in self.max_local_perturbations_per_image])
+        detectors = [LiftInfluenceDetector(threshold) for threshold in self.detection_thresholds]
+        perturbers = [GlobalPerturber(num_perturbations)
+                      for num_perturbations in self.global_perturbations_per_image]
+        perturbers += [LocalPerturber(max_perturbations)
+                       for max_perturbations in self.max_local_perturbations_per_image]
+        self.generator = PerturbedConceptCountsGenerator(self.spark_cfg, self.time_limit_s, self.influences_url,
+                                                         self.concept_mask_urls, detectors, perturbers)
 
 
 if __name__ == '__main__':
