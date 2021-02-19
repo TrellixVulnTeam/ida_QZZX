@@ -34,7 +34,7 @@ class Field(UnischemaField, Enum):
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(StringType()), True)
     DESCRIBERS = UnischemaField('describers', np.unicode_, (None,), CompressedNdarrayCodec(), False)
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
-    PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), False)
+    PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), True)
 
     def encode(self, value: Any) -> Any:
         return self.codec.encode(self, value)

@@ -233,7 +233,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                    Field.PERTURBER.name: None,
                    Field.DETECTOR.name: None,
                    Field.IMAGE_ID.name: image_id,
-                   Field.PERTURBED_IMAGE_ID: None,
+                   Field.PERTURBED_IMAGE_ID.name: None,
                    **dict(zip(self.all_concept_names, counts))}
 
             # each image has multiple pixel influence masks from different estimators
@@ -261,7 +261,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                                    Field.PERTURBER.name: perturber,
                                    Field.DETECTOR.name: detector,
                                    Field.IMAGE_ID.name: image_id,
-                                   Field.PERTURBED_IMAGE_ID: perturbed_image_id,
+                                   Field.PERTURBED_IMAGE_ID.name: perturbed_image_id,
                                    **dict(zip(self.all_concept_names, perturbed_counts))}
 
 
