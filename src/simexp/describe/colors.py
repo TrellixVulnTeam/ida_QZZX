@@ -107,7 +107,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
 
         maps['red'] = np.bitwise_or(maps['red'], remaining)  # the remaining are pixels with hue 1 = max. red
 
-        maps = {color_name: mask for color_name, mask in maps.items() if np.any(mask)}
+        maps = {color_name: mask for color_name, mask in maps.items() if np.any(mask)}  # throw away empty masks
 
         return {Field.IMAGE_ID.name: row.image_id,
                 Field.DESCRIBER.name: self.name,
