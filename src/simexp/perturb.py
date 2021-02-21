@@ -179,13 +179,15 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     def sampler(self):
         assert hasattr(self, 'union_df')
         while True:
-            sampled_image = self.union_df.rdd.takeSample(True, 1).pop()
-            counts = np.zeros((len(self.all_concept_names),), dtype=np.uint8)
+            shuffled_union_df = self.union_df.orderBy(sf.rand())
 
-            for concept_names in sampled_image[Field.CONCEPT_NAMES.name]:
-                for concept_name in concept_names:
-                    counts[self.all_concept_names.index(concept_name)] += 1
-            yield counts, Field.IMAGE_ID.decode(sampled_image[Field.IMAGE_ID.name])
+            for sampled_image in shuffled_union_df.collect():
+                counts = np.zeros((len(self.all_concept_names),), dtype=np.uint8)
+
+                for concept_names in sampled_image[Field.CONCEPT_NAMES.name]:
+                    for concept_name in concept_names:
+                        counts[self.all_concept_names.index(concept_name)] += 1
+                yield counts, Field.IMAGE_ID.decode(sampled_image[Field.IMAGE_ID.name])
 
     def _get_union_of_describers_df(self):
         @sf.udf(st.ArrayType(st.StringType()))
