@@ -14,7 +14,7 @@ from skimage.transform import resize
 from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
-from simexp.common import Classifier
+from simexp.common import Classifier, ComposableDataclass
 from simexp.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simexp.describe.torch_based.common import TorchConfig
 from simexp.util.webcache import WebCache
@@ -146,12 +146,14 @@ class TorchImageClassifierSerialization:
 
 
 @dataclass
-class TorchImageClassifierLoader:
+class TorchImageClassifierLoader(ComposableDataclass):
     classifier_serial: TorchImageClassifierSerialization
     torch_cfg: TorchConfig
     classifier: Classifier = field(default=None, init=False)
 
     def __post_init__(self):
+        super().__post_init__()
+
         # load the classifier from its name
         @dataclass
         class PartialTorchImageClassifier(TorchImageClassifier):

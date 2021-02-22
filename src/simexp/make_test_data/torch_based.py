@@ -11,7 +11,9 @@ from simexp.torch_extensions.classifier import TorchImageClassifierLoader
 
 @dataclass
 class TorchTestDataGenerator(TorchImageClassifierLoader, TestDataGenerator):
-    pass
+
+    def __post_init__(self):
+        super().__post_init__()  # super classes do stuff for us here
 
 
 @dataclass

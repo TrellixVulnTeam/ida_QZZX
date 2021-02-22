@@ -17,7 +17,7 @@ from pyspark.sql import SparkSession, DataFrame
 import pyspark.sql.types as st
 import pyspark.sql.functions as sf
 
-from simexp.common import RowDict, LoggingMixin
+from simexp.common import RowDict, LoggingMixin, ComposableDataclass
 
 
 class Field(UnischemaField, Enum):
@@ -198,7 +198,7 @@ class DictBasedDataGenerator(DataGenerator):
 
 
 @dataclass
-class ConceptMasksUnion:
+class ConceptMasksUnion(ComposableDataclass):
 
     # how to use spark
     spark_cfg: SparkSessionConfig
@@ -207,6 +207,7 @@ class ConceptMasksUnion:
     concept_mask_urls: List[str]
 
     def __post_init__(self):
+        super().__post_init__()
         self.union_df = self._get_union_of_describers_df()
 
         explode_names = sf.explode(sf.flatten(sf.col(Field.CONCEPT_NAMES.name))).alias(Field.CONCEPT_NAMES.name)

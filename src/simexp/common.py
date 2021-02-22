@@ -10,6 +10,17 @@ import numpy as np
 RowDict = Dict[str, Any]
 
 
+class ComposableDataclass:
+    """
+    Base class for dataclasses that one can use with multiple inheritance.
+    """
+
+    def __post_init__(self):
+        # just intercept the __post_init__ calls so they aren't relayed to `object`
+        # see https://stackoverflow.com/questions/59986413/
+        pass
+
+
 @dataclass
 class LoggingConfig:
     level: str = 'info'  # the logging level
