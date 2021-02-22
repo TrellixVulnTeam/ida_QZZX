@@ -192,13 +192,23 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
     def _get_union_of_describers_df(self):
         @sf.udf(st.ArrayType(st.StringType()))
-        def unique_concept_names(describer_name, concept_names):
+        def unique_cleaned_concept_names(describer_name, concept_names):
             concept_names = Field.CONCEPT_NAMES.decode(concept_names)
-            return (describer_name + '.' + np.char.asarray(np.unique(concept_names))).tolist()
+            concept_names = (describer_name + '.' + np.char.asarray(np.unique(concept_names))).lower().tolist()
+
+            cleaned_concept_names = []
+            for concept_name in concept_names:
+                for c in ' ,;{}()\n\t=':
+                    if c in concept_name:
+                        concept_name = concept_name.replace(c, '_')
+
+                cleaned_concept_names.append(concept_name)
+
+            return cleaned_concept_names
 
         return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls]) \
-            .withColumn('tmp', unique_concept_names(Field.DESCRIBER.name,
-                                                    Field.CONCEPT_NAMES.name)) \
+            .withColumn('tmp', unique_cleaned_concept_names(Field.DESCRIBER.name,
+                                                            Field.CONCEPT_NAMES.name)) \
             .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
             .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name) \
             .groupBy(Field.IMAGE_ID.name) \
