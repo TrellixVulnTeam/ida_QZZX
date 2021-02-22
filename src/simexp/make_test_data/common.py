@@ -7,7 +7,7 @@ from petastorm.codecs import ScalarCodec
 from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import DataFrame
 
-from simexp.common import Classifier, RowDict
+from simexp.common import Classifier
 from simexp.spark import Field, ConceptMasksUnion, SparkSessionConfig, DataGenerator
 
 
@@ -36,6 +36,13 @@ class TestDataGenerator(ConceptMasksUnion, DataGenerator):
 
         images_df = self.spark_cfg.session.read.parquet(self.images_url)
         self.joined_df = self.union_df.join(images_df, on=Field.IMAGE_ID.name, how='inner')
+
+    def __getstate__(self):
+        # note: we only return the state necessary for the method `_process_row`. other attributes will be lost.
+        return self.all_concept_names, self.classifier
+
+    def __setstate__(self, state):
+        self.all_concept_names, self.classifier = state
 
     def _process_row(self, image_row):
         image = Field.IMAGE.decode(image_row[Field.IMAGE.name])
