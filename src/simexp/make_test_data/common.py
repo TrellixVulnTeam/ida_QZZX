@@ -22,16 +22,22 @@ class TestDataGenerator(ConceptMasksUnion, DictBasedDataGenerator):
     # a classifier
     classifier: Classifier
 
+    # url to a petastorm parquet store of schema `Schema.IMAGE`
+    images_url: str
+
     def __post_init__(self):
         super().__post_init__()
 
         pred_fields = [Field.IMAGE_ID, Field.PREDICTED_CLASS]
         concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType()), False)
                           for concept_name in self.all_concept_names]
-        self.output_schema = Unischema('TestData', pred_fields + concept_fields)
+        self.output_schema = Unischema('ConceptCounts', pred_fields + concept_fields)
+
+        images_df = self.spark_cfg.session.read.parquet(self.images_url)
+        self.joined_df = self.union_df.join(images_df, on=Field.IMAGE_ID.name, how='inner')
 
     def generate(self) -> Iterator[RowDict]:
-        for per_image_row in self.union_df.collect():
+        for per_image_row in self.joined_df.collect():
             image = Field.IMAGE.decode(per_image_row[Field.IMAGE.name])
             image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
 
