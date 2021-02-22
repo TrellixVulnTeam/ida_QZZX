@@ -197,6 +197,7 @@ class DictBasedDataGenerator(DataGenerator):
         return self.spark_cfg.session.createDataFrame(rows, self.output_schema.as_spark_schema())
 
 
+@dataclass
 class ConceptMasksUnion:
 
     # how to use spark
