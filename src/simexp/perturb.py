@@ -283,8 +283,8 @@ class CLInterface:
                       for num_perturbations in self.global_perturbations_per_image]
         perturbers += [LocalPerturber(max_perturbations)
                        for max_perturbations in self.max_local_perturbations_per_image]
-        self.generator = PerturbedConceptCountsGenerator(self.spark_cfg, self.time_limit_s, self.influences_url,
-                                                         self.concept_mask_urls, detectors, perturbers)
+        self.generator = PerturbedConceptCountsGenerator(self.spark_cfg, self.time_limit_s, self.concept_mask_urls,
+                                                         self.influences_url, detectors, perturbers)
 
 
 if __name__ == '__main__':
