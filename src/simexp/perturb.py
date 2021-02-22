@@ -178,8 +178,9 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
         concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType()), False)
                           for concept_name in self.all_concept_names]
         self.output_schema = Unischema('PerturbedConceptCounts', influence_fields + concept_fields)
+        self.sampler = self._get_sampler()
 
-    def sampler(self):
+    def _get_sampler(self):
         assert hasattr(self, 'union_df')
         while True:
             with self._log_task('Shuffling concept masks for random sampling'):
@@ -214,7 +215,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
             .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
                    for f in [Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.INFLUENCE_MASK]])
 
-    def _process_row(self, per_image_row, sampler):
+    def _process_row(self, per_image_row):
         image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
 
         with self._log_task('Processing image {}'.format(image_id)):
@@ -259,7 +260,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
                     for perturber in self.perturbers:
                         for perturbed_counts, perturbed_image_id \
-                                in perturber.perturb(influential_counts, counts, sampler):
+                                in perturber.perturb(influential_counts, counts, self.sampler):
                             yield {Field.PREDICTED_CLASS.name: predicted_class,
                                    Field.INFLUENCE_ESTIMATOR.name: influence_estimator,
                                    Field.PERTURBER.name: str(perturber),
@@ -273,12 +274,8 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
             per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
             per_image_rows = per_image_df.toLocalIterator()
 
-        sampler = self.sampler()
-
-        f = partial(self._process_row, sampler=sampler)
-
         with mp.Pool(processes=self.num_processes) as pool:
-            yield from pool.imap(f, per_image_rows, chunksize=self.chunk_size)
+            yield from pool.imap(self._process_row, per_image_rows, chunksize=self.chunk_size)
 
 
 @dataclass
