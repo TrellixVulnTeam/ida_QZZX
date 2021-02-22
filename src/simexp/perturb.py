@@ -179,7 +179,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     def sampler(self):
         assert hasattr(self, 'union_df')
         while True:
-            with self._log_task('Shuffling concept masks'):
+            with self._log_task('Shuffling concept masks for random sampling'):
                 shuffled_image_rows = self.union_df.orderBy(sf.rand()).collect()
 
             for image_row in shuffled_image_rows:
@@ -216,8 +216,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
             per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
             per_image_rows = per_image_df.collect()
 
-        with self._log_task('Creating sampler'):
-            sampler = self.sampler()
+        sampler = self.sampler()
 
         for per_image_row in per_image_rows:
             image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
@@ -245,36 +244,33 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                        Field.PERTURBED_IMAGE_ID.name: None,
                        **dict(zip(self.all_concept_names, counts))}
 
-                with self._log_task('Reading influence estimators...'):
-                    # each image has multiple pixel influence masks from different estimators
-                    for influence_estimator, influence_mask in zip(per_image_row[Field.INFLUENCE_ESTIMATOR.name],
-                                                                   per_image_row[Field.INFLUENCE_MASK.name]):
-                        influence_estimator = Field.INFLUENCE_ESTIMATOR.decode(influence_estimator)
-                        influence_mask = Field.INFLUENCE_MASK.decode(influence_mask)
+                # each image has multiple pixel influence masks from different estimators
+                for influence_estimator, influence_mask in zip(per_image_row[Field.INFLUENCE_ESTIMATOR.name],
+                                                               per_image_row[Field.INFLUENCE_MASK.name]):
+                    influence_estimator = Field.INFLUENCE_ESTIMATOR.decode(influence_estimator)
+                    influence_mask = Field.INFLUENCE_MASK.decode(influence_mask)
 
-                        for detector in self.detectors:
-                            influential_counts = np.zeros((len(self.all_concept_names),), dtype=np.uint8)
-                            for concept_names, concept_masks in zip(per_image_row[Field.CONCEPT_NAMES.name],
-                                                                    map(Field.CONCEPT_MASKS.decode,
-                                                                        per_image_row[Field.CONCEPT_MASKS.name])):
-                                for concept_name, concept_mask in zip(concept_names, concept_masks):
-                                    with self._log_task('Detecting with {}'.format(detector)):
-                                        if detector.detect(influence_mask, concept_mask):
-                                            influential_counts[self.all_concept_names.index(concept_name)] += 1
-                                            self._log_item('[{}] Concept {} has exceptional influence.'
-                                                           .format(influence_estimator, concept_name))
+                    for detector in self.detectors:
+                        influential_counts = np.zeros((len(self.all_concept_names),), dtype=np.uint8)
+                        for concept_names, concept_masks in zip(per_image_row[Field.CONCEPT_NAMES.name],
+                                                                map(Field.CONCEPT_MASKS.decode,
+                                                                    per_image_row[Field.CONCEPT_MASKS.name])):
+                            for concept_name, concept_mask in zip(concept_names, concept_masks):
+                                if detector.detect(influence_mask, concept_mask):
+                                    influential_counts[self.all_concept_names.index(concept_name)] += 1
+                                    self._log_item('{} {}: Concept {} has exceptional influence.'
+                                                   .format(influence_estimator, detector, concept_name))
 
-                            for perturber in self.perturbers:
-                                with self._log_task('Perturbing with {}'.format(perturber)):
-                                    for perturbed_counts, perturbed_image_id \
-                                            in perturber.perturb(influential_counts, counts, sampler):
-                                        yield {Field.PREDICTED_CLASS.name: predicted_class,
-                                               Field.INFLUENCE_ESTIMATOR.name: influence_estimator,
-                                               Field.PERTURBER.name: str(perturber),
-                                               Field.DETECTOR.name: str(detector),
-                                               Field.IMAGE_ID.name: image_id,
-                                               Field.PERTURBED_IMAGE_ID.name: perturbed_image_id,
-                                               **dict(zip(self.all_concept_names, perturbed_counts))}
+                        for perturber in self.perturbers:
+                            for perturbed_counts, perturbed_image_id \
+                                    in perturber.perturb(influential_counts, counts, sampler):
+                                yield {Field.PREDICTED_CLASS.name: predicted_class,
+                                       Field.INFLUENCE_ESTIMATOR.name: influence_estimator,
+                                       Field.PERTURBER.name: str(perturber),
+                                       Field.DETECTOR.name: str(detector),
+                                       Field.IMAGE_ID.name: image_id,
+                                       Field.PERTURBED_IMAGE_ID.name: perturbed_image_id,
+                                       **dict(zip(self.all_concept_names, perturbed_counts))}
 
 
 @dataclass
