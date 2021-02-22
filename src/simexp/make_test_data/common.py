@@ -4,17 +4,18 @@ from typing import Iterator
 import numpy as np
 import pyspark.sql.types as st
 from petastorm.codecs import ScalarCodec
-from petastorm.unischema import Unischema, UnischemaField
+from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
+from pyspark.sql import DataFrame
 
 from simexp.common import Classifier, RowDict
-from simexp.spark import DictBasedDataGenerator, Field, ConceptMasksUnion
+from simexp.spark import Field, ConceptMasksUnion, SparkSessionConfig, DataGenerator
 
 
 @dataclass
-class TestDataGenerator(ConceptMasksUnion, DictBasedDataGenerator):
+class TestDataGenerator(ConceptMasksUnion, DataGenerator):
 
-    # name of this generator
-    name: str = field(default='test_data', init=False)
+    # spark session for creating the result dataframe
+    spark_cfg: SparkSessionConfig
 
     # the output schema of this data generator.
     output_schema: Unischema = field(default=None, init=False)
@@ -36,21 +37,24 @@ class TestDataGenerator(ConceptMasksUnion, DictBasedDataGenerator):
         images_df = self.spark_cfg.session.read.parquet(self.images_url)
         self.joined_df = self.union_df.join(images_df, on=Field.IMAGE_ID.name, how='inner')
 
-    def generate(self) -> Iterator[RowDict]:
-        for per_image_row in self.joined_df.collect():
-            image = Field.IMAGE.decode(per_image_row[Field.IMAGE.name])
-            image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
+    def _process_row(self, image_row):
+        image = Field.IMAGE.decode(image_row[Field.IMAGE.name])
+        image_id = Field.IMAGE_ID.decode(image_row[Field.IMAGE_ID.name])
 
-            with self._log_task('Processing image {}'.format(image_id)):
-                counts = np.zeros((len(self.all_concept_names, )), dtype=np.uint8)
+        counts = np.zeros((len(self.all_concept_names, )), dtype=np.uint8)
 
-                # each image has multiple arrays of concept names from different describers
-                for concept_names in per_image_row[Field.CONCEPT_NAMES.name]:
-                    for concept_name in concept_names:
-                        counts[self.all_concept_names.index(concept_name)] += 1
+        # each image has multiple arrays of concept names from different describers
+        for concept_names in image_row[Field.CONCEPT_NAMES.name]:
+            for concept_name in concept_names:
+                counts[self.all_concept_names.index(concept_name)] += 1
 
-                pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(image, 0))[0]))
+        pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(image, 0))[0]))
 
-                yield {Field.PREDICTED_CLASS.name: pred,
-                       Field.IMAGE_ID.name: image_id,
-                       **dict(zip(self.all_concept_names, counts))}
+        yield {Field.PREDICTED_CLASS.name: pred,
+               Field.IMAGE_ID.name: image_id,
+               **dict(zip(self.all_concept_names, counts))}
+
+    def to_df(self) -> DataFrame:
+        rdd = self.joined_df.rdd.map(self._process_row) \
+            .map(lambda r: dict_to_spark_row(self.output_schema, r))
+        return self.spark_cfg.session.createDataFrame(rdd, self.output_schema.as_spark_schema())
