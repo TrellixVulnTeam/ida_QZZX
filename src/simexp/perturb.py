@@ -14,7 +14,7 @@ import pyspark.sql.types as st
 from simple_parsing import ArgumentParser
 
 from simexp.common import RowDict, LoggingConfig
-from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig
+from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig, ConceptMasksUnion
 
 
 class Perturber(abc.ABC):
@@ -140,7 +140,7 @@ class LiftInfluenceDetector(InfluenceDetector):
 
 
 @dataclass
-class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
+class PerturbedConceptCountsGenerator(ConceptMasksUnion, DictBasedDataGenerator):
 
     # name of this generator
     name: str = field(default='perturbed_concept_counts', init=False)
@@ -148,14 +148,8 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     # the output schema of this data generator.
     output_schema: Unischema = field(init=False)
 
-    # how to use spark
-    spark_cfg: SparkSessionConfig
-
     # url of petastorm parquet store of schema `Schema.PIXEL_INFLUENCES`
     influences_url: str
-
-    # urls of petastorm parquet stores of schema `Schema.CONCEPT_MASKS`
-    concept_mask_urls: List[str]
 
     # which detectors to use
     detectors: List[InfluenceDetector]
@@ -164,11 +158,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     perturbers: List[Perturber]
 
     def __post_init__(self):
-        self.union_df = self._get_union_of_describers_df()
-
-        explode_names = sf.explode(sf.flatten(sf.col(Field.CONCEPT_NAMES.name))).alias(Field.CONCEPT_NAMES.name)
-        all_concept_names_df = self.union_df.select(explode_names).distinct()
-        self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
+        super().__post_init__()
 
         influence_fields = [Field.IMAGE_ID, Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.PERTURBER,
                             Field.DETECTOR, Field.PERTURBED_IMAGE_ID]
@@ -189,31 +179,6 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                     for concept_name in concept_names:
                         counts[self.all_concept_names.index(concept_name)] += 1
                 yield counts, Field.IMAGE_ID.decode(image_row[Field.IMAGE_ID.name])
-
-    def _get_union_of_describers_df(self):
-        @sf.udf(st.ArrayType(st.StringType()))
-        def unique_cleaned_concept_names(describer_name, concept_names):
-            concept_names = Field.CONCEPT_NAMES.decode(concept_names)
-            concept_names = (describer_name + '.' + np.char.asarray(np.unique(concept_names))).lower().tolist()
-
-            cleaned_concept_names = []
-            for concept_name in concept_names:
-                for c in ' ,;{}()\n\t=':
-                    if c in concept_name:
-                        concept_name = concept_name.replace(c, '_')
-
-                cleaned_concept_names.append(concept_name)
-
-            return cleaned_concept_names
-
-        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls]) \
-            .withColumn('tmp', unique_cleaned_concept_names(Field.DESCRIBER.name,
-                                                            Field.CONCEPT_NAMES.name)) \
-            .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
-            .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name) \
-            .groupBy(Field.IMAGE_ID.name) \
-            .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
-                   for f in [Field.CONCEPT_NAMES, Field.CONCEPT_MASKS]])
 
     def _get_influences_df(self):
         return self.spark_cfg.session.read.parquet(self.influences_url) \

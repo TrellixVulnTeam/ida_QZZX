@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
+from functools import reduce
 from typing import Optional, List, Iterator, Any
 
 import numpy as np
@@ -13,7 +14,8 @@ from petastorm.etl.dataset_metadata import get_schema_from_dataset_url, material
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.types import StringType, IntegerType
+import pyspark.sql.types as st
+import pyspark.sql.functions as sf
 
 from simexp.common import RowDict, LoggingMixin
 
@@ -23,18 +25,18 @@ class Field(UnischemaField, Enum):
     All data fields used by the different submodules.
     """
     IMAGE = UnischemaField('image', np.uint8, (None, None, 3), CompressedImageCodec('png'), False)
-    IMAGE_ID = UnischemaField('image_id', np.unicode_, (), ScalarCodec(StringType()), False)
-    DESCRIBER = UnischemaField('describer', np.unicode_, (), ScalarCodec(StringType()), False)
+    IMAGE_ID = UnischemaField('image_id', np.unicode_, (), ScalarCodec(st.StringType()), False)
+    DESCRIBER = UnischemaField('describer', np.unicode_, (), ScalarCodec(st.StringType()), False)
     CONCEPT_NAMES = UnischemaField('concept_names',  np.unicode_, (None,), CompressedNdarrayCodec(), False)
     CONCEPT_MASKS = UnischemaField('concept_masks', np.bool_, (None, None, None), CompressedNdarrayCodec(), False)
     INFLUENCE_MASK = UnischemaField('influence_mask', np.float_, (None, None), CompressedNdarrayCodec(), False)
-    PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16, (), ScalarCodec(IntegerType()), False)
-    INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(StringType()), True)
-    PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(StringType()), True)
-    DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(StringType()), True)
+    PREDICTED_CLASS = UnischemaField('predicted_class', np.uint16, (), ScalarCodec(st.IntegerType()), False)
+    INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(st.StringType()), True)
+    PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(st.StringType()), True)
+    DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(st.StringType()), True)
     DESCRIBERS = UnischemaField('describers', np.unicode_, (None,), CompressedNdarrayCodec(), False)
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
-    PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(StringType()), True)
+    PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(st.StringType()), True)
 
     def encode(self, value: Any) -> Any:
         return self.codec.encode(self, value)
@@ -193,3 +195,44 @@ class DictBasedDataGenerator(DataGenerator):
     def to_df(self) -> DataFrame:
         rows = [dict_to_spark_row(self.output_schema, row_dict) for row_dict in self._generate_with_logging()]
         return self.spark_cfg.session.createDataFrame(rows, self.output_schema.as_spark_schema())
+
+
+class ConceptMasksUnion:
+
+    # how to use spark
+    spark_cfg: SparkSessionConfig
+
+    # urls of petastorm parquet stores of schema `Schema.CONCEPT_MASKS`
+    concept_mask_urls: List[str]
+
+    def __post_init__(self):
+        self.union_df = self._get_union_of_describers_df()
+
+        explode_names = sf.explode(sf.flatten(sf.col(Field.CONCEPT_NAMES.name))).alias(Field.CONCEPT_NAMES.name)
+        all_concept_names_df = self.union_df.select(explode_names).distinct()
+        self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
+
+    def _get_union_of_describers_df(self):
+        @sf.udf(st.ArrayType(st.StringType()))
+        def unique_cleaned_concept_names(describer_name, concept_names):
+            concept_names = Field.CONCEPT_NAMES.decode(concept_names)
+            concept_names = (describer_name + '.' + np.char.asarray(np.unique(concept_names))).lower().tolist()
+
+            cleaned_concept_names = []
+            for concept_name in concept_names:
+                for c in ' ,;{}()\n\t=':
+                    if c in concept_name:
+                        concept_name = concept_name.replace(c, '_')
+
+                cleaned_concept_names.append(concept_name)
+
+            return cleaned_concept_names
+
+        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls]) \
+            .withColumn('tmp', unique_cleaned_concept_names(Field.DESCRIBER.name,
+                                                            Field.CONCEPT_NAMES.name)) \
+            .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
+            .withColumnRenamed('tmp', Field.CONCEPT_NAMES.name) \
+            .groupBy(Field.IMAGE_ID.name) \
+            .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
+                   for f in [Field.CONCEPT_NAMES, Field.CONCEPT_MASKS]])
