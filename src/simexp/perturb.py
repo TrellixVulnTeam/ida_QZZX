@@ -14,7 +14,7 @@ import pyspark.sql.types as st
 from simple_parsing import ArgumentParser
 
 from simexp.common import RowDict, LoggingConfig
-from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig
+from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig, Schema
 
 
 class Perturber(abc.ABC):
@@ -151,9 +151,6 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     # how to use spark
     spark_cfg: SparkSessionConfig
 
-    # url of petastorm parquet store of schema `Schema.PIXEL_INFLUENCES`
-    influences_url: str
-
     # urls of petastorm parquet stores of schema `Schema.CONCEPT_MASKS`
     concept_mask_urls: List[str]
 
@@ -163,6 +160,11 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     # which perturbers to use
     perturbers: List[Perturber]
 
+    # url of petastorm parquet store of schema `Schema.PIXEL_INFLUENCES`
+    # set to `None` if you only want to generate combined concept counts from multiple describers,
+    # without any perturbations.
+    influences_url: Optional[str] = None
+
     def __post_init__(self):
         self.union_df = self._get_union_of_describers_df()
 
@@ -170,11 +172,12 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
         all_concept_names_df = self.union_df.select(explode_names).distinct()
         self.all_concept_names = [row[Field.CONCEPT_NAMES.name] for row in all_concept_names_df.collect()]
 
-        influence_fields = [Field.IMAGE_ID, Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.PERTURBER,
-                            Field.DETECTOR, Field.PERTURBED_IMAGE_ID]
-        concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType()), False)
-                          for concept_name in self.all_concept_names]
-        self.output_schema = Unischema('PerturbedConceptCounts', influence_fields + concept_fields)
+        fields = [Field.IMAGE_ID, Field.PREDICTED_CLASS]
+        if self.influences_url is not None:
+            fields += [Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR, Field.PERTURBED_IMAGE_ID]
+        fields += [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType()), False)
+                   for concept_name in self.all_concept_names]
+        self.output_schema = Unischema('PerturbedConceptCounts', fields)
 
     def sampler(self):
         assert hasattr(self, 'union_df')
@@ -216,6 +219,9 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                    for f in [Field.CONCEPT_NAMES, Field.CONCEPT_MASKS]])
 
     def _get_influences_df(self):
+        if self.influences_url is None:
+            return self.spark_cfg.session.createDataFrame([], Schema.PIXEL_INFLUENCES.as_spark_schema())
+
         return self.spark_cfg.session.read.parquet(self.influences_url) \
             .groupBy(Field.IMAGE_ID.name) \
             .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
@@ -246,13 +252,15 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
                 # yield the classification of the image, together with the unperturbed concept counts
                 # this is the baseline on which influence estimators strive to improve
-                yield {Field.PREDICTED_CLASS.name: predicted_class,
-                       Field.INFLUENCE_ESTIMATOR.name: None,
-                       Field.PERTURBER.name: None,
-                       Field.DETECTOR.name: None,
-                       Field.IMAGE_ID.name: image_id,
-                       Field.PERTURBED_IMAGE_ID.name: None,
-                       **dict(zip(self.all_concept_names, counts))}
+                row_dict = {Field.IMAGE_ID.name: image_id,
+                            Field.PREDICTED_CLASS.name: predicted_class,
+                            **dict(zip(self.all_concept_names, counts))}
+                if self.influences_url is not None:
+                    row_dict.update({Field.INFLUENCE_ESTIMATOR.name: None,
+                                     Field.PERTURBER.name: None,
+                                     Field.DETECTOR.name: None,
+                                     Field.PERTURBED_IMAGE_ID.name: None})
+                yield row_dict
 
                 # each image has multiple pixel influence masks from different estimators
                 for influence_estimator, influence_mask in zip(per_image_row[Field.INFLUENCE_ESTIMATOR.name],
@@ -318,8 +326,8 @@ class CLInterface:
                       for num_perturbations in self.global_perturbations_per_image]
         perturbers += [LocalPerturber(max_perturbations)
                        for max_perturbations in self.max_local_perturbations_per_image]
-        self.generator = PerturbedConceptCountsGenerator(self.spark_cfg, self.time_limit_s, self.influences_url,
-                                                         self.concept_mask_urls, detectors, perturbers)
+        self.generator = PerturbedConceptCountsGenerator(self.spark_cfg, self.time_limit_s, self.concept_mask_urls,
+                                                         detectors, perturbers, self.influences_url)
 
 
 if __name__ == '__main__':
