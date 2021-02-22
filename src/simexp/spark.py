@@ -61,16 +61,10 @@ class Schema:
     All data schemas used by the different submodules.
     """
     IMAGES = Unischema('Images', [Field.IMAGE_ID, Field.IMAGE])
-    TEST = Unischema('Test', [Field.IMAGE_ID, Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS])
     CONCEPT_MASKS = Unischema('ConceptMasks', [Field.IMAGE_ID, Field.DESCRIBER, Field.CONCEPT_NAMES,
                                                Field.CONCEPT_MASKS])
     PIXEL_INFLUENCES = Unischema('PixelInfluences', [Field.IMAGE_ID, Field.PREDICTED_CLASS,
                                                      Field.INFLUENCE_MASK, Field.INFLUENCE_ESTIMATOR])
-    PERTURBED_CONCEPT_COUNTS = Unischema('PerturbedConceptCounts',
-                                         [Field.IMAGE_ID, Field.DESCRIBERS, Field.CONCEPT_NAMES,
-                                          Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS,
-                                          Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR,
-                                          Field.PERTURBED_IMAGE_ID])
 
 
 @dataclass
