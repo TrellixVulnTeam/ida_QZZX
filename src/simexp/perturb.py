@@ -1,8 +1,7 @@
 import abc
 import itertools as it
-import multiprocessing as mp
 from dataclasses import dataclass, field
-from functools import reduce, partial
+from functools import reduce
 from typing import Iterable, Tuple, Any, Iterator, List, Optional
 
 import numpy as np
@@ -163,9 +162,6 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     # which perturbers to use
     perturbers: List[Perturber]
 
-    num_processes: Optional[int] = 5
-    chunk_size: int = 1000
-
     def __post_init__(self):
         self.union_df = self._get_union_of_describers_df()
 
@@ -270,12 +266,8 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                                    **dict(zip(self.all_concept_names, perturbed_counts))}
 
     def generate(self) -> Iterator[RowDict]:
-        with self._log_task('Joining concept masks with influence masks'):
-            per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
-            per_image_rows = per_image_df.toLocalIterator()
-
-        with mp.Pool(processes=self.num_processes) as pool:
-            yield from pool.imap(self._process_row, per_image_rows, chunksize=self.chunk_size)
+        per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
+        yield from per_image_df.rdd.map(self._process_row).toLocalIterator()
 
 
 @dataclass
