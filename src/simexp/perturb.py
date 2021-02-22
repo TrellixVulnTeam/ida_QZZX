@@ -211,6 +211,14 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
             .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
                    for f in [Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.INFLUENCE_MASK]])
 
+    def __getstate__(self):
+        # we override these methods to enable pickling for the method _process_row.
+        # the instance after pickling + unpickling only contains attributes needed by the method _process_row.
+        return self.all_concept_names, self.detectors, self.perturbers, self.sampler
+
+    def __setstate__(self, state):
+        self.all_concept_names, self.detectors, self.perturbers, self.sampler = state
+
     def _process_row(self, per_image_row):
         image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
 
