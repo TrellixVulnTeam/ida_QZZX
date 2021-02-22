@@ -296,11 +296,11 @@ class CLInterface:
     # how to use spark
     spark_cfg: SparkSessionConfig
 
+    # url of petastorm parquet store of schema `Schema.PIXEL_INFLUENCES`
+    influences_url: str
+
     # urls of petastorm parquet stores of schema `Schema.CONCEPT_MASKS`
     concept_mask_urls: List[str]
-
-    # url of petastorm parquet store of schema `Schema.PIXEL_INFLUENCES`
-    influences_url: Optional[str] = None
 
     # which detectors to use
     detectors: List[InfluenceDetector] = field(default_factory=list, init=False)
@@ -309,13 +309,13 @@ class CLInterface:
     perturbers: List[Perturber] = field(default_factory=list, init=False)
 
     # thresholds to run detector with
-    detection_thresholds: List[float] = field(default_factory=list)
+    detection_thresholds: List[float]
 
     # how many perturbed object counts to generate per image using the `GlobalPerturber`
-    global_perturbations_per_image: List[int] = field(default_factory=list)
+    global_perturbations_per_image: List[int]
 
     # how many perturbed object counts to generate per image using the `LocalPerturber`
-    max_local_perturbations_per_image: List[int] = field(default_factory=list)
+    max_local_perturbations_per_image: List[int]
 
     # after which time to automatically stop
     time_limit_s: Optional[int] = None
