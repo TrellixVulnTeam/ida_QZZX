@@ -14,7 +14,7 @@ import pyspark.sql.types as st
 from simple_parsing import ArgumentParser
 
 from simexp.common import RowDict, LoggingConfig
-from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig
+from simexp.spark import Field, SparkSessionConfig, DictBasedDataGenerator, PetastormWriteConfig, Schema
 
 
 class Perturber(abc.ABC):
@@ -219,18 +219,18 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                    for f in [Field.CONCEPT_NAMES, Field.CONCEPT_MASKS]])
 
     def _get_influences_df(self):
+        if self.influences_url is None:
+            return self.spark_cfg.session.createDataFrame([], Schema.PIXEL_INFLUENCES.as_spark_schema())
+
         return self.spark_cfg.session.read.parquet(self.influences_url) \
             .groupBy(Field.IMAGE_ID.name) \
             .agg(*[sf.collect_list(sf.col(f.name)).alias(f.name)
                    for f in [Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.INFLUENCE_MASK]])
 
     def generate(self) -> Iterator[RowDict]:
-        if self.influences_url is not None:
-            with self._log_task('Joining concept masks with influence masks'):
-                per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
-                per_image_rows = per_image_df.collect()
-        else:
-            per_image_rows = self.union_df.collect()
+        with self._log_task('Joining concept masks with influence masks'):
+            per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
+            per_image_rows = per_image_df.collect()
 
         sampler = self.sampler()
 
