@@ -172,7 +172,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
 
         influence_fields = [Field.IMAGE_ID, Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.PERTURBER,
                             Field.DETECTOR, Field.PERTURBED_IMAGE_ID]
-        concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType), False)
+        concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType()), False)
                           for concept_name in self.all_concept_names]
         self.output_schema = Unischema('PerturbedConceptCounts', influence_fields + concept_fields)
 
