@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from typing import Optional, Tuple
@@ -143,3 +143,18 @@ class TorchImageClassifierSerialization:
                     self._raise_invalid_path()
             except ModuleNotFoundError:
                 self._raise_invalid_path()
+
+
+@dataclass
+class TorchImageClassifierLoader:
+    classifier_serial: TorchImageClassifierSerialization
+    torch_cfg: TorchConfig
+    classifier: Classifier = field(default=None, init=False)
+
+    def __post_init__(self):
+        # load the classifier from its name
+        @dataclass
+        class PartialTorchImageClassifier(TorchImageClassifier):
+            torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
+
+        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)

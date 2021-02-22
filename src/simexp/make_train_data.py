@@ -1,6 +1,5 @@
 import abc
 from dataclasses import dataclass, field
-from functools import reduce
 from typing import Iterable, Tuple, Any, Iterator, List, Optional
 
 import numpy as np
@@ -8,7 +7,6 @@ import itertools as it
 
 from petastorm.codecs import ScalarCodec
 from petastorm.unischema import Unischema, UnischemaField
-from pyspark.sql import DataFrame
 import pyspark.sql.functions as sf
 import pyspark.sql.types as st
 from simple_parsing import ArgumentParser

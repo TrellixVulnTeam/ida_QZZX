@@ -9,11 +9,10 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simexp.common import LoggingConfig, Classifier
-from simexp.describe.torch_based.common import TorchConfig
 from simexp.influence.common import InfluenceEstimator, AnchorInfluenceEstimator, LIMEInfluenceEstimator, \
     InfluenceGenerator
 from simexp.spark import Schema, PetastormWriteConfig
-from simexp.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierSerialization
+from simexp.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierLoader
 
 
 @dataclass(unsafe_hash=True)
@@ -52,24 +51,16 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 
 
 @dataclass
-class TorchInfluenceGenerator(InfluenceGenerator):
+class TorchInfluenceGenerator(TorchImageClassifierLoader, InfluenceGenerator):
 
     name: str = field(default=None, init=False)
-    classifier_serial: TorchImageClassifierSerialization = None
-    torch_cfg: TorchConfig = None
-    classifier: Classifier = field(default=None, init=False)
 
     observations_per_class: Optional[int] = None
     debug: bool = False
     hit_freq_logging: int = 30
 
     def __post_init__(self):
-        # load the classifier from its name
-        @dataclass
-        class PartialTorchImageClassifier(TorchImageClassifier):
-            torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
-
-        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
+        super().__post_init__()
         self.name = 'pixel_influences({})'.format(self.classifier.name)
 
 
