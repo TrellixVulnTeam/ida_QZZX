@@ -17,7 +17,7 @@ class PerceivableColorsImageDescriber(DictBasedImageDescriber):
     """
 
     num_processes: Optional[int] = 5
-    chunk_size: int = 1000
+    chunk_size: int = 1
 
     name: str = field(default='perceivable_colors', init=False)
 
