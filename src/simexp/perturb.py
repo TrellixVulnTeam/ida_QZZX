@@ -179,7 +179,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
     def sampler(self):
         assert hasattr(self, 'union_df')
         while True:
-            with self._log_task('Shuffling dataset for random sampling...'):
+            with self._log_task('Shuffling concept masks'):
                 shuffled_image_rows = self.union_df.orderBy(sf.rand()).collect()
 
             for image_row in shuffled_image_rows:
@@ -212,9 +212,12 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                    for f in [Field.PREDICTED_CLASS, Field.INFLUENCE_ESTIMATOR, Field.INFLUENCE_MASK]])
 
     def generate(self) -> Iterator[RowDict]:
-        with self._log_task('Joining concept masks with influence masks...'):
+        with self._log_task('Joining concept masks with influence masks'):
             per_image_df = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
             per_image_rows = per_image_df.collect()
+
+        with self._log_task('Creating sampler'):
+            sampler = self.sampler()
 
         for per_image_row in per_image_rows:
             image_id = Field.IMAGE_ID.decode(per_image_row[Field.IMAGE_ID.name])
@@ -264,7 +267,7 @@ class PerturbedConceptCountsGenerator(DictBasedDataGenerator):
                             for perturber in self.perturbers:
                                 with self._log_task('Perturbing with {}'.format(perturber)):
                                     for perturbed_counts, perturbed_image_id \
-                                            in perturber.perturb(influential_counts, counts, self.sampler()):
+                                            in perturber.perturb(influential_counts, counts, sampler):
                                         yield {Field.PREDICTED_CLASS.name: predicted_class,
                                                Field.INFLUENCE_ESTIMATOR.name: influence_estimator,
                                                Field.PERTURBER.name: str(perturber),
