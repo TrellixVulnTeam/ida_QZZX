@@ -226,8 +226,8 @@ class TrainObservations(ConceptCountObservations):
 
     def filter_for_split(self, num_splits=5, security_factor=1.2, all_classes: Iterable[str] = tuple()):
         """
-        Takes in a boolean array `subset` that specifies a subset of the training data.
-        Filters the subset so that all predicted classes appear at least `ceil(security_factor * num_splits)` times.
+        Filters the training data so that all predicted classes appear at least
+        `ceil(security_factor * num_splits)` times.
         Use this to keep only classes where at least one prediction for each CV split is available.
         """
         min_samples = math.ceil(security_factor * float(num_splits))  # need >= num_splits samples for each scene
