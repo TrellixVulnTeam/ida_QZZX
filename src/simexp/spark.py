@@ -8,14 +8,14 @@ from functools import reduce
 from typing import Optional, List, Iterator, Any
 
 import numpy as np
+import pyspark.sql.functions as sf
+import pyspark.sql.types as st
 from petastorm import make_reader
 from petastorm.codecs import CompressedImageCodec, ScalarCodec, CompressedNdarrayCodec
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url, materialize_dataset
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
 from pyspark.sql import SparkSession, DataFrame
-import pyspark.sql.types as st
-import pyspark.sql.functions as sf
 
 from simexp.common import RowDict, LoggingMixin, ComposableDataclass
 

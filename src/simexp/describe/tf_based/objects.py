@@ -11,8 +11,8 @@ from simple_parsing import ArgumentParser
 
 from simexp.common import LoggingConfig
 from simexp.describe.tf_based.base import TFDescriber
-from simexp.spark import Field, Schema, PetastormWriteConfig
 from simexp.oiv4.metadata import OIV4MetadataProvider
+from simexp.spark import Field, Schema, PetastormWriteConfig
 
 mp = multiprocessing.get_context('spawn')
 

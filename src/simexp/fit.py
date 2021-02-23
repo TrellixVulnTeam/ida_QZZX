@@ -1,3 +1,4 @@
+import itertools as it
 import logging
 import math
 from collections import Counter
@@ -5,6 +6,7 @@ from dataclasses import dataclass, field
 from functools import total_ordering
 from typing import Union, Any, Dict, Iterable, Tuple
 
+import numpy as np
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
 from petastorm.unischema import Unischema
 from petastorm.utils import decode_row
@@ -15,9 +17,6 @@ from sklearn.metrics import roc_auc_score, log_loss
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
-
-import numpy as np
-import itertools as it
 
 from simexp.spark import Field, Schema, SparkSessionConfig
 

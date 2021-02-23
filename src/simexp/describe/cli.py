@@ -4,6 +4,7 @@ from typing import List, Type, Any
 
 from pyspark.sql import DataFrame
 from simple_parsing import ArgumentParser
+
 from simexp.common import LoggingConfig
 from simexp.describe.colors import PerceivableColorsImageDescriber
 from simexp.describe.common import ImageReadConfig

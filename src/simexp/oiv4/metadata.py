@@ -3,12 +3,12 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional, Union, Iterable, Tuple
+
 import numpy as np
 
 from simexp.common import ImageIdProvider, ImageObjectProvider
 from simexp.util.functools import cached_property
 from simexp.util.webcache import WebCache
-
 
 _RE_IMAGE_ID = re.compile(r'^(.*)\.jpg$')
 

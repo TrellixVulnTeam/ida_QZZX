@@ -5,9 +5,9 @@ from typing import Optional, List, Iterable, Dict, Any
 import matplotlib.pyplot as plt
 import numpy as np
 from anchor import anchor_image
+from captum.attr import visualization as viz
 from lime import lime_image
 from petastorm.unischema import Unischema
-from captum.attr import visualization as viz
 
 from simexp.common import Classifier
 from simexp.describe.common import ImageReadConfig

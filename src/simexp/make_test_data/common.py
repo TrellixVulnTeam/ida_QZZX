@@ -1,5 +1,4 @@
 from dataclasses import field, dataclass
-from typing import Iterator
 
 import numpy as np
 import pyspark.sql.types as st

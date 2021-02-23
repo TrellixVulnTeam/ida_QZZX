@@ -15,8 +15,8 @@ from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
 from simexp.common import Classifier, ComposableDataclass
-from simexp.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simexp.describe.torch_based.common import TorchConfig
+from simexp.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simexp.util.webcache import WebCache
 
 

@@ -1,14 +1,13 @@
 import abc
+import itertools as it
 from dataclasses import dataclass, field
 from typing import Iterable, Tuple, Any, Iterator, List, Optional
 
 import numpy as np
-import itertools as it
-
-from petastorm.codecs import ScalarCodec
-from petastorm.unischema import Unischema, UnischemaField
 import pyspark.sql.functions as sf
 import pyspark.sql.types as st
+from petastorm.codecs import ScalarCodec
+from petastorm.unischema import Unischema, UnischemaField
 from simple_parsing import ArgumentParser
 
 from simexp.common import RowDict, LoggingConfig

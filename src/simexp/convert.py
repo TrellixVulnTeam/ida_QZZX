@@ -5,7 +5,6 @@ from typing import Union, Optional, Tuple, Type
 
 import numpy as np
 from PIL import Image
-
 from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
 
