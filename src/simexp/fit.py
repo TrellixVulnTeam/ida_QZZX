@@ -9,6 +9,7 @@ from typing import Union, Any, Dict, Iterable, Tuple
 import numpy as np
 import pyspark.sql.functions as sf
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
+from petastorm.unischema import Unischema, UnischemaField
 from pyspark.sql import DataFrame
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel
@@ -264,9 +265,9 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
     def __post_init__(self):
         super().__post_init__()
-        self.train_fields = {Field.IMAGE_ID, Field.DESCRIBER, Field.PREDICTED_CLASS,
+        self.train_fields = {Field.IMAGE_ID, Field.PREDICTED_CLASS,
                              Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR}
-        self.test_fields = {Field.IMAGE_ID, Field.CONCEPT_COUNTS, Field.PREDICTED_CLASS}
+        self.test_fields = {Field.IMAGE_ID, Field.PREDICTED_CLASS}
 
     @staticmethod
     def _decode(df: DataFrame, all_concept_names: [str]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -281,32 +282,38 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
         return np.asarray(image_ids), np.asarray(concept_counts), np.asarray(predicted_classes)
 
+    @staticmethod
+    def _get_sanitized_schema_from_dataset_url(url: str):
+        # this hack is necessary to get a unischema whose fields have the correct hash function
+        # from an unpickled unischema :(
+        unpickled_schema = get_schema_from_dataset_url(url)
+        return Unischema(unpickled_schema._name, [UnischemaField(f.name, f.numpy_dtype, f.shape, f.codec, f.nullable)
+                                                  for f in unpickled_schema.fields.values()])
+
+    def _load_dataset(self, url: str, required_fields: {UnischemaField}):
+        schema = self._get_sanitized_schema_from_dataset_url(url)
+        found_fields = set(schema.fields.values())
+        assert found_fields >= required_fields
+        return self.spark_cfg.session.read.parquet(url), found_fields - required_fields
+
     def run(self) -> Results:
         with self._log_task('Training surrogate models'):
-            train_schema = get_schema_from_dataset_url(self.train_input_url)
-            assert set(train_schema.fields) >= self.train_fields
-            train_concept_names = {f.name for f in set(train_schema.fields) - self.train_fields}
-            train_df = self.spark_cfg.session.read.parquet(self.train_input_url)
+            train_df, train_concept_fields = self._load_dataset(self.train_input_url, self.train_fields)
+            test_df, test_concept_fields = self._load_dataset(self.test_input_url, self.test_fields)
 
-            test_schema = get_schema_from_dataset_url(self.test_input_url)
-            assert set(test_schema.fields) >= self.test_fields
-            test_concept_names = {f.name for f in set(test_schema.fields) - self.test_fields}
-            test_df = self.spark_cfg.session.read.parquet(self.test_input_url)
+            for train_only_concept_field in train_concept_fields - test_concept_fields:
+                self._log_item('Adding train-only concept {} to test data.'.format(train_only_concept_field.name))
+                test_df = test_df.withColumn(train_only_concept_field.name, sf.lit(0))
 
-            for train_only_concept_name in train_concept_names - test_concept_names:
-                self._log_item('Adding train-only concept {} to test data.'.format(train_only_concept_name))
-                test_df = test_df.withColumn(train_only_concept_name, sf.lit(0))
+            for test_only_concept_field in test_concept_fields - train_concept_fields:
+                self._log_item('Adding test-only concept {} to train data.'.format(test_only_concept_field.name))
+                test_df = test_df.withColumn(test_only_concept_field.name, sf.lit(0))
 
-            for test_only_concept_name in test_concept_names - train_concept_names:
-                self._log_item('Adding test-only concept {} to train data.'.format(test_only_concept_name))
-                test_df = test_df.withColumn(test_only_concept_name, sf.lit(0))
+            all_concept_fields = train_concept_fields | test_concept_fields - self.train_fields - self.test_fields
+            all_concept_names = {f.name for f in all_concept_fields}
+            self._log_item('Using {} concepts in total (train + test data).'.format(len(all_concept_names)))
 
-            all_concept_names = list((set(train_schema.fields) | set(test_schema.fields))
-                                     - self.train_fields - self.test_fields)
-            self._log_item('Using the following concepts from train and test data:\n{}'
-                           .format(all_concept_names))
-
-            test_obs = TestObservations(*self._decode(test_df, test_schema))
+            test_obs = TestObservations(*self._decode(test_df, all_concept_names))
             logging.info('Test data comprises {} observations.'.format(len(test_obs)))
 
             scores = []
@@ -331,7 +338,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                                & (train_df.perturber == perturber)
                                                & (train_df.detector == detector))
                 logging.info('We have {} candidate observations.'.format(group_df.count()))
-                train_obs = TrainObservations(*self._decode(group_df, train_schema),
+                train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
                                               influence_estimator, perturber, detector)
 
                 indices = train_obs.filter_for_split(self.tree.k_folds)
