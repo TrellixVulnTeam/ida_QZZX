@@ -88,6 +88,8 @@ class Places365Task(ClassificationTask, Places365CacheMixin):
     The Places365 scene classification task.
     """
 
+    name: str = 'Places365'
+
     _LABEL_RE = re.compile(r'/[a-z]/(.*)')
 
     def _prettify_label(self, label: str):
@@ -149,6 +151,8 @@ class Places365IOTask(Places365Task):
     """
     The Places365 indoor/outdoor classification task.
     """
+
+    name: str = 'Places365IndoorOutdoor'
 
     @cached_property
     def class_names(self) -> [str]:
