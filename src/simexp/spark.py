@@ -6,7 +6,6 @@ from decimal import Decimal
 from enum import Enum
 from functools import reduce
 from typing import Optional, List, Iterator, Any
-from unittest import mock
 
 import numpy as np
 import pyspark.sql.functions as sf
