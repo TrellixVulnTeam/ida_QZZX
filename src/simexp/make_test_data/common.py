@@ -3,6 +3,7 @@ from typing import Iterator
 
 import numpy as np
 import pyspark.sql.types as st
+import torch
 from petastorm.codecs import ScalarCodec
 from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import DataFrame
@@ -39,10 +40,10 @@ class TestDataGenerator(ConceptMasksUnion, DataGenerator):
 
     def __getstate__(self):
         # note: we only return the state necessary for the method `_process_row`. other attributes will be lost.
-        return self.all_concept_names, self.classifier
+        return self.all_concept_names, self.classifier, self.output_schema
 
     def __setstate__(self, state):
-        self.all_concept_names, self.classifier = state
+        self.all_concept_names, self.classifier, self.output_schema = state
 
     def _process_row(self, image_row):
         image = Field.IMAGE.decode(image_row[Field.IMAGE.name])
@@ -57,11 +58,12 @@ class TestDataGenerator(ConceptMasksUnion, DataGenerator):
 
         pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(image, 0))[0]))
 
-        yield {Field.PREDICTED_CLASS.name: pred,
-               Field.IMAGE_ID.name: image_id,
-               **dict(zip(self.all_concept_names, counts))}
+        return {Field.PREDICTED_CLASS.name: pred,
+                Field.IMAGE_ID.name: image_id,
+                **dict(zip(self.all_concept_names, counts))}
 
     def to_df(self) -> DataFrame:
-        rdd = self.joined_df.rdd.map(self._process_row) \
+        rdd = self.joined_df.rdd.coalesce(torch.cuda.device_count()) \
+            .map(self._process_row) \
             .map(lambda r: dict_to_spark_row(self.output_schema, r))
         return self.spark_cfg.session.createDataFrame(rdd, self.output_schema.as_spark_schema())
