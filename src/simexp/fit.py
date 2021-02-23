@@ -265,7 +265,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
     def __post_init__(self):
         super().__post_init__()
-        self.train_fields = {Field.IMAGE_ID, Field.PREDICTED_CLASS,
+        self.train_fields = {Field.IMAGE_ID, Field.PREDICTED_CLASS, Field.PERTURBED_IMAGE_ID,
                              Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR}
         self.test_fields = {Field.IMAGE_ID, Field.PREDICTED_CLASS}
 
