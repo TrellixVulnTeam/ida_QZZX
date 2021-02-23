@@ -6,6 +6,7 @@ from decimal import Decimal
 from enum import Enum
 from functools import reduce
 from typing import Optional, List, Iterator, Any
+from unittest import mock
 
 import numpy as np
 import pyspark.sql.functions as sf
@@ -36,6 +37,13 @@ class Field(UnischemaField, Enum):
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(st.StringType()), True)
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(st.StringType()), True)
+
+    @classmethod
+    def _missing_(cls, value):
+        # after unpickling the unischema fields have another hash function :(
+        # so they won't be found by the enum. we help out:
+        return cls._value2member_map_[UnischemaField(value.name, value.numpy_dtype, value.shape,
+                                                     value.codec, value.nullable)]
 
     def encode(self, value: Any) -> Any:
         return self.codec.encode(self, value)
