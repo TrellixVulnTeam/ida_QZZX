@@ -15,7 +15,7 @@ class Places365CacheMixin:
     GITHUB_DOWNLOAD_URL = 'https://github.com/CSAILVision/places365/raw/' \
                           '6f4647534a09374acf1f5d702566071b96c9a1b8/'
 
-    cache: WebCache = field(default_factory=lambda: WebCache('~/.cache/places365'))
+    cache: WebCache = field(default_factory=lambda: WebCache('~/.cache/places-365'))
 
     def cache_challenge_metadata(self):
         self.cache.cache('filelist_places365-challenge.tar', self.CSAIL_DOWNLOAD_URL, is_archive=True)
