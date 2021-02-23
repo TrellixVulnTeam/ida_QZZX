@@ -307,7 +307,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
             for test_only_concept_field in test_concept_fields - train_concept_fields:
                 self._log_item('Adding test-only concept {} to train data.'.format(test_only_concept_field.name))
-                test_df = test_df.withColumn(test_only_concept_field.name, sf.lit(0))
+                train_df = train_df.withColumn(test_only_concept_field.name, sf.lit(0))
 
             all_concept_fields = train_concept_fields | test_concept_fields - self.train_fields - self.test_fields
             all_concept_names = {f.name for f in all_concept_fields}
