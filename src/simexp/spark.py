@@ -34,7 +34,6 @@ class Field(UnischemaField, Enum):
     INFLUENCE_ESTIMATOR = UnischemaField('influence_estimator', np.unicode_, (), ScalarCodec(st.StringType()), True)
     PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(st.StringType()), True)
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(st.StringType()), True)
-    DESCRIBERS = UnischemaField('describers', np.unicode_, (None,), CompressedNdarrayCodec(), False)
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
     PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(st.StringType()), True)
 
