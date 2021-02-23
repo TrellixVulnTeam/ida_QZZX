@@ -57,7 +57,7 @@ class LoggingMixin:
             self._log_group_end()
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass
 class ClassificationTask:
     name: str
 

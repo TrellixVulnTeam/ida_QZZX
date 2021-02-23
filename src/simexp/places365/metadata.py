@@ -83,7 +83,8 @@ class Places365MetadataProvider(ImageIdProvider, ImageClassProvider, Places365Ca
             return {row[0]: int(row[1]) for row in csv_reader}
 
 
-class Places365Task(ClassificationTask, Places365CacheMixin):
+@dataclass
+class Places365Task(Places365CacheMixin, ClassificationTask):
     """
     The Places365 scene classification task.
     """
@@ -147,6 +148,7 @@ class Places365IOMetadataProvider(Places365MetadataProvider, Places365CacheMixin
         return indoor_count > total_count / 2
 
 
+@dataclass
 class Places365IOTask(Places365Task):
     """
     The Places365 indoor/outdoor classification task.
