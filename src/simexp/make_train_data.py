@@ -156,10 +156,6 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
     # which perturbers to use
     perturbers: List[Perturber]
 
-    # how many observations to sample for the baseline, i.e., no perturbations
-    # if `None`, take all available observations
-    num_baseline_observations: Optional[int] = None
-
     # size of the queue of image samples that perturbers use.
     # this should be at least the number of spark executors.
     sampling_queue_size: int = 80
@@ -217,17 +213,6 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
         assert len(predicted_classes) == 1
         return predicted_classes.pop()
 
-    def _process_baseline_image(self, per_image_row: st.Row):
-        # yield the classification of the image, together with the unperturbed concept counts
-        # this is the baseline on which influence estimators strive to improve
-        return {Field.PREDICTED_CLASS.name: self._get_predicted_class(per_image_row),
-                Field.INFLUENCE_ESTIMATOR.name: None,
-                Field.PERTURBER.name: None,
-                Field.DETECTOR.name: None,
-                Field.IMAGE_ID.name: Field.IMAGE_ID.decode_from_row_dict(per_image_row),
-                Field.PERTURBED_IMAGE_ID.name: None,
-                **dict(zip(self.all_concept_names, self._get_counts(per_image_row)))}
-
     def _perturb_concepts_on_image(self, per_image_row: st.Row):
         image_id = Field.IMAGE_ID.decode_from_row_dict(per_image_row)
         counts = self._get_counts(per_image_row)
@@ -279,24 +264,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
         terminate_event.set()
         sampler.join()
 
-        with self._log_task('Adding baseline images:'):
-            # remove all rows from baseline dataframe that have one of the previously used image ids
-            # this guarantees that, for each describer and perturber, we always have `num_baseline_observations` images
-            # in addition to the perturbed images
-            baseline_incomplete_df = self.union_df.join(perturbed_df, on=Field.IMAGE_ID.name, how='left_anti')
-
-            if self.num_baseline_observations:
-                # ask to sample 5 images more to make sure we get enough samples
-                sampling_fraction = (float(self.num_baseline_observations) + 5.) / baseline_incomplete_df.count()
-                baseline_incomplete_df = baseline_incomplete_df.sample(withReplacement=False, fraction=sampling_fraction) \
-                    .limit(self.num_baseline_observations)
-
-            baseline_rdd = baseline_incomplete_df.rdd \
-                .map(self._process_baseline_image) \
-                .map(lambda r: dict_to_spark_row(self.output_schema, r))
-            baseline_df = self.spark_cfg.session.createDataFrame(baseline_rdd, self.output_schema.as_spark_schema())
-
-        return perturbed_df.union(baseline_df)
+        return perturbed_df
 
 
 @dataclass
