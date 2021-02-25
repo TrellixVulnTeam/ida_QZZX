@@ -156,9 +156,12 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
     # which perturbers to use
     perturbers: List[Perturber]
 
-    # how many observations to sample for the training data.
+    # how many observations to sample for the baseline, i.e., no perturbations
+    # if `None`, take all available observations
     num_baseline_observations: Optional[int] = None
 
+    # size of the queue of image samples that perturbers use.
+    # this should be at least the number of spark executors.
     sampling_queue_size: int = 80
 
     def __post_init__(self):
@@ -281,10 +284,13 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
             # this guarantees that, for each describer and perturber, we always have `num_baseline_observations` images
             # in addition to the perturbed images
             baseline_incomplete_df = self.union_df.join(perturbed_df, on=Field.IMAGE_ID.name, how='left_anti')
-            # ask to sample 5 images more to make sure we get enough samples
-            sampling_fraction = (float(self.num_baseline_observations) + 5.) / baseline_incomplete_df.count()
-            baseline_incomplete_df = baseline_incomplete_df.sample(withReplacement=False, fraction=sampling_fraction) \
-                .limit(self.num_baseline_observations)
+
+            if self.num_baseline_observations:
+                # ask to sample 5 images more to make sure we get enough samples
+                sampling_fraction = (float(self.num_baseline_observations) + 5.) / baseline_incomplete_df.count()
+                baseline_incomplete_df = baseline_incomplete_df.sample(withReplacement=False, fraction=sampling_fraction) \
+                    .limit(self.num_baseline_observations)
+
             baseline_rdd = baseline_incomplete_df.rdd \
                 .map(self._process_baseline_image) \
                 .map(lambda r: dict_to_spark_row(self.output_schema, r))
