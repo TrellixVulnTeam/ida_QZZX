@@ -9,7 +9,7 @@ from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
 from simexp.common import LoggingConfig, Classifier
-from simexp.influence.common import InfluenceEstimator, AnchorInfluenceEstimator, LIMEInfluenceEstimator, \
+from simexp.observe_influence.common import InfluenceEstimator, AnchorInfluenceEstimator, LIMEInfluenceEstimator, \
     InfluenceGenerator
 from simexp.spark import Schema, PetastormWriteConfig
 from simexp.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierLoader

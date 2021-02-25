@@ -12,7 +12,7 @@ from simexp.spark import Field, ConceptMasksUnion, SparkSessionConfig, DataGener
 
 
 @dataclass
-class TestDataGenerator(ConceptMasksUnion, DataGenerator):
+class ClassifierObservationGenerator(ConceptMasksUnion, DataGenerator):
 
     # spark session for creating the result dataframe
     spark_cfg: SparkSessionConfig
