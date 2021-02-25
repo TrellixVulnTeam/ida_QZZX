@@ -2,7 +2,8 @@ import abc
 import itertools as it
 import multiprocessing as mp
 from dataclasses import dataclass, field
-from typing import Iterable, Tuple, Any, List, Optional
+from threading import Thread
+from typing import Iterable, Tuple, Any, List
 
 import numpy as np
 import pyspark.sql.functions as sf
@@ -250,7 +251,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
 
     def to_df(self) -> DataFrame:
         terminate_event = mp.Event()
-        sampler = mp.Process(target=self.sampler, args=(terminate_event,))
+        sampler = Thread(target=self.sampler, args=(terminate_event,))
         sampler.start()
 
         with self._log_task('Searching influential concepts on images:'):
