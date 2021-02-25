@@ -104,7 +104,7 @@ class GlobalPerturber(Perturber):
         if np.any(influential_counts):
             # sample random object counts from the same distribution
             for _ in range(self.num_perturbations):
-                sample_id, _, sample_counts = sample_queue.get()
+                sample_id, sample_counts = sample_queue.get()
                 # keep all influential objects from the original image,
                 # change the rest based on the sample → pairwise maximum of counts
                 combined_counts = np.maximum(influential_counts, sample_counts)
@@ -185,9 +185,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
                 shuffled_image_rows = self.union_df.orderBy(sf.rand()).collect()
 
             for image_row in shuffled_image_rows:
-                counts = self._get_counts(image_row)
-                predicted_class = self._get_predicted_class(image_row)
-                out = Field.IMAGE_ID.decode(image_row[Field.IMAGE_ID.name]), predicted_class, counts
+                out = Field.IMAGE_ID.decode(image_row[Field.IMAGE_ID.name]), self._get_counts(image_row)
                 self._sample_queue.put(out)
 
     def _get_influences_df(self):
