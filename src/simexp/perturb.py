@@ -251,7 +251,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
     def to_df(self) -> DataFrame:
         terminate_event = mp.Event()
         sampler = mp.Process(target=self.sampler, args=(terminate_event,))
-        sampler.run()
+        sampler.start()
 
         with self._log_task('Searching influential concepts on images:'):
             perturbed_rdd = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner').rdd \
