@@ -55,9 +55,7 @@ class TestDataGenerator(ConceptMasksUnion, DataGenerator):
             for concept_name in concept_names:
                 counts[self.all_concept_names.index(concept_name)] += 1
 
-        pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(image, 0))[0]))
-
-        return {Field.PREDICTED_CLASS.name: pred,
+        return {Field.PREDICTED_CLASS.name: self.classifier.predict_single(image),
                 Field.IMAGE_ID.name: image_id,
                 **dict(zip(self.all_concept_names, counts))}
 

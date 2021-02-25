@@ -60,7 +60,7 @@ class InfluenceGenerator(DictBasedDataGenerator):
 
         with self.read_cfg.make_reader(None) as reader:
             for row in reader:
-                pred = np.uint16(np.argmax(self.classifier.predict_proba(np.expand_dims(row.image, 0))[0]))
+                pred = self.classifier.predict_single(row.image)
 
                 if self.observations_per_class is not None:
                     if count_per_class[pred] >= self.observations_per_class:

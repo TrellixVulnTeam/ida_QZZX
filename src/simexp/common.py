@@ -86,6 +86,9 @@ class Classifier(abc.ABC):
         The distributions are encoded as a float array.
         """
 
+    def predict_single(self, image: np.ndarray) -> np.uint16:
+        return np.uint16(np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]))
+
 
 class ImageIdProvider(abc.ABC):
 
