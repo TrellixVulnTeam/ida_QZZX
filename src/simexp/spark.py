@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from functools import reduce
-from typing import Optional, List, Iterator, Any
+from typing import Optional, List, Iterator, Any, Union
 
 import numpy as np
 import pyspark.sql.functions as sf
@@ -58,8 +58,8 @@ class Field(UnischemaField, Enum):
         else:
             return encoded
 
-    def decode_from_row_dict(self, row_dict: RowDict) -> Any:
-        return self.decode(row_dict[self.name])
+    def decode_from_row_dict(self, row: Union[RowDict, st.Row]) -> Any:
+        return self.decode(row[self.name])
 
 
 class Schema:
