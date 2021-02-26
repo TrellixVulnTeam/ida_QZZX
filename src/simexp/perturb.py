@@ -165,7 +165,7 @@ class ConceptCountsSamplingIterator:
 
     def __next__(self) -> Tuple[np.ndarray, np.ndarray]:
         idx = np.random.randint(0, len(self.counts_samples))
-        yield self.id_samples[idx], self.counts_samples[idx]
+        return self.id_samples[idx], self.counts_samples[idx]
 
 
 @dataclass
