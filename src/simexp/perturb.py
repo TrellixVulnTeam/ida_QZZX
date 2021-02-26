@@ -288,7 +288,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
             perturbed_rdd = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner').rdd \
                 .flatMap(self._perturb_concepts_on_image) \
                 .map(lambda r: dict_to_spark_row(self.output_schema, r))
-        return self.spark_cfg.session.createDataFrame(perturbed_rdd, self.output_schema.as_spark_schema())
+            return self.spark_cfg.session.createDataFrame(perturbed_rdd, self.output_schema.as_spark_schema())
 
 
 @dataclass
