@@ -328,7 +328,8 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                     test_df = test_df.withColumn(concept_field.name, sf.lit(0))
 
             all_concept_names = {f.name for f in all_concept_fields}
-            self._log_item('Using {} concepts in total (train + test data).'.format(len(all_concept_names)))
+            self._log_item('Using {} concepts in total (train + perturbations + test data).'
+                           .format(len(all_concept_names)))
 
             test_obs = TestObservations(*self._decode(test_df, all_concept_names))
             logging.info('Test data comprises {} observations.'.format(len(test_obs)))
