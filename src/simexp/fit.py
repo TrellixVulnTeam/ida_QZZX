@@ -332,7 +332,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                     self._log_item('Adding concept {} to test data'.format(concept_field.name))
                     test_df = test_df.withColumn(concept_name, sf.lit(0))
 
-            all_concept_names = {f.name for f in all_concept_fields}
+            all_concept_names = [f.name for f in all_concept_fields]
             self._log_item('Using {} concepts in total (train + perturbations + test data).'
                            .format(len(all_concept_names)))
 
@@ -345,9 +345,8 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
             detectors = []
 
             if self.train_samples_per_class is not None:
-                fraction_per_class = {predicted_class: float(self.train_samples_per_class) / float(count)
-                                      for predicted_class, count
-                                      in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
+                fraction_per_class = {row.predicted_class: float(self.train_samples_per_class) / float(row.count)
+                                      for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
                 train_df = train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class)
             else:
                 train_df = train_df.sample(self.train_sample_fraction)
@@ -362,7 +361,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                                    & (perturbed_df.detector == detector)) \
                         .select(*('`{}`'.format(f.name) for f in self.supervised_fields),
                                 *('`{}`'.format(concept_name) for concept_name in all_concept_names)) \
-                        .union(train_df)
+                        .unionByName(train_df)
 
                     self._log_item('We have {} candidate observations.'.format(group_df.count()))
                     train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
