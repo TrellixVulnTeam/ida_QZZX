@@ -19,7 +19,7 @@ from simexp.spark import Field, SparkSessionConfig, PetastormWriteConfig, Concep
 class AutoRepr:
     def __repr__(self):
         items = ('{}={}'.format(k, v) for k, v in self.__dict__.items())
-        return '{}({})>'.format(self.__class__.__name__, ', '.join(items))
+        return '{}({})'.format(self.__class__.__name__, ', '.join(items))
 
 
 class Perturber(AutoRepr, abc.ABC):
