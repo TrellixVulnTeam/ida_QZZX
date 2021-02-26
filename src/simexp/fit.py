@@ -242,7 +242,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
     of influence estimator, perturber and detector.
     Returns the grid of resulting model parameters and accuracies.
     """
-    
+
     @dataclass
     class Results:
         scores: np.ndarray
@@ -350,14 +350,19 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
             groups = perturbed_df.select(Field.INFLUENCE_ESTIMATOR.name, Field.PERTURBER.name,
                                          Field.DETECTOR.name).distinct()
 
-            for influence_estimator, perturber, detector in groups.collect():
+            for influence_estimator, perturber, detector in it.chain(((None, None, None),), groups.collect()):
                 with self._log_task('Fitting for:\n{}\n{}\n{}'.format(influence_estimator, perturber, detector)):
-                    group_df = perturbed_df.filter((perturbed_df.influence_estimator == influence_estimator)
-                                                   & (perturbed_df.perturber == perturber)
-                                                   & (perturbed_df.detector == detector)) \
-                        .select(*('`{}`'.format(f.name) for f in self.supervised_fields),
-                                *('`{}`'.format(concept_name) for concept_name in all_concept_names)) \
-                        .unionByName(train_df)
+                    if influence_estimator is None:
+                        assert {perturber, detector} == {None}
+                        group_df = train_df
+                    else:
+                        assert None not in {perturber, detector}
+                        group_df = perturbed_df.filter((perturbed_df.influence_estimator == influence_estimator)
+                                                       & (perturbed_df.perturber == perturber)
+                                                       & (perturbed_df.detector == detector)) \
+                            .select(*('`{}`'.format(f.name) for f in self.supervised_fields),
+                                    *('`{}`'.format(concept_name) for concept_name in all_concept_names)) \
+                            .unionByName(train_df)
 
                     # note: group_df.count() is non-deterministic due to the sampling in train_df!
                     train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
