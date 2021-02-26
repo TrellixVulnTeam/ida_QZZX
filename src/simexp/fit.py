@@ -358,9 +358,10 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                 *('`{}`'.format(concept_name) for concept_name in all_concept_names)) \
                         .unionByName(train_df)
 
-                    self._log_item('We have {} candidate observations.'.format(group_df.count()))
+                    # note: group_df.count() is non-deterministic due to the sampling in train_df!
                     train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
                                                   influence_estimator, perturber, detector)
+                    self._log_item('We have {} candidate observations.'.format(len(train_obs)))
 
                     indices = train_obs.filter_for_split(self.tree.k_folds)
                     self._log_item('After filtering for CV, {} observations remain.'.format(np.count_nonzero(indices)))
