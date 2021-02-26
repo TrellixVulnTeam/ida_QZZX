@@ -340,7 +340,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
             if self.train_samples_per_class is not None:
                 fraction_per_class = {row[Field.PREDICTED_CLASS.name]:
-                                      float(self.train_samples_per_class) / float(row['count'])
+                                      np.clip(float(self.train_samples_per_class) / float(row['count']), 0, 1)
                                       for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
                 train_df = train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class)
             else:
