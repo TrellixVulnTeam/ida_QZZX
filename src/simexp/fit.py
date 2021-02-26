@@ -360,7 +360,8 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                     group_df = perturbed_df.filter((perturbed_df.influence_estimator == influence_estimator)
                                                    & (perturbed_df.perturber == perturber)
                                                    & (perturbed_df.detector == detector)) \
-                        .select(*(f.name for f in self.supervised_fields), *all_concept_names) \
+                        .select(*map(sf.col, (f.name for f in self.supervised_fields)),
+                                *map(sf.col, all_concept_names)) \
                         .union(train_df)
 
                     self._log_item('We have {} candidate observations.'.format(group_df.count()))
