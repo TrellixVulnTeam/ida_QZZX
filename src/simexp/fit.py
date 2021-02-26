@@ -318,14 +318,12 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
             all_concept_fields = train_concept_fields | perturbed_concept_fields | test_concept_fields
             for concept_field in all_concept_fields:
-                if concept_field.name not in train_df.columns:
-                    train_df = train_df.withColumn(concept_field.name, sf.lit(0))
-
-                if concept_field.name not in perturbed_df.columns:
-                    perturbed_df = perturbed_df.withColumn(concept_field.name, sf.lit(0))
-
-                if concept_field.name not in test_df.columns:
-                    test_df = test_df.withColumn(concept_field.name, sf.lit(0))
+                for df_attr in ('train_df', 'perturbed_df', 'test_df'):
+                    df = getattr(self, df_attr)
+                    if concept_field.name not in df.columns:
+                        self._log_item('Adding concept {} to {}'.format(concept_field.name, df_attr))
+                        df = df.withColumn(concept_field.name, sf.lit(0))
+                        setattr(self, df_attr, df)
 
             all_concept_names = {f.name for f in all_concept_fields}
             self._log_item('Using {} concepts in total (train + perturbations + test data).'
