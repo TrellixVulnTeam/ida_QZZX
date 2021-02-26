@@ -356,26 +356,27 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                          Field.DETECTOR.name).distinct()
 
             for influence_estimator, perturber, detector in groups.collect():
-                logging.info('Fitting for:\n{}\n{}\n{}'.format(influence_estimator, perturber, detector))
-                group_df = perturbed_df.filter((perturbed_df.influence_estimator == influence_estimator)
-                                               & (perturbed_df.perturber == perturber)
-                                               & (perturbed_df.detector == detector)) \
-                    .select(*(f.name for f in self.supervised_fields), *all_concept_names) \
-                    .union(train_df)
+                with self._log_task('Fitting for:\n{}\n{}\n{}'.format(influence_estimator, perturber, detector)):
+                    group_df = perturbed_df.filter((perturbed_df.influence_estimator == influence_estimator)
+                                                   & (perturbed_df.perturber == perturber)
+                                                   & (perturbed_df.detector == detector)) \
+                        .select(*(f.name for f in self.supervised_fields), *all_concept_names) \
+                        .union(train_df)
 
-                logging.info('We have {} candidate observations.'.format(group_df.count()))
-                train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
-                                              influence_estimator, perturber, detector)
+                    self._log_item('We have {} candidate observations.'.format(group_df.count()))
+                    train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
+                                                  influence_estimator, perturber, detector)
 
-                indices = train_obs.filter_for_split(self.tree.k_folds)
-                logging.info('After filtering for CV, {} observations remain.'.format(np.count_nonzero(indices)))
-                score = self.tree.fit_and_score(train_obs.concept_counts[indices], train_obs.predicted_classes[indices],
-                                                test_obs.concept_counts, test_obs.predicted_classes)
+                    indices = train_obs.filter_for_split(self.tree.k_folds)
+                    self._log_item('After filtering for CV, {} observations remain.'.format(np.count_nonzero(indices)))
+                    score = self.tree.fit_and_score(train_obs.concept_counts[indices],
+                                                    train_obs.predicted_classes[indices],
+                                                    test_obs.concept_counts, test_obs.predicted_classes)
 
-                scores.append(score)
-                influence_estimators.append(influence_estimator)
-                perturbers.append(perturber)
-                detectors.append(detector)
+                    scores.append(score)
+                    influence_estimators.append(influence_estimator)
+                    perturbers.append(perturber)
+                    detectors.append(detector)
 
             return FitSurrogatesTask.Results(scores=np.asarray(scores, dtype=object),
                                              all_concept_names=all_concept_names,
