@@ -1,8 +1,6 @@
 import abc
 import itertools as it
-import multiprocessing as mp
 from dataclasses import dataclass, field
-from threading import Thread
 from typing import Iterable, Tuple, Any, List
 
 import numpy as np
@@ -21,7 +19,7 @@ from simexp.spark import Field, SparkSessionConfig, PetastormWriteConfig, Concep
 class Perturber(abc.ABC):
 
     @abc.abstractmethod
-    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sample_queue: mp.Queue) \
+    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[str, np.ndarray]]) \
             -> Iterable[Tuple[np.ndarray, Any]]:
         """
         Takes in two arrays `counts` and `influential_counts` of the same dimension 1xO,
@@ -52,7 +50,7 @@ class LocalPerturber(Perturber):
     # upper bound for perturbations to generate
     max_perturbations: int = 10
 
-    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sample_queue: mp.Queue) \
+    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[str, np.ndarray]]) \
             -> Iterable[Tuple[np.ndarray, Any]]:
         droppable_counts = counts - influential_counts
 
@@ -93,7 +91,7 @@ class GlobalPerturber(Perturber):
     # how many perturbed object counts to generate for each image
     num_perturbations: int = 10
 
-    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sample_queue: mp.Queue) \
+    def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[str, np.ndarray]]) \
             -> Iterable[Tuple[np.ndarray, Any]]:
         """
         Returns the original counts array plus `num_perturbations` (class parameter) additional arrays.
@@ -104,8 +102,7 @@ class GlobalPerturber(Perturber):
 
         if np.any(influential_counts):
             # sample random object counts from the same distribution
-            for _ in range(self.num_perturbations):
-                sample_id, sample_counts = sample_queue.get()
+            for sample_id, sample_counts in it.islice(sampler, 0, self.num_perturbations):
                 # keep all influential objects from the original image,
                 # change the rest based on the sample → pairwise maximum of counts
                 combined_counts = np.maximum(influential_counts, sample_counts)
@@ -142,6 +139,22 @@ class LiftInfluenceDetector(InfluenceDetector):
 
 
 @dataclass
+class ConceptCountsSamplingIterator:
+    id_samples: np.ndarray
+    counts_samples: np.ndarray
+
+    def __post_init__(self):
+        assert len(self.id_samples) == len(self.counts_samples)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Tuple[np.ndarray, np.ndarray]:
+        idx = np.random.randint(0, len(self.counts_samples))
+        yield self.id_samples[idx], self.counts_samples[idx]
+
+
+@dataclass
 class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
 
     # the output schema of this data generator.
@@ -169,25 +182,31 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
         concept_fields = [UnischemaField(concept_name, np.uint8, (), ScalarCodec(st.IntegerType()), False)
                           for concept_name in self.all_concept_names]
         self.output_schema = Unischema('PerturbedConceptCounts', influence_fields + concept_fields)
-        self._sample_queue = mp.Queue(maxsize=self.sampling_queue_size)
+
+        id_samples, counts_samples = self._get_sampling_data()
+        self.id_samples_broadcast = self.spark_cfg.session.sparkContext.broadcast(id_samples)
+        self.counts_samples_broadcast = self.spark_cfg.session.sparkContext.broadcast(counts_samples)
 
     def __getstate__(self):
         # note: we only return the state necessary for the method `_perturb_concepts_on_image`.
         # other attributes will be lost.
-        return self.all_concept_names, self.detectors, self.perturbers, self._sample_queue, self.output_schema
+        return self.all_concept_names, self.detectors, self.perturbers, self.output_schema
 
     def __setstate__(self, state):
-        self.all_concept_names, self.detectors, self.perturbers, self._sample_queue, self.output_schema = state
+        self.all_concept_names, self.detectors, self.perturbers, self.output_schema = state
 
-    def sampler(self, terminate_event: mp.Event):
-        assert hasattr(self, 'union_df')
-        while not terminate_event.is_set():
-            with self._log_task('Shuffling concept masks for random sampling'):
-                shuffled_image_rows = self.union_df.orderBy(sf.rand()).collect()
+    def _get_sampling_data(self) -> Tuple[np.ndarray, np.ndarray]:
+        id_samples = []
+        counts_samples = []
 
-            for image_row in shuffled_image_rows:
-                out = Field.IMAGE_ID.decode(image_row[Field.IMAGE_ID.name]), self._get_counts(image_row)
-                self._sample_queue.put(out)
+        with self._log_task('Shuffling concept masks for random sampling'):
+            for image_row in self.union_df.collect():
+                image_id = Field.IMAGE_ID.decode(image_row[Field.IMAGE_ID.name])
+                counts = self._get_counts(image_row)
+                id_samples.append(image_id)
+                counts_samples.append(counts)
+
+        return np.asarray(id_samples), np.asarray(counts_samples)
 
     def _get_influences_df(self):
         return self.spark_cfg.session.read.parquet(self.influences_url) \
@@ -219,6 +238,9 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
 
         row_dicts = []
 
+        sampler = ConceptCountsSamplingIterator(self.id_samples_broadcast.value,
+                                                self.counts_samples_broadcast.value)
+
         # each image has multiple pixel influence masks from different estimators
         for influence_estimator, influence_mask in zip(per_image_row[Field.INFLUENCE_ESTIMATOR.name],
                                                        per_image_row[Field.INFLUENCE_MASK.name]):
@@ -238,7 +260,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
 
                 for perturber in self.perturbers:
                     for perturbed_counts, perturbed_image_id \
-                            in perturber.perturb(influential_counts, counts, self._sample_queue):
+                            in perturber.perturb(influential_counts, counts, sampler):
                         row_dicts.append({Field.PREDICTED_CLASS.name: predicted_class,
                                           Field.INFLUENCE_ESTIMATOR.name: influence_estimator,
                                           Field.PERTURBER.name: str(perturber),
@@ -250,20 +272,11 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
         return row_dicts
 
     def to_df(self) -> DataFrame:
-        terminate_event = mp.Event()
-        sampler = Thread(target=self.sampler, args=(terminate_event,))
-        sampler.start()
-
         with self._log_task('Searching influential concepts on images:'):
             perturbed_rdd = self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner').rdd \
                 .flatMap(self._perturb_concepts_on_image) \
                 .map(lambda r: dict_to_spark_row(self.output_schema, r))
-            perturbed_df = self.spark_cfg.session.createDataFrame(perturbed_rdd, self.output_schema.as_spark_schema())
-
-        terminate_event.set()
-        sampler.join()
-
-        return perturbed_df
+        return self.spark_cfg.session.createDataFrame(perturbed_rdd, self.output_schema.as_spark_schema())
 
 
 @dataclass
