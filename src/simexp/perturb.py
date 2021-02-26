@@ -184,10 +184,6 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
     # which perturbers to use
     perturbers: List[Perturber]
 
-    # size of the queue of image samples that perturbers use.
-    # this should be at least the number of spark executors.
-    sampling_queue_size: int = 80
-
     def __post_init__(self):
         super().__post_init__()
 
