@@ -204,10 +204,12 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
     def __getstate__(self):
         # note: we only return the state necessary for the method `_perturb_concepts_on_image`.
         # other attributes will be lost.
-        return self.all_concept_names, self.detectors, self.perturbers, self.output_schema
+        return (self.all_concept_names, self.detectors, self.perturbers, self.output_schema, self.id_samples_broadcast,
+                self.counts_samples_broadcast)
 
     def __setstate__(self, state):
-        self.all_concept_names, self.detectors, self.perturbers, self.output_schema = state
+        (self.all_concept_names, self.detectors, self.perturbers, self.output_schema, self.id_samples_broadcast,
+            self.counts_samples_broadcast) = state
 
     def _get_sampling_data(self) -> Tuple[np.ndarray, np.ndarray]:
         id_samples = []
