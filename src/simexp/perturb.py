@@ -332,8 +332,8 @@ if __name__ == '__main__':
                                         'to improve the training data for surrogate models of an image classifier.'
                                         'The generated training data is not in the pixel space used by the classifier,'
                                         'but in the space of "concept-counts" on images.')
-    parser.add_arguments(CLInterface, dest='cli')
     parser.add_arguments(LoggingConfig, dest='logging')
+    parser.add_arguments(CLInterface, dest='cli')
     parsed, remaining = parser.parse_known_args()
     generator: PerturbedConceptCountsGenerator = parsed.cli.generator
 
