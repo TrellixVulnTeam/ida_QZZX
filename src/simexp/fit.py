@@ -284,16 +284,10 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
     @staticmethod
     def _decode(df: DataFrame, all_concept_names: [str]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        image_ids = []
-        concept_counts = []
-        predicted_classes = []
-
-        for df_row in df.collect():
-            image_ids.append(Field.IMAGE_ID.decode_from_row_dict(df_row))
-            predicted_classes.append(Field.PREDICTED_CLASS.decode_from_row_dict(df_row))
-            concept_counts.append(np.asarray([df_row[concept_name] for concept_name in all_concept_names]))
-
-        return np.asarray(image_ids), np.asarray(concept_counts), np.asarray(predicted_classes)
+        pd_df = df.toPandas()
+        return pd_df[:, Field.IMAGE_ID.name].to_numpy(dtype=Field.IMAGE_ID.numpy_dtype), \
+            pd_df[:, all_concept_names].to_numpy(dtype=Field.CONCEPT_COUNTS.numpy_dtype), \
+            pd_df[:, Field.PREDICTED_CLASS.name].to_numpy(dtype=Field.PREDICTED_CLASS.numpy_dtype)
 
     @staticmethod
     def _get_sanitized_schema_from_dataset_url(url: str):
