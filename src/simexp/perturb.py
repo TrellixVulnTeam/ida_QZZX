@@ -16,7 +16,13 @@ from simexp.spark import Field, SparkSessionConfig, PetastormWriteConfig, Concep
     DataGenerator
 
 
-class Perturber(abc.ABC):
+class AutoRepr:
+    def __repr__(self):
+        items = ('{}={}'.format(k, v) for k, v in self.__dict__.items())
+        return '{}({})>'.format(self.__class__.__name__, ', '.join(items))
+
+
+class Perturber(AutoRepr, abc.ABC):
 
     @abc.abstractmethod
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[str, np.ndarray]]) \
@@ -24,12 +30,12 @@ class Perturber(abc.ABC):
         """
         Takes in two arrays `counts` and `influential_counts` of the same dimension 1xO,
         where O is the number of objects in a classification task.
-        `counts` are object counts on an image, and `influential_counts` represents a subset of these objects.
-        This subset comprises objects that one deems influential for the classification of this image.
+        `counts` are concept counts on an image, and `influential_counts` represents a subset of these concepts.
+        This subset comprises concepts that one deems influential for the classification of this image.
 
         From this subset the method derives alternative count arrays that by expectation
         all yield the same prediction as `count`.
-        The method can use the `sample_queue` to draw random object count arrays together with their image id
+        The method can use the `sample_queue` to draw random concept count arrays together with their image id
         from the same image distribution that `count` was derived from.
 
         :return tuples of count arrays and image ids. if a count array was derived from an image drawn from `sampler`,
@@ -37,18 +43,20 @@ class Perturber(abc.ABC):
         """
 
 
-@dataclass
 class LocalPerturber(Perturber):
     """
-    Assumes that given "influential objects" on an image are a locally sufficient condition for its classification,
+    Assumes that given "influential concepts" on an image are a locally sufficient condition for its classification,
     i.e., for images that are similar.
-    Derives object counts for "similar" images by dropping all other, "non-influential" objects from the given image.
-    Generates all combinations of dropped object counts if they are less than `max_perturbations`, else generates
+    Derives concept counts for "similar" images by dropping all other, "non-influential" concepts from the given image.
+    Generates all combinations of dropped concept counts if they are less than `max_perturbations`, else generates
     `max_perturbations` combinations randomly.
     """
 
-    # upper bound for perturbations to generate
-    max_perturbations: int = 10
+    def __init__(self, max_perturbations: int = 10):
+        """
+        :param max_perturbations: upper bound for perturbations to generate
+        """
+        self.max_perturbations = max_perturbations
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[str, np.ndarray]]) \
             -> Iterable[Tuple[np.ndarray, Any]]:
@@ -80,16 +88,18 @@ class LocalPerturber(Perturber):
             yield perturbed, None
 
 
-@dataclass
 class GlobalPerturber(Perturber):
     """
-    Assumes that given "influential objects" on an image are a globally sufficient condition for its classification.
-    Hence replaces all other objects randomly with objects from other images from the same distribution,
+    Assumes that given "influential concepts" on an image are a globally sufficient condition for its classification.
+    Hence replaces all other concepts randomly with concepts from other images from the same distribution,
     and assumes that the classification stays the same.
     """
 
-    # how many perturbed object counts to generate for each image
-    num_perturbations: int = 10
+    def __init__(self, num_perturbations: int = 10):
+        """
+        :param num_perturbations: how many perturbed concept counts to generate for each image
+        """
+        self.num_perturbations = num_perturbations
 
     def perturb(self, influential_counts: np.ndarray, counts: np.ndarray, sampler: Iterable[Tuple[str, np.ndarray]]) \
             -> Iterable[Tuple[np.ndarray, Any]]:
@@ -109,7 +119,7 @@ class GlobalPerturber(Perturber):
                 yield combined_counts, sample_id
 
 
-class InfluenceDetector(abc.ABC):
+class InfluenceDetector(AutoRepr, abc.ABC):
 
     @abc.abstractmethod
     def detect(self, influence_mask: np.ndarray, concept_mask: np.ndarray) -> bool:
@@ -120,13 +130,15 @@ class InfluenceDetector(abc.ABC):
         """
 
 
-@dataclass
 class LiftInfluenceDetector(InfluenceDetector):
 
-    # a concept is considered relevant for the prediction of the classifier
-    # if the sum of influence values falling into the mask of the concept
-    # exceeds the fraction 'concept area' / 'image area' by a factor `lift_threshold`.
-    lift_threshold: float = 1.5
+    def __init__(self, lift_threshold: float = 1.5):
+        """
+        :param lift_threshold: a concept is considered relevant for the prediction of the classifier
+            if the sum of influence values falling into the mask of the concept
+            exceeds the fraction 'concept area' / 'image area' by a factor `lift_threshold`.
+        """
+        self.lift_threshold = lift_threshold
 
     def detect(self, influence_mask: np.ndarray, concept_mask: np.ndarray) -> bool:
         height, width = influence_mask.shape
@@ -138,13 +150,15 @@ class LiftInfluenceDetector(InfluenceDetector):
         return lift > self.lift_threshold
 
 
-@dataclass
 class ConceptCountsSamplingIterator:
-    id_samples: np.ndarray
-    counts_samples: np.ndarray
+    """
+    Iterates over random image ids and corresponding concept counts.
+    """
 
-    def __post_init__(self):
-        assert len(self.id_samples) == len(self.counts_samples)
+    def __init__(self, id_samples: np.ndarray, counts_samples: np.ndarray):
+        assert len(id_samples) == len(counts_samples)
+        self.id_samples = id_samples
+        self.counts_samples = counts_samples
 
     def __iter__(self):
         return self
