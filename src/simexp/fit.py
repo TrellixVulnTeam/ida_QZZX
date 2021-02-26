@@ -331,6 +331,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                            .format(len(all_concept_names)))
 
             test_obs = TestObservations(*self._decode(test_df, all_concept_names))
+            test_df.unpersist()
             logging.info('Test data comprises {} observations.'.format(len(test_obs)))
 
             scores = []
@@ -373,6 +374,8 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                     influence_estimators.append(influence_estimator)
                     perturbers.append(perturber)
                     detectors.append(detector)
+
+                    group_df.unpersist()  # free memory
 
             return FitSurrogatesTask.Results(scores=np.asarray(scores, dtype=object),
                                              all_concept_names=all_concept_names,
