@@ -28,7 +28,10 @@ class TreeSurrogate:
     @total_ordering
     @dataclass
     class Score:
-        cv: GridSearchCV
+        cv_results: Dict[str, Any]
+        cv_best_index: int
+        cv_n_splits: int
+
         cross_entropy: float
         gini: float
         top_k_acc: int
@@ -36,9 +39,9 @@ class TreeSurrogate:
         counts: np.ndarray
 
         def __str__(self):
-            res = self.cv.cv_results_
-            entropies = np.asarray([res['split{}_test_score'.format(i)][self.cv.best_index_]
-                                   for i in range(self.cv.n_splits_)])
+            res = self.cv_results
+            entropies = np.asarray([res['split{}_test_score'.format(i)][self.cv_best_index]
+                                    for i in range(self.cv_n_splits)])
 
             s = 'Best model has\n' \
                 '-> Mean Training Cross-entropy: {}\n' \
@@ -46,7 +49,8 @@ class TreeSurrogate:
                 '-> Params:\n' \
                 .format(np.mean(entropies), np.std(entropies))
 
-            for k, v in self.cv.best_params_.items():
+            best_params = self.cv_results['params'][self.cv_best_index]
+            for k, v in best_params:
                 s += '    \'{}\': {}\n'.format(k, v)
 
             s += 'Expected cross-entropy: {:.3f}\n'.format(self.cross_entropy)
@@ -128,10 +132,11 @@ class TreeSurrogate:
         try:
             counts = self._get_class_counts_in_nodes(best_pipeline, X_test, y_test)
         except Exception as e:
-            logging.error('The following exception occurred while computing node counts:\n{}'.format(str(e)))
+            logging.error('The following exception occurred while computing node counts:\n{}'.format(e))
             counts = None
 
-        return TreeSurrogate.Score(cv, cross_entropy, gini, top_k_acc, acc, counts)
+        return TreeSurrogate.Score(cv.cv_results_, cv.best_index_, cv.n_splits_,
+                                   cross_entropy, gini, top_k_acc, acc, counts)
 
     @staticmethod
     def _get_class_counts_in_nodes(best_pipeline, X_test, y_test):
