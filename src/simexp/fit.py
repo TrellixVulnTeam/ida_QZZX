@@ -311,8 +311,6 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
     def run(self) -> Results:
         with self._log_task('Training surrogate models'):
-            self.tree.log_nesting = self.log_nesting
-
             train_df, train_concept_fields = self._load_dataset(self.train_url, self.supervised_fields)
             perturbed_df, perturbed_concept_fields = self._load_dataset(self.perturbations_url,
                                                                         self.perturbations_fields)
@@ -363,6 +361,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                     self._log_item('Influence estimator: {}'.format(influence_estimator))
                     self._log_item('Perturber: {}'.format(perturber))
                     self._log_item('Detector: {}'.format(detector))
+                    self.tree.log_nesting = self.log_nesting
 
                     if influence_estimator is None:
                         assert {perturber, detector} == {None}
