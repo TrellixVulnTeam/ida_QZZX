@@ -23,7 +23,7 @@ from simexp.spark import Field, SparkSessionConfig
 
 
 @dataclass
-class TreeSurrogate:
+class TreeSurrogate(LoggingMixin):
 
     @total_ordering
     @dataclass
@@ -93,7 +93,7 @@ class TreeSurrogate:
         try:
             return self._score(cv, X_test, y_test)
         except Exception as e:
-            logging.error('The following exception occurred while scoring the model:\n{}'.format(str(e)))
+            self._log_item('ERROR: The following exception occurred while scoring the model:\n{}'.format(str(e)))
             return cv
 
     def _spread_probs_to_all_classes(self, probs, classes_):
@@ -132,14 +132,14 @@ class TreeSurrogate:
         try:
             counts = self._get_class_counts_in_nodes(best_pipeline, X_test, y_test)
         except Exception as e:
-            logging.error('The following exception occurred while computing node counts:\n{} {}'.format(type(e), e))
+            self._log_item('ERROR: The following exception occurred while computing node counts:\n{} {}'
+                           .format(type(e), e))
             counts = None
 
         return TreeSurrogate.Score(cv.cv_results_, cv.best_index_, cv.n_splits_,
                                    cross_entropy, gini, top_k_acc, acc, counts)
 
-    @staticmethod
-    def _get_class_counts_in_nodes(best_pipeline, X_test, y_test):
+    def _get_class_counts_in_nodes(self, best_pipeline, X_test, y_test):
         """
         Returns an array where dimension 0 indexes the nodes of `tree_clf`.
         Dimension 1 indexes the classes known by `tree_clf`.
@@ -149,16 +149,17 @@ class TreeSurrogate:
         involved_nodes = best_pipeline['clf'].decision_path(X_test)
 
         class_counts_per_node = []
-        for cls in best_pipeline['clf'].classes_:
+        for cls in self.all_classes:
             nodes = involved_nodes[y_test == cls]
             counts = np.asarray(np.sum(nodes, axis=0)).squeeze()
             class_counts_per_node.append(counts)
 
-        assert np.all(np.sum(involved_nodes, axis=0) == sum(class_counts_per_node))
+        assert np.all(np.sum(involved_nodes, axis=0) == sum(class_counts_per_node)), \
+            'number of samples per node must equal sum_{classes c}(number of samples per node of class c)'
 
         counts = np.stack(class_counts_per_node, axis=-1)
 
-        assert len(X_test) == np.sum(counts[0])  # all test samples must pass the root node
+        assert len(X_test) == np.sum(counts[0]), 'all test samples must pass the root node'
 
         return counts
 
@@ -180,8 +181,8 @@ class TreeSurrogate:
                     hit_count += 1
 
         if warnings:
-            logging.warning('Classes {} were not in the training subset '
-                            'of this classifier!'.format(warnings))
+            self._log_item('Classes {} of the test data were not in the training data of this classifier.'
+                           .format(warnings))
 
         return float(hit_count) / float(len(inputs))
 
@@ -310,6 +311,8 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
     def run(self) -> Results:
         with self._log_task('Training surrogate models'):
+            self.tree.log_nesting = self.log_nesting
+
             train_df, train_concept_fields = self._load_dataset(self.train_url, self.supervised_fields)
             perturbed_df, perturbed_concept_fields = self._load_dataset(self.perturbations_url,
                                                                         self.perturbations_fields)
