@@ -132,7 +132,7 @@ class TreeSurrogate:
         try:
             counts = self._get_class_counts_in_nodes(best_pipeline, X_test, y_test)
         except Exception as e:
-            logging.error('The following exception occurred while computing node counts:\n{}'.format(e))
+            logging.error('The following exception occurred while computing node counts:\n{} {}'.format(type(e), e))
             counts = None
 
         return TreeSurrogate.Score(cv.cv_results_, cv.best_index_, cv.n_splits_,
@@ -337,7 +337,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
             test_obs = TestObservations(*self._decode(test_df, all_concept_names))
             test_df.unpersist()
-            logging.info('Test data comprises {} observations.'.format(len(test_obs)))
+            self._log_item('Test data comprises {} observations.'.format(len(test_obs)))
 
             scores = []
             influence_estimators = []
@@ -356,7 +356,11 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                          Field.DETECTOR.name).distinct()
 
             for influence_estimator, perturber, detector in it.chain(((None, None, None),), groups.collect()):
-                with self._log_task('Fitting for:\n{}\n{}\n{}'.format(influence_estimator, perturber, detector)):
+                with self._log_task('Fitting surrogate model based on:'):
+                    self._log_item(influence_estimator)
+                    self._log_item(perturber)
+                    self._log_item(detector)
+
                     if influence_estimator is None:
                         assert {perturber, detector} == {None}
                         group_df = train_df
