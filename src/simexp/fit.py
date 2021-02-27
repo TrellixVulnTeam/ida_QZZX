@@ -149,13 +149,13 @@ class TreeSurrogate(LoggingMixin):
         involved_nodes = best_pipeline['clf'].decision_path(X_test)
 
         class_counts_per_node = []
-        for cls in self.all_classes:
+        for cls in range(len(self.all_classes)):
             nodes = involved_nodes[y_test == cls]
-            counts = np.asarray(np.sum(nodes, axis=0)).squeeze()
+            counts = np.asarray(np.sum(nodes, axis=0)).squeeze(-1)
             class_counts_per_node.append(counts)
 
         assert np.all(np.sum(involved_nodes, axis=0) == sum(class_counts_per_node)), \
-            'number of samples per node must equal sum_{classes c}(number of samples per node of class c)'
+            'number of samples per node must equal sum_{c in classes}(number of samples per node of c)'
 
         counts = np.stack(class_counts_per_node, axis=-1)
 
