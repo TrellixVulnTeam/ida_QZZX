@@ -360,9 +360,9 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
 
             for influence_estimator, perturber, detector in it.chain(((None, None, None),), groups.collect()):
                 with self._log_task('Fitting surrogate model based on:'):
-                    self._log_item(influence_estimator)
-                    self._log_item(perturber)
-                    self._log_item(detector)
+                    self._log_item('Influence estimator: {}'.format(influence_estimator))
+                    self._log_item('Perturber: {}'.format(perturber))
+                    self._log_item('Detector: {}'.format(detector))
 
                     if influence_estimator is None:
                         assert {perturber, detector} == {None}
