@@ -50,7 +50,7 @@ class TreeSurrogate(LoggingMixin):
                 .format(np.mean(entropies), np.std(entropies))
 
             best_params = self.cv_results['params'][self.cv_best_index]
-            for k, v in best_params:
+            for k, v in best_params.items():
                 s += '    \'{}\': {}\n'.format(k, v)
 
             s += 'Expected cross-entropy: {:.3f}\n'.format(self.cross_entropy)
