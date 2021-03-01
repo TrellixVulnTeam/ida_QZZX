@@ -279,6 +279,9 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
     # overrides `train_sample_fraction`.
     train_samples_per_class: Optional[float] = None
 
+    # seed to use for sampling, or None for a random seed
+    seed: int = None
+
     def __post_init__(self):
         super().__post_init__()
 
@@ -349,9 +352,9 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                 fraction_per_class = {row[Field.PREDICTED_CLASS.name]:
                                       np.clip(float(self.train_samples_per_class) / float(row['count']), 0, 1)
                                       for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
-                train_df = train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class)
+                train_df = train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class, seed=self.seed)
             else:
-                train_df = train_df.sample(self.train_sample_fraction)
+                train_df = train_df.sample(self.train_sample_fraction, seed=self.seed)
 
             groups = perturbed_df.select(Field.INFLUENCE_ESTIMATOR.name, Field.PERTURBER.name,
                                          Field.DETECTOR.name).distinct()
