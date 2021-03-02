@@ -105,17 +105,17 @@ class PetastormWriteConfig:
 
 @dataclass
 class SparkSessionConfig:
-    spark_master: str
-    spark_driver_memory: str
-    spark_exec_memory: str
+    master: str
+    driver_memory: str
+    exec_memory: str
+    local_dir: str = '/tmp'
 
     def __post_init__(self):
         self.builder = SparkSession.builder \
-            .config('spark.driver.memory',
-                    self.spark_driver_memory) \
-            .config('spark.executor.memory',
-                    self.spark_exec_memory) \
-            .master(self.spark_master)
+            .config('spark.driver.memory', self.driver_memory) \
+            .config('spark.executor.memory', self.exec_memory) \
+            .config('spark.local.dir', self.local_dir) \
+            .master(self.master)
 
     @property
     def session(self):
