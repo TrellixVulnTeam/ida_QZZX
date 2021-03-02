@@ -51,7 +51,7 @@ class DeepLiftInfluenceEstimator(CaptumInfluenceEstimator):
 
 
 @dataclass
-class TorchInfluenceGenerator(TorchImageClassifierLoader, InfluenceGenerator):
+class TorchInfluenceGenerator(InfluenceGenerator, TorchImageClassifierLoader):
 
     name: str = field(default=None, init=False)
 
