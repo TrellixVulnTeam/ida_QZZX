@@ -147,8 +147,8 @@ class TorchImageClassifierSerialization:
 
 @dataclass
 class TorchImageClassifierLoader(ComposableDataclass):
-    classifier_serial: TorchImageClassifierSerialization
-    torch_cfg: TorchConfig
+    classifier_serial: TorchImageClassifierSerialization = None
+    torch_cfg: TorchConfig = None
     classifier: Classifier = field(default=None, init=False)
 
     def __post_init__(self):
