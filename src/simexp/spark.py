@@ -16,6 +16,7 @@ from petastorm.codecs import CompressedImageCodec, ScalarCodec, CompressedNdarra
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url, materialize_dataset
 from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession, DataFrame
 
 from simexp.common import RowDict, LoggingMixin, ComposableDataclass
@@ -215,14 +216,17 @@ class DictBasedDataGenerator(DataGenerator):
             yield batch
 
     def to_df(self) -> DataFrame:
-        dfs = []
-        for batch in self._get_batches():
-            rdd = self.spark_cfg.session.sparkContext.parallelize(batch) \
-                .coalesce(os.cpu_count() * self.partitions_per_cpu) \
-                .map(lambda r: dict_to_spark_row(self.output_schema, r))
-            dfs.append(self.spark_cfg.session.createDataFrame(rdd, self.output_schema.as_spark_schema()))
+        df: Optional[DataFrame] = None
 
-        return reduce(DataFrame.union, dfs)
+        for batch in self._get_batches():
+            new_df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch])
+            if df is not None:
+                new_df = df.union(new_df)
+                new_df.persist(StorageLevel.MEMORY_AND_DISK)
+                df.unpersist()  # not sure if this is really needed.
+            df = new_df
+
+        return df
 
 
 @dataclass
