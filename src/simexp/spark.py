@@ -1,5 +1,6 @@
 import abc
 import logging
+import os
 import time
 from dataclasses import dataclass
 from decimal import Decimal
@@ -143,7 +144,7 @@ class SparkSessionConfig:
 
 
 @dataclass
-class DataGenerator(LoggingMixin, abc.ABC):
+class DataGenerator(ComposableDataclass, LoggingMixin, abc.ABC):
 
     @abc.abstractmethod
     def to_df(self) -> DataFrame:
@@ -167,6 +168,16 @@ class DictBasedDataGenerator(DataGenerator):
 
     # after which time to automatically stop
     time_limit_s: Optional[int]
+
+    # after how many observations to produce an intermediate dataframe, for saving memory
+    batch_size: Optional[int]
+
+    # how many spark partitions to create per CPU core
+    partitions_per_cpu: int
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.partitions_per_cpu > 0
 
     @abc.abstractmethod
     def generate(self) -> Iterator[RowDict]:
@@ -192,9 +203,26 @@ class DictBasedDataGenerator(DataGenerator):
                     self._log_item('Reached timeout! Stopping.')
                     break
 
+    def _get_batches(self):
+        batch = []
+        for row_dict in self._generate_with_logging():
+            if self.batch_size is not None and len(batch) >= self.batch_size:
+                yield batch
+                batch = []
+            batch.append(row_dict)
+
+        if len(batch) > 0:
+            yield batch
+
     def to_df(self) -> DataFrame:
-        rows = [dict_to_spark_row(self.output_schema, row_dict) for row_dict in self._generate_with_logging()]
-        return self.spark_cfg.session.createDataFrame(rows, self.output_schema.as_spark_schema())
+        dfs = []
+        for batch in self._get_batches():
+            rdd = self.spark_cfg.session.sparkContext.parallelize(batch) \
+                .coalesce(os.cpu_count() * self.partitions_per_cpu) \
+                .map(lambda r: dict_to_spark_row(self.output_schema, r))
+            dfs.append(self.spark_cfg.session.createDataFrame(rdd, self.output_schema.as_spark_schema()))
+
+        return reduce(DataFrame.union, dfs)
 
 
 @dataclass

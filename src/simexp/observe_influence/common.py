@@ -1,6 +1,6 @@
 import abc
 from dataclasses import dataclass, field
-from typing import Optional, List, Iterable, Dict, Any
+from typing import Optional, List, Iterator
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,7 +9,7 @@ from captum.attr import visualization as viz
 from lime import lime_image
 from petastorm.unischema import Unischema
 
-from simexp.common import Classifier
+from simexp.common import Classifier, RowDict
 from simexp.describe.common import ImageReadConfig
 from simexp.spark import DictBasedDataGenerator, Schema, Field
 
@@ -54,7 +54,7 @@ class InfluenceGenerator(DictBasedDataGenerator):
     # after how many observations to output a log message with hit frequencies of the different estimators
     hit_freq_logging: int
 
-    def generate(self) -> Iterable[Dict[str, Any]]:
+    def generate(self) -> Iterator[RowDict]:
         total_count = 0
         count_per_class = np.zeros((self.classifier.num_classes,))
 
