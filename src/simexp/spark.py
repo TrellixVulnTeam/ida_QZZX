@@ -177,7 +177,7 @@ class DictBasedDataGenerator(DataGenerator):
 
     def __post_init__(self):
         super().__post_init__()
-        assert self.partitions_per_cpu > 0
+        assert self.num_partitions > 0
 
     @abc.abstractmethod
     def generate(self) -> Iterator[RowDict]:
