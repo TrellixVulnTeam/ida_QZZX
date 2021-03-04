@@ -217,7 +217,7 @@ class DictBasedDataGenerator(DataGenerator):
         df: Optional[DataFrame] = None
 
         for batch in self._get_batches():
-            rdd = self.spark_cfg.session.parallelize(batch, self.num_partitions) \
+            rdd = self.spark_cfg.session.sparkContext.parallelize(batch, self.num_partitions) \
                 .map(lambda r: dict_to_spark_row(self.output_schema, r))
             new_df = self.spark_cfg.session.createDataFrame(rdd, self.output_schema.as_spark_schema())
             if df is not None:
