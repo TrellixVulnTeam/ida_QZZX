@@ -88,6 +88,10 @@ class CLInterface:
     # which influence estimators to use
     used_influence_estimators: List[str] = field(default_factory=list)
 
+    # after which number of observations to 'flush', i.e., append to the petastorm store.
+    # use this if you generate a very large dataset that does not fit into RAM.
+    flush_batch_size: Optional[int] = None
+
     def __post_init__(self):
         ies = {'deeplift': self.deep_lift_ie,
                'saliency': self.saliency_ie,
@@ -100,7 +104,7 @@ class CLInterface:
             self.describer.influence_estimators = [ies[k] for k in self.used_influence_estimators]
 
     def run(self):
-        self.describer.spark_cfg.write_petastorm(self.describer.to_df(), self.write_cfg)
+        self.describer.write_petastorm(self.write_cfg, self.flush_batch_size)
 
 
 if __name__ == '__main__':

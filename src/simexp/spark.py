@@ -121,7 +121,7 @@ class SparkSessionConfig:
     def session(self):
         return self.builder.getOrCreate()
 
-    def write_petastorm(self, out_df: DataFrame, write_cfg: PetastormWriteConfig):
+    def write_petastorm(self, out_df: DataFrame, write_cfg: PetastormWriteConfig, mode='error'):
         logging.info('Writing {} rows to petastorm parquet store.'.format(out_df.count()))
 
         output_url = write_cfg.output_url
@@ -129,7 +129,7 @@ class SparkSessionConfig:
             try:
                 with materialize_dataset(self.session, output_url,
                                          write_cfg.output_schema, write_cfg.row_size):
-                    out_df.write.mode('error').parquet(output_url)
+                    out_df.write.mode(mode).parquet(output_url)
             except Exception as e:
                 logging.error('Encountered exception: {}'.format(e))
                 other_url = input('To retry, enter another '
@@ -168,16 +168,6 @@ class DictBasedDataGenerator(DataGenerator):
     # after which time to automatically stop
     time_limit_s: Optional[int]
 
-    # after how many observations to produce an intermediate dataframe, for saving memory
-    batch_size: Optional[int]
-
-    # on how many spark partitions to distribute the data
-    num_partitions: int
-
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.num_partitions > 0
-
     @abc.abstractmethod
     def generate(self) -> Iterator[RowDict]:
         """
@@ -202,10 +192,10 @@ class DictBasedDataGenerator(DataGenerator):
                     self._log_item('Reached timeout! Stopping.')
                     break
 
-    def _get_batches(self):
+    def _get_batches(self, batch_size):
         batch = []
         for row_dict in self._generate_with_logging():
-            if self.batch_size is not None and len(batch) >= self.batch_size:
+            if batch_size is not None and len(batch) >= batch_size:
                 yield batch
                 batch = []
             batch.append(row_dict)
@@ -214,17 +204,21 @@ class DictBasedDataGenerator(DataGenerator):
             yield batch
 
     def to_df(self) -> DataFrame:
-        df: Optional[DataFrame] = None
+        rows = [dict_to_spark_row(self.output_schema, r) for r in self._generate_with_logging()]
+        return self.spark_cfg.session.createDataFrame(rows, self.output_schema.as_spark_schema())
 
-        for batch in self._get_batches():
-            new_df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch],
-                                                            self.output_schema.as_spark_schema())
-            if df is not None:
-                new_df = df.union(new_df).coalesce(self.num_partitions)
-            df = new_df
-            self._log_item('Updated intermediate dataframe, now has {} partitions.'.format(df.rdd.getNumPartitions()))
+    def write_petastorm(self, write_cfg: PetastormWriteConfig, batch_size: Optional[int] = None):
+        """For very large datasets that do not fit in RAM,
+        use this to write each batch into a separate file when it is available.
+        """
+        if batch_size is None:
+            self.spark_cfg.write_petastorm(self.to_df(), write_cfg=write_cfg, mode='error')
 
-        return df
+        for batch in self._get_batches(batch_size):
+            df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch],
+                                                        self.output_schema.as_spark_schema())
+            self.spark_cfg.write_petastorm(df, write_cfg=write_cfg, mode='append')
+            self._log_item('Finished writing of intermediate dataframe!')
 
 
 @dataclass
