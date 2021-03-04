@@ -221,11 +221,8 @@ class DictBasedDataGenerator(DataGenerator):
                                                             self.output_schema.as_spark_schema())
             if df is not None:
                 new_df = df.union(new_df).coalesce(self.num_partitions)
-                new_df.cache().count()
-                df.unpersist()
             df = new_df
-            self._log_item('Updated intermediate dataframe, now has {} rows and {} partitions.'
-                           .format(df.count(), df.rdd.getNumPartitions()))
+            self._log_item('Updated intermediate dataframe, now has {} partitions.'.format(df.rdd.getNumPartitions()))
 
         return df
 
