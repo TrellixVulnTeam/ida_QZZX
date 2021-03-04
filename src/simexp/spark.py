@@ -221,10 +221,11 @@ class DictBasedDataGenerator(DataGenerator):
         for batch in self._get_batches():
             new_df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch])
             if df is not None:
-                new_df = df.union(new_df)
+                new_df = df.union(new_df)  # .coalesce(os.cpu_count() * self.partitions_per_cpu)
                 new_df.persist(StorageLevel.MEMORY_AND_DISK)
-                df.unpersist()  # not sure if this is really needed.
             df = new_df
+            self._log_item('Intermediate dataframe now has {} rows and {} partitions.'
+                           .format(df.count(), df.rdd.getNumPartitions()))
 
         return df
 
