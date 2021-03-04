@@ -1,6 +1,5 @@
 import abc
 import logging
-import os
 import time
 from dataclasses import dataclass
 from decimal import Decimal
@@ -173,8 +172,8 @@ class DictBasedDataGenerator(DataGenerator):
     # after how many observations to produce an intermediate dataframe, for saving memory
     batch_size: Optional[int]
 
-    # how many spark partitions to create per CPU core
-    partitions_per_cpu: int
+    # on how many spark partitions to distribute the data
+    num_partitions: int
 
     def __post_init__(self):
         super().__post_init__()
@@ -221,7 +220,7 @@ class DictBasedDataGenerator(DataGenerator):
         for batch in self._get_batches():
             new_df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch])
             if df is not None:
-                new_df = df.union(new_df)  # .coalesce(os.cpu_count() * self.partitions_per_cpu)
+                new_df = df.union(new_df).coalesce(self.num_partitions)
                 new_df.persist(StorageLevel.MEMORY_AND_DISK)
             df = new_df
             self._log_item('Intermediate dataframe now has {} rows and {} partitions.'
