@@ -38,7 +38,7 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
                         continue
                     raise e
 
-                masks = np.zeros((len(boxes), height, width))
+                masks = np.zeros((len(boxes), height, width), dtype=np.bool_)
                 concept_names = []
                 for mask_no, (object_name, x_0, y_0, x_1, y_1) in enumerate(boxes):
                     y_0 = np.clip(y_0 * height, 0, height).astype(int)
