@@ -40,7 +40,7 @@ class GroundTruthObjectsDescriber(DictBasedImageDescriber):
 
                 masks = np.zeros((len(boxes), height, width))
                 concept_names = []
-                for mask_no, object_name, x_0, y_0, x_1, y_1 in enumerate(boxes):
+                for mask_no, (object_name, x_0, y_0, x_1, y_1) in enumerate(boxes):
                     masks[mask_no, y_0:y_1, x_0:x_1] = True
                     concept_names.append(object_name)
 
