@@ -50,7 +50,7 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
         return _RE_IMAGE_ID.fullmatch(image_path).group(1)
 
     def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) \
-            -> Iterable[Tuple[str, int, int, int, int]]:
+            -> Iterable[Tuple[str, float, float, float, float]]:
         if subset is None:
             if image_id in self.boxes_map('train'):
                 subset = 'train'
