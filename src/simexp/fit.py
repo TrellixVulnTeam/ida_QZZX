@@ -376,7 +376,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                                        & (perturbed_df.detector == detector)) \
                             .select(*('`{}`'.format(f.name) for f in self.supervised_fields),
                                     *('`{}`'.format(concept_name) for concept_name in all_concept_names)) \
-                            .unionByName(train_df)
+                            .unionByName(train_df.join(group_df, on=Field.IMAGE_ID.name, how='anti'))
 
                     # note: group_df.count() is non-deterministic due to the sampling in train_df!
                     train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
