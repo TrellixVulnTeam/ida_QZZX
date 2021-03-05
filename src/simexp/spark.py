@@ -118,7 +118,7 @@ class SparkSessionConfig:
             .master(self.master)
 
     @property
-    def session(self):
+    def session(self) -> SparkSession:
         return self.builder.getOrCreate()
 
     def write_petastorm(self, out_df: DataFrame, write_cfg: PetastormWriteConfig, mode='error'):
@@ -213,12 +213,12 @@ class DictBasedDataGenerator(DataGenerator):
         """
         if batch_size is None:
             self.spark_cfg.write_petastorm(self.to_df(), write_cfg=write_cfg, mode='error')
-
-        for batch in self._get_batches(batch_size):
-            df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch],
-                                                        self.output_schema.as_spark_schema())
-            self.spark_cfg.write_petastorm(df, write_cfg=write_cfg, mode='append')
-            self._log_item('Finished writing of intermediate dataframe!')
+        else:
+            for batch in self._get_batches(batch_size):
+                df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch],
+                                                            self.output_schema.as_spark_schema())
+                self.spark_cfg.write_petastorm(df, write_cfg=write_cfg, mode='append')
+                self._log_item('Finished writing of intermediate dataframe!')
 
 
 @dataclass
