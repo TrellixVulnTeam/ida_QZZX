@@ -1,10 +1,10 @@
 import itertools as it
-import logging
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass
 from functools import total_ordering
-from typing import Union, Any, Dict, Iterable, Tuple, Optional
+from typing import Union, Any, Dict, Iterable, Tuple, Optional, List
 
 import numpy as np
 import pyspark.sql.functions as sf
@@ -284,6 +284,12 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
     # seed to use for sampling, or None for a random seed
     seed: int = None
 
+    # combinations of (influence estimator, perturber, detector)
+    # for which to fit surrogate models.
+    # defaults to all available combinations.
+    # each string defines a regex filter and can thus match multiple combinations.
+    grid: Optional[List[Tuple[str, str, str]]] = None
+
     def __post_init__(self):
         super().__post_init__()
 
@@ -359,9 +365,18 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                 train_df = train_df.sample(self.train_sample_fraction, seed=self.seed)
 
             groups = perturbed_df.select(Field.INFLUENCE_ESTIMATOR.name, Field.PERTURBER.name,
-                                         Field.DETECTOR.name).distinct()
+                                         Field.DETECTOR.name).distinct().collect()
+            if self.grid is not None:
+                groups = [(e, p, d) for e, p, d in groups for e_, p_, d_ in self.grid
+                          if re.fullmatch(e_, e) and re.fullmatch(p_, p) and re.fullmatch(d_, d)]
 
-            for influence_estimator, perturber, detector in it.chain(((None, None, None),), groups.collect()):
+            with self._log_task('Selected hyperparameters for fitting:'):
+                for group_no, group in enumerate(groups, start=1):
+                    with self._log_task('Combination {}'.format(group_no)):
+                        for x in group:
+                            self._log_item(x)
+
+            for influence_estimator, perturber, detector in it.chain(((None, None, None),), groups):
                 with self._log_task('Fitting surrogate model based on:'):
                     self._log_item('Influence estimator: {}'.format(influence_estimator))
                     self._log_item('Perturber: {}'.format(perturber))
