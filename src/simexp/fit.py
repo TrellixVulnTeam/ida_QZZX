@@ -147,13 +147,13 @@ class TreeSurrogate(LoggingMixin):
         """
         X_test = best_pipeline['fsel'].transform(X_test)
         involved_nodes = best_pipeline['clf'].decision_path(X_test)
-        number_of_nodes = involved_nodes.shape[-1]
+        if len(involved_nodes.shape) == 1:
+            involved_nodes = np.expand_dims(involved_nodes, -1)
 
         class_counts_per_node = []
         for cls in range(len(self.all_classes)):
             nodes = involved_nodes[y_test == cls]
             counts = np.asarray(np.sum(nodes, axis=0))
-            counts = np.reshape(counts, (-1, number_of_nodes))
             class_counts_per_node.append(counts)
 
         assert np.all(np.sum(involved_nodes, axis=0) == sum(class_counts_per_node)), \
