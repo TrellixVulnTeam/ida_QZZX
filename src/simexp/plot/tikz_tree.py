@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.tree._tree import Tree
 
 
-def prepare_print_node(indent, tikz_prefix):
+def _prepare_print_node(indent, tikz_prefix):
     pretty_indent = indent + ' ' * len(tikz_prefix) + ' ' * len('r\makecell[cc]{')
 
     print((indent + r'{tikz_prefix}\makecell[cc]{{')
@@ -15,10 +15,10 @@ def prepare_print_node(indent, tikz_prefix):
     return pretty_indent
 
 
-def print_node(indent, tikz_prefix, feature, threshold, counts, conf,
-               pred_class, is_leaf, show_inner_conf,
-               all_features_are_counts):
-    pretty_indent = prepare_print_node(indent, tikz_prefix)
+def _print_node(indent, tikz_prefix, feature, threshold, counts, conf,
+                pred_class, is_leaf, show_inner_conf,
+                all_features_are_counts):
+    pretty_indent = _prepare_print_node(indent, tikz_prefix)
 
     feature = feature.replace('_', ' ')
 
@@ -49,14 +49,14 @@ def print_node(indent, tikz_prefix, feature, threshold, counts, conf,
     print('}}', end='')
 
 
-def print_pruning_leaf(indent, tikz_prefix, label):
-    prepare_print_node(indent, tikz_prefix)
+def _print_pruning_leaf(indent, tikz_prefix, label):
+    _prepare_print_node(indent, tikz_prefix)
     print(r'\underline{{{label}}}'.format(label=label), end='')
     print('}}', end='')
 
 
-def print_overflow_leaf(indent, tikz_prefix):
-    prepare_print_node(indent, tikz_prefix)
+def _print_overflow_leaf(indent, tikz_prefix):
+    _prepare_print_node(indent, tikz_prefix)
     print(r'\ldots}}', end='')
 
 
@@ -163,13 +163,13 @@ def tree_to_tikz(tree_: Tree,
             prune = (not conf > min_conf) and prune_left and prune_right
 
             if prune:
-                print_pruning_leaf(indent, prefix, 'uncertain')
+                _print_pruning_leaf(indent, prefix, 'uncertain')
             elif depth == max_depth and not is_leaf:
-                print_overflow_leaf(indent, prefix)
+                _print_overflow_leaf(indent, prefix)
             else:
-                print_node(indent, prefix, feature, threshold,
-                           class_counts, conf, pred_class, is_leaf,
-                           show_inner_conf, all_features_are_counts)
+                _print_node(indent, prefix, feature, threshold,
+                            class_counts, conf, pred_class, is_leaf,
+                            show_inner_conf, all_features_are_counts)
                 print(buf.getvalue(), end='')
 
             if is_leaf or node_id != 0:  # root node does not encapsulate children in group
