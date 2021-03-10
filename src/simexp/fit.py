@@ -17,6 +17,7 @@ from sklearn.metrics import roc_auc_score, log_loss
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree._tree import Tree
 
 from simexp.common import LoggingMixin, ComposableDataclass
 from simexp.spark import Field, SparkSessionConfig
@@ -31,6 +32,7 @@ class TreeSurrogate(LoggingMixin):
         cv_results: Dict[str, Any]
         cv_best_index: int
         cv_n_splits: int
+        tree: Tree
 
         cross_entropy: float
         gini: float
@@ -136,8 +138,15 @@ class TreeSurrogate(LoggingMixin):
                            .format(type(e), e))
             counts = None
 
-        return TreeSurrogate.Score(cv.cv_results_, cv.best_index_, cv.n_splits_,
-                                   cross_entropy, gini, top_k_acc, acc, counts)
+        return TreeSurrogate.Score(cv_results=cv.cv_results_,
+                                   cv_best_index=cv.best_index_,
+                                   tree=cv.best_estimator_.tree_,
+                                   cv_n_splits=cv.n_splits_,
+                                   cross_entropy=cross_entropy,
+                                   gini=gini,
+                                   top_k_acc=top_k_acc,
+                                   acc=acc,
+                                   counts=counts)
 
     def _get_class_counts_in_nodes(self, best_pipeline, X_test, y_test):
         """
@@ -281,8 +290,12 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
     # overrides `train_sample_fraction`.
     train_samples_per_class: Optional[float] = None
 
-    # seed to use for sampling, or None for a random seed
-    seed: int = None
+    # fraction of the training data of each surrogate model
+    # for which perturbed data should be added, in the interval (0, 1].
+    perturb_fraction: Optional[float] = None
+
+    # seed to use for sampling
+    seed: int = np.random.randint(0, np.iinfo(int).max)
 
     # combinations of (influence estimator, perturber, detector)
     # for which to fit surrogate models.
@@ -294,6 +307,7 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
         super().__post_init__()
 
         assert 0 < self.train_sample_fraction <= 1.0
+        assert self.perturb_fraction is None or 0 < self.perturb_fraction <= 1.0
 
         self.perturbations_fields = {Field.IMAGE_ID, Field.PREDICTED_CLASS, Field.PERTURBED_IMAGE_ID,
                                      Field.INFLUENCE_ESTIMATOR, Field.PERTURBER, Field.DETECTOR}
@@ -364,6 +378,8 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
             else:
                 train_df = train_df.sample(self.train_sample_fraction, seed=self.seed)
 
+            train_image_count = train_df.count()
+
             groups = perturbed_df.select(Field.INFLUENCE_ESTIMATOR.name, Field.PERTURBER.name,
                                          Field.DETECTOR.name).distinct().collect()
             if self.grid is not None:
@@ -392,10 +408,36 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                                                        & (perturbed_df.perturber == perturber)
                                                        & (perturbed_df.detector == detector)) \
                             .select(*('`{}`'.format(f.name) for f in self.supervised_fields),
-                                    *('`{}`'.format(concept_name) for concept_name in all_concept_names)) \
-                            .unionByName(train_df.join(group_df, on=Field.IMAGE_ID.name, how='anti'))
+                                    *('`{}`'.format(concept_name) for concept_name in all_concept_names))
 
-                    # note: group_df.count() is non-deterministic due to the sampling in train_df!
+                        # we should not have more images than in train_df, for a fair comparison.
+                        # -> drop images if there are more.
+                        # further, drop images to meet the desired `self.perturbation_fraction`
+                        f = 1 if self.perturb_fraction is None else self.perturb_fraction
+                        target_perturb_image_count = int(np.ceil(train_image_count * f))
+                        image_ids = group_df.select(Field.IMAGE_ID.name).limit(target_perturb_image_count)
+                        perturb_image_count = image_ids.count()
+                        if self.perturb_fraction is not None and perturb_image_count < target_perturb_image_count:
+                            self._log_item('WARNING: found not enough perturbations to create a training dataset '
+                                           'with the specified fraction of {} perturbations.'
+                                           '{} perturbations would be needed, but only {} are available.'
+                                           .format(self.perturb_fraction, target_perturb_image_count,
+                                                   perturb_image_count))
+                        group_df = group_df.join(image_ids, on=Field.IMAGE_ID.name, how='leftsemi')
+
+                        # we should also not have less images than in train_df.
+                        # -> fill up from train_df until we have equal numbers.
+                        fill_count = train_image_count - perturb_image_count
+                        assert fill_count >= 0, 'spark dataframe has returned too many rows'
+                        fill_up_df = train_df.join(group_df, on=Field.IMAGE_ID.name, how='anti').limit(fill_count)
+                        group_df = group_df.unionByName(fill_up_df)
+
+                        assert group_df.select(Field.IMAGE_ID.name).count() == train_image_count, \
+                            'could not ensure the same number of images for the baseline ' \
+                            'and perturbed datasets. needs investigation.'
+
+                    # note: group_df.count() is non-deterministic due to the sampling in train_df,
+                    # except if a seed is set.
                     train_obs = TrainObservations(*self._decode(group_df, all_concept_names),
                                                   influence_estimator, perturber, detector)
                     self._log_item('We have {} candidate observations.'.format(len(train_obs)))
