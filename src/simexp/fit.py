@@ -415,7 +415,9 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                         # further, drop images to meet the desired `self.perturbation_fraction`
                         f = 1 if self.perturb_fraction is None else self.perturb_fraction
                         target_perturb_image_count = int(np.ceil(train_image_count * f))
-                        image_ids = group_df.select(Field.IMAGE_ID.name).limit(target_perturb_image_count)
+                        image_ids = group_df.select(Field.IMAGE_ID.name) \
+                            .distinct() \
+                            .limit(target_perturb_image_count)
                         perturb_image_count = image_ids.count()
                         if self.perturb_fraction is not None and perturb_image_count < target_perturb_image_count:
                             self._log_item('WARNING: found not enough perturbations to create a training dataset '
@@ -429,10 +431,10 @@ class FitSurrogatesTask(ComposableDataclass, LoggingMixin):
                         # -> fill up from train_df until we have equal numbers.
                         fill_count = train_image_count - perturb_image_count
                         assert fill_count >= 0, 'spark dataframe has returned too many rows'
-                        fill_up_df = train_df.join(group_df, on=Field.IMAGE_ID.name, how='anti').limit(fill_count)
+                        fill_up_df = train_df.join(image_ids, on=Field.IMAGE_ID.name, how='anti').limit(fill_count)
                         group_df = group_df.unionByName(fill_up_df)
 
-                        assert group_df.select(Field.IMAGE_ID.name).count() == train_image_count, \
+                        assert group_df.select(Field.IMAGE_ID.name).distinct().count() == train_image_count, \
                             'could not ensure the same number of images for the baseline ' \
                             'and perturbed datasets. needs investigation.'
 
