@@ -23,8 +23,7 @@ def print_node(indent, tikz_prefix, feature, threshold, counts, conf,
     feature = feature.replace('_', ' ')
 
     if not is_leaf:
-        if feature.endswith('(OI)') or feature.endswith('(COCO)') \
-                or all_features_are_counts:
+        if all_features_are_counts:
             threshold = int(threshold)
             comp = '=' if threshold == 0 else r'\leq'
         else:
@@ -71,10 +70,36 @@ def tree_to_tikz(tree_: Tree,
                  normalize_shade_by: Literal['kappa', 'max_conf'] = 'kappa',
                  show_inner_conf: bool = True,
                  node_style: str = 'block',
-                 all_features_are_counts: bool = False) -> str:
+                 all_features_are_counts: bool = True) -> str:
+    """
+    Generates tikz code that plots `tree_`.
+
+    :param tree_: the sklearn tree to plot
+    :param seen_classes: which class ids the tree has seen during training
+    :param counts: counts of test samples falling into each node,
+        as recorded by the method `TreeSurrogate._get_class_counts_in_nodes`.
+    :param feature_names: names of the features that the tree uses
+        (names of concepts on images, in our case)
+    :param class_names: names of all classes in the classification task that the tree was trained on,
+        indexed by their class id
+    :param min_conf: nodes where the max. confidence for a class is below this threshold
+        will be replaced with the label 'uncertain'
+    :param max_depth: nodes deeper than this level will be truncated with a '...' node
+    :param normalize_shade_by: how to compute the shade of a node from its test accuracy *a*.
+        if 'kappa', the shade is the relative position of a in the interval [1 / num. classes, 1 - 1 / num. classes].
+        The rationale is that 1 / num. classes is the accuracy that one gets by choosing a random class,
+        if classes are balanced.
+        If 'max_conf', the shade is the relative position of a in the interval [0, max conf.], where max conf.
+        is the maximum confidence of a node in the tree.
+    :param show_inner_conf: whether to display the confidence of each node with a string in the node
+    :param node_style: tikz style attribute for each node
+    :param all_features_are_counts: enables prettier display of concept counts features,
+        set to `False` for other features
+    :return: tikz code that plots `tree_`
+    """
     assert normalize_shade_by in ('max_conf', 'kappa')
 
-    colors = ['LightMaroon', 'LightRoyalBlue']
+    colors = ['LightMaroon', 'LightRoyalBlue']  # binary case
     if len(seen_classes) > len(colors):
         colors = ['LightMaroon'] * len(seen_classes)  # use the same color for all nodes
 
