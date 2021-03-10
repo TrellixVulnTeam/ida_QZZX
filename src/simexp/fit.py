@@ -140,7 +140,7 @@ class TreeSurrogate(LoggingMixin):
 
         return TreeSurrogate.Score(cv_results=cv.cv_results_,
                                    cv_best_index=cv.best_index_,
-                                   tree=cv.best_estimator_.tree_,
+                                   tree=cv.best_estimator_['clf'].tree_,
                                    cv_n_splits=cv.n_splits_,
                                    cross_entropy=cross_entropy,
                                    gini=gini,
