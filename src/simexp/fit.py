@@ -273,6 +273,19 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         train_sample_fractions: np.ndarray
         perturb_fractions: np.ndarray
 
+        def inspect_best(self, stop=None):
+            for rank, index in it.islice(enumerate(np.argsort(self.scores)), 0, stop):
+                print('-------------------------------------')
+                print('Rank {}:'.format(rank + 1))
+                print(self.scores[index])
+                print('estimator: {}'.format(self.influence_estimators[index]))
+                print('perturber: {}'.format(self.perturbers[index]))
+                print('detector: {}'.format(self.detectors[index]))
+                print()
+
+        def __str__(self):
+            return self.inspect_best(stop=1)
+
         def to_flat_pandas(self) -> pd.DataFrame:
             return pd.DataFrame({'cross_entropy': [score.cross_entropy for score in self.scores],
                                  'top_k_accuracy': [score.acc for score in self.scores],
