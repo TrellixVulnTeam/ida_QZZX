@@ -6,6 +6,32 @@ import numpy as np
 from sklearn.tree._tree import Tree
 
 
+PREAMBLE = r"""
+\usepackage{xcolor}
+\usepackage{makecell} % For cells with forced line breaks
+
+\definecolor{Maroon}{cmyk}{0, 0.87, 0.68, 0.32}   % colors from classicthesis style
+\definecolor{RoyalBlue}{cmyk}{1, 0.50, 0, 0}
+\colorlet{LightMaroon}{Maroon!20}
+\colorlet{LightRoyalBlue}{RoyalBlue!20}
+
+\tikzstyle{block}=[draw,minimum size=2em, align=center, node distance=4mm]
+"""
+
+
+TIKZ_STANDALONE_DOC = r"""
+\documentclass[tikz]{standalone}
+\begin{document}
+\begin{tikzpicture}
+[level distance=12mm]
+{\scriptsize%
+{}%
+}
+\end{tikzpicture}
+\end{document}
+"""
+
+
 def _prepare_print_node(indent, tikz_prefix):
     pretty_indent = indent + ' ' * len(tikz_prefix) + ' ' * len('r\makecell[cc]{')
 
@@ -70,7 +96,8 @@ def tree_to_tikz(tree_: Tree,
                  normalize_shade_by: Literal['kappa', 'max_conf'] = 'kappa',
                  show_inner_conf: bool = True,
                  node_style: str = 'block',
-                 all_features_are_counts: bool = True) -> str:
+                 all_features_are_counts: bool = True,
+                 add_preamble: bool = True) -> str:
     """
     Generates tikz code that plots `tree_`.
 
@@ -95,6 +122,7 @@ def tree_to_tikz(tree_: Tree,
     :param node_style: tikz style attribute for each node
     :param all_features_are_counts: enables prettier display of concept counts features,
         set to `False` for other features
+    :param add_preamble: whether to add the necessary color definitions and package imports before the plotting code
     :return: tikz code that plots `tree_`
     """
     assert normalize_shade_by in ('max_conf', 'kappa')
@@ -178,8 +206,11 @@ def tree_to_tikz(tree_: Tree,
         return prune
 
     with io.StringIO() as buf:
+        if add_preamble:
+            print(PREAMBLE)
+
         with redirect_stdout(buf):
             recurse(0, -1, min_conf)  # start with the root node id and its parent depth
             print(';')
 
-        return buf.getvalue()
+        return TIKZ_STANDALONE_DOC.format(buf.getvalue())
