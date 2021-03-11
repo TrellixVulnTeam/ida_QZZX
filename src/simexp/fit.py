@@ -165,7 +165,7 @@ class TreeSurrogate(LoggingMixin):
         class_counts_per_node = []
         for cls in range(len(self.all_classes)):
             nodes = involved_nodes[y_test == cls]
-            counts = np.asarray(np.sum(nodes, axis=0)).squeeze(-1)
+            counts = np.asarray(np.sum(nodes, axis=0)).squeeze(0)
             class_counts_per_node.append(counts)
 
         assert np.all(np.sum(involved_nodes, axis=0) == sum(class_counts_per_node)), \
