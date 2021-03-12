@@ -293,7 +293,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                  'perturber': self.perturbers,
                                  'detector': self.detectors,
                                  'train_sample_fraction': self.train_sample_fractions,
-                                 'perturb_fraction': self.perturb_fractions})
+                                 'perturb_fraction': self.perturb_fractions}).fillna('none')
 
         def __add__(self, other):
             assert self.all_concept_names == other.all_concept_names,\
