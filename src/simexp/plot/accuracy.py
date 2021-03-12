@@ -10,16 +10,13 @@ clear_theme = (theme_bw() +
                      panel_grid_major=element_blank(),
                      panel_grid_minor=element_blank(),
                      text=element_text(wrap=True,
-                                       fontfamily='Latin Modern Roman',
+                                       family='Latin Modern Roman',
                                        fontstretch='normal',
                                        fontweight='light',
                                        size=16,
                                        colour='black'),
                      plot_title=element_text(size=20, fontweight='normal'),
-                     axis_text_x=element_text(hjust=.5, vjust=1),
                      axis_title=element_text(size=14, fontweight='normal'),
-                     axis_title_x=element_text(margin={'t': 20}, angle=0, vjust=1),
-                     axis_title_y=element_text(margin={'b': 20}, angle=90, vjust=1),
                      line=element_line(colour='black', size=.5),
                      axis_ticks=element_blank(),
                      strip_text_x=element_text(size=10),
@@ -42,7 +39,7 @@ class SurrogatesResultPlotter:
         df = self.df.loc[max_indices]
         df.assign(hyperparameters=lambda x: '{}, {}'.format(x.perturber, x.detector))
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
-        k = df['top_k'].first()
+        k = df['top_k'][0]
 
         return (ggplot(df, aes('influence_estimator')) +
                 clear_theme +
