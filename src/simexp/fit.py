@@ -288,6 +288,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
 
         def to_flat_pandas(self) -> pd.DataFrame:
             return pd.DataFrame({'cross_entropy': [score.cross_entropy for score in self.scores],
+                                 'top_k': [score.top_k_acc for score in self.scores],
                                  'top_k_accuracy': [score.acc for score in self.scores],
                                  'influence_estimator': self.influence_estimators,
                                  'perturber': self.perturbers,
