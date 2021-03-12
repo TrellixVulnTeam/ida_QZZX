@@ -38,16 +38,19 @@ class SurrogatesResultPlotter:
         return self.results.to_flat_pandas()
 
     def plot_best_accuracy_per_influence_estimator(self):
-        max_indices = self.df.groupby(by='influence_estimator').idxmax()
+        max_indices = self.df.groupby(by='influence_estimator')['cross_entropy'].idxmax()
         df = self.df.loc[max_indices]
-        # baseline_idx = df['influence_estimator', 'perturber', 'detector'].isnull()
-        # assert len(baseline_idx) == 1
         df.assign(hyperparameters=lambda x: '{}, {}'.format(x.perturber, x.detector))
+        assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
+        k = df['top_k'].first()
 
         return (ggplot(df, aes('influence_estimator')) +
                 clear_theme +
-                geom_bar(aes(size='cross_entropy')) +
-                ggtitle('Best Accuracy Per Influence Estimator'))
+                geom_col(aes(y='top_k_accuracy')) +
+                ggtitle('Best Top-{}-Accuracy Per Influence Estimator'.format(k)) +
+                theme(axis_title_x=element_blank(),
+                      axis_title_y=element_blank(),
+                      axis_text_x=element_text(angle=-45, hjust=0, vjust=1)))
 
     def plot_accuracy_by_perturb_fraction(self):
         df = self.df
