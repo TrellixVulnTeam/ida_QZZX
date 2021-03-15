@@ -35,6 +35,14 @@ class SurrogatesResultPlotter:
     def df(self) -> pd.DataFrame:
         return self.results.to_flat_pandas()
 
+    @staticmethod
+    def _extract_ie_names_and_params(df: pd.DataFrame):
+        return df['influence_estimator'] \
+            .str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
+                         r'\((?P<influence_estimator_params>.*)\)$',
+                         expand=True) \
+            .fillna('None')
+
     def plot_best_accuracy_per_influence_estimator(self):
         max_indices = self.df.groupby(by='influence_estimator')['top_k_accuracy'].idxmax()
         df = self.df.loc[max_indices]
@@ -43,12 +51,7 @@ class SurrogatesResultPlotter:
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         k = df['top_k'][0]
 
-        name_params_df = df['influence_estimator'] \
-            .str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
-                         r'\((?P<influence_estimator_params>.*)\)$',
-                         expand=True) \
-            .fillna('None')
-        df = pd.concat([df, name_params_df], axis=1)
+        df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
 
         return (ggplot(df, aes('influence_estimator_name')) +
                 clear_theme +
@@ -63,11 +66,12 @@ class SurrogatesResultPlotter:
                 scale_fill_brewer(type='qual', palette='Paired'))
 
     def plot_accuracy_by_perturb_fraction(self):
-        df = self.df
-        df.assign(hyperparameters=lambda x: '{}, {}, {}'.format(x.influence_estimator, x.perturber, x.detector))
+        df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
+        df['hyperparameters'] = df.apply(hyperparameters=lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
+                                                                                       x.perturber, x.detector))
 
         return (ggplot(df, aes('perturb_fraction')) +
                 clear_theme +
                 geom_path(aes(y='cross_entropy', fill='hyperparameters')) +
-                facet_wrap(['train_sample_fraction']) +
+                geom_path(aes(y='top_k_accuracy', fill='hyperparameters')) +
                 ggtitle('Accuracy per Fraction of Perturbed Images'))
