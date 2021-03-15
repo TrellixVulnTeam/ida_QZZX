@@ -51,9 +51,9 @@ class SurrogatesResultPlotter:
         k = df['top_k'][0]
 
         name_params_df = df['influence_estimator'] \
-            .extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
-                     r'\((?P<influence_estimator_params>.*)\)$',
-                     expand=True)
+            .str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
+                         r'\((?P<influence_estimator_params>.*)\)$',
+                         expand=True)
         df = pd.concat([df, name_params_df], axis=1)
 
         return (ggplot(df, aes('influence_estimator_name')) +
