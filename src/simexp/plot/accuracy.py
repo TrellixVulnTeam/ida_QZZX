@@ -67,8 +67,9 @@ class SurrogatesResultPlotter:
 
     def plot_accuracy_by_perturb_fraction(self):
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
-        df['hyperparameters'] = df.apply(hyperparameters=lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
-                                                                                       x.perturber, x.detector))
+        df['hyperparameters'] = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
+                                                                       x.perturber, x.detector),
+                                         axis=1)
 
         return (ggplot(df, aes('perturb_fraction')) +
                 clear_theme +
