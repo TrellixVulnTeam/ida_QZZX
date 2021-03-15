@@ -73,9 +73,7 @@ class SurrogatesResultPlotter:
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
 
-    def plot_accuracy_per_perturb_fraction(self,
-                                           metric: Literal['top_k_accuracy',
-                                                           'cross_entropy'] = 'top_k_accuracy'):
+    def plot_accuracy_per_perturb_fraction(self, metric: str = 'top_k_accuracy'):
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df['hyperparameters'] = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
                                                                        x.perturber, x.detector),
