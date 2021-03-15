@@ -1,6 +1,4 @@
-import re
 from dataclasses import dataclass
-from typing import Tuple
 
 import pandas as pd
 from plotnine import *
@@ -36,11 +34,6 @@ class SurrogatesResultPlotter:
     @property
     def df(self) -> pd.DataFrame:
         return self.results.to_flat_pandas()
-
-    @staticmethod
-    def _get_ie_name_and_params(influence_estimator_name) -> Tuple[str, str]:
-        name, params = re.search(r'^(.*)InfluenceEstimator\((.*)\)$', influence_estimator_name)[:2]
-        return name, params
 
     def plot_best_accuracy_per_influence_estimator(self):
         max_indices = self.df.groupby(by='influence_estimator')['top_k_accuracy'].idxmax()
