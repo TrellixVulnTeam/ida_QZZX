@@ -50,9 +50,11 @@ class SurrogatesResultPlotter:
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         k = df['top_k'][0]
 
-        name_params_df = df.row.str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
-                                            r'\((?P<influence_estimator_params>.*)\)$')
-        df = df.concat(df, name_params_df, axis=1)
+        name_params_df = df['influence_estimator'] \
+            .extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
+                     r'\((?P<influence_estimator_params>.*)\)$',
+                     expand=True)
+        df = pd.concat([df, name_params_df], axis=1)
 
         return (ggplot(df, aes('influence_estimator_name')) +
                 clear_theme +
