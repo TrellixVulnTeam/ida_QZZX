@@ -494,7 +494,11 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             detectors = []
 
             for influence_estimator, perturber, detector in it.chain(((None, None, None),), groups):
-                effective_perturb_fractions = [None] if self.perturb_fractions is None else self.perturb_fractions
+                if self.perturb_fractions is None or influence_estimator is None:
+                    effective_perturb_fractions = [None]
+                else:
+                    effective_perturb_fractions = self.perturb_fractions
+
                 for perturb_fraction in effective_perturb_fractions:
                     scores.append(self._fit_and_score(influence_estimator, perturber, detector, perturb_fraction,
                                                       train_df, perturbed_df, all_concept_names, train_image_count,
