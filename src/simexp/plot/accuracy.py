@@ -49,9 +49,7 @@ class SurrogatesResultPlotter:
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         return df['top_k'][0]
 
-    def plot_accuracy_per_influence_estimator(self,
-                                              metric: Literal['top_k_accuracy',
-                                                              'cross_entropy'] = 'top_k_accuracy'):
+    def plot_accuracy_per_influence_estimator(self, metric: str = 'top_k_accuracy'):
         max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
         df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'none'
