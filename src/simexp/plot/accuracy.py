@@ -51,7 +51,7 @@ class SurrogatesResultPlotter:
     def plot_accuracy_per_influence_estimator(self, metric: str = 'top_k_accuracy'):
         max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
-        df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'none'
+        df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'None'
                                          else '{},\n{}'.format(x.perturber, x.detector), axis=1)
         if metric == 'top_k_accuracy':
             title = 'Highest Top-{}-Accuracy Per Influence Estimator'.format(self._get_k(df))
