@@ -1,5 +1,8 @@
+import re
 from dataclasses import dataclass
+from typing import Tuple
 
+import pandas as pd
 from plotnine import *
 
 from simexp.fit import SurrogatesFitter
@@ -31,23 +34,35 @@ class SurrogatesResultPlotter:
     results: SurrogatesFitter.Results
 
     @property
-    def df(self):
+    def df(self) -> pd.DataFrame:
         return self.results.to_flat_pandas()
 
+    @staticmethod
+    def _get_ie_name_and_params(influence_estimator_name) -> Tuple[str, str]:
+        name, params = re.search(r'^(.*)InfluenceEstimator\((.*)\)$', influence_estimator_name)[:2]
+        return name, params
+
     def plot_best_accuracy_per_influence_estimator(self):
-        max_indices = self.df.groupby(by='influence_estimator')['cross_entropy'].idxmax()
+        max_indices = self.df.groupby(by='influence_estimator')['top_k_accuracy'].idxmax()
         df = self.df.loc[max_indices]
-        df.assign(hyperparameters=lambda x: '{}, {}'.format(x.perturber, x.detector))
+        df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'none'
+                                         else '{}, {}'.format(x.perturber, x.detector), axis=1)
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         k = df['top_k'][0]
 
-        return (ggplot(df, aes('influence_estimator')) +
+        name_params_df = df.row.str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
+                                            r'\((?P<influence_estimator_params>.*)\)$')
+        df = df.concat(df, name_params_df, axis=1)
+
+        return (ggplot(df, aes('influence_estimator_name')) +
                 clear_theme +
-                geom_col(aes(y='top_k_accuracy')) +
+                geom_col(aes(y='top_k_accuracy', fill='hyperparameters')) +
                 ggtitle('Best Top-{}-Accuracy Per Influence Estimator'.format(k)) +
+                labs(x='Pixel Influence Estimator', fill='Hyperparameters') +
                 theme(axis_title_x=element_blank(),
                       axis_title_y=element_blank(),
-                      axis_text_x=element_text(angle=-45, hjust=0, vjust=1)))
+                      axis_text_x=element_text(angle=-45, hjust=0, vjust=1)) +
+                scale_fill_brewer(type='qual', palette='Paired'))
 
     def plot_accuracy_by_perturb_fraction(self):
         df = self.df
