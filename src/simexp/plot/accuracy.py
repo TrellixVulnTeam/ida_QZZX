@@ -65,7 +65,7 @@ class SurrogatesResultPlotter:
                 theme(axis_title_x=element_blank(),
                       axis_title_y=element_blank(),
                       axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
-                      legend_title=element_text(margin={'b', 10}),
+                      legend_title=element_text(margin={'b': 10}),
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
 
