@@ -294,7 +294,8 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                  'perturber': self.perturbers,
                                  'detector': self.detectors,
                                  'train_sample_fraction': self.train_sample_fractions,
-                                 'perturb_fraction': self.perturb_fractions}).fillna('none')
+                                 'perturb_fraction': self.perturb_fractions}) \
+                .fillna({c: 'None' for c in ('influence_estimator', 'perturber', 'detector')})
 
         def __add__(self, other):
             assert self.all_concept_names == other.all_concept_names,\
