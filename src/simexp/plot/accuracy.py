@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import pandas as pd
 from plotnine import *
@@ -43,20 +44,29 @@ class SurrogatesResultPlotter:
                          expand=True) \
             .fillna('None')
 
-    def plot_best_accuracy_per_influence_estimator(self):
-        max_indices = self.df.groupby(by='influence_estimator')['top_k_accuracy'].idxmax()
+    @staticmethod
+    def _get_k(df: pd.DataFrame):
+        assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
+        return df['top_k'][0]
+
+    def plot_accuracy_per_influence_estimator(self,
+                                              metric: Literal['top_k_accuracy',
+                                                              'cross_entropy'] = 'top_k_accuracy'):
+        max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
         df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'none'
                                          else '{},\n{}'.format(x.perturber, x.detector), axis=1)
-        assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
-        k = df['top_k'][0]
+        if metric == 'top_k_accuracy':
+            title = 'Highest Top-{}-Accuracy Per Influence Estimator'.format(self._get_k(df))
+        else:
+            title = 'Lowest Cross-Entropy Per Influence Estimator'
 
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
 
         return (ggplot(df, aes('influence_estimator_name')) +
                 clear_theme +
-                geom_col(aes(y='top_k_accuracy', fill='hyperparameters')) +
-                ggtitle('Best Top-{}-Accuracy Per Influence Estimator'.format(k)) +
+                geom_col(aes(y=metric, fill='hyperparameters')) +
+                ggtitle(title) +
                 labs(x='Pixel Influence Estimator', fill='Perturbation parameters') +
                 theme(axis_title_x=element_blank(),
                       axis_title_y=element_blank(),
@@ -65,14 +75,20 @@ class SurrogatesResultPlotter:
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
 
-    def plot_accuracy_by_perturb_fraction(self):
+    def plot_accuracy_per_perturb_fraction(self,
+                                           metric: Literal['top_k_accuracy',
+                                                           'cross_entropy'] = 'top_k_accuracy'):
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df['hyperparameters'] = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
                                                                        x.perturber, x.detector),
                                          axis=1)
 
+        if metric == 'top_k_accuracy':
+            metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
+        else:
+            metric_in_title = 'Cross-Entropy'
+
         return (ggplot(df, aes('perturb_fraction')) +
                 clear_theme +
-                geom_path(aes(y='cross_entropy', fill='hyperparameters')) +
-                geom_path(aes(y='top_k_accuracy', fill='hyperparameters')) +
-                ggtitle('Accuracy per Fraction of Perturbed Images'))
+                geom_path(aes(y=metric, fill='hyperparameters')) +
+                ggtitle('{} per Fraction of Perturbed Images'.format(metric_in_title)))
