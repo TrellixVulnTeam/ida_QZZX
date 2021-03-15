@@ -46,14 +46,15 @@ class SurrogatesResultPlotter:
         max_indices = self.df.groupby(by='influence_estimator')['top_k_accuracy'].idxmax()
         df = self.df.loc[max_indices]
         df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'none'
-                                         else '{}, {}'.format(x.perturber, x.detector), axis=1)
+                                         else '{},\n{}'.format(x.perturber, x.detector), axis=1)
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         k = df['top_k'][0]
 
         name_params_df = df['influence_estimator'] \
             .str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
                          r'\((?P<influence_estimator_params>.*)\)$',
-                         expand=True)
+                         expand=True) \
+            .fillna('None')
         df = pd.concat([df, name_params_df], axis=1)
 
         return (ggplot(df, aes('influence_estimator_name')) +
