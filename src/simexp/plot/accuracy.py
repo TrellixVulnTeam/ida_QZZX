@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List, Optional
 
 import pandas as pd
 from plotnine import *
@@ -71,7 +72,8 @@ class SurrogatesResultPlotter:
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
 
-    def plot_accuracy_per_perturb_fraction(self, metric: str = 'top_k_accuracy'):
+    def plot_accuracy_per_perturb_fraction(self, metric: str = 'top_k_accuracy',
+                                           breaks: Optional[List[float]] = None):
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df['hyperparameters'] = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
                                                                        x.perturber, x.detector),
@@ -82,9 +84,13 @@ class SurrogatesResultPlotter:
         else:
             metric_in_title = 'Cross-Entropy'
 
+        x_args = {} if breaks is None else {'breaks': breaks}
+
         return (ggplot(df, aes(x='perturb_fraction', y=metric)) +
                 clear_theme +
-                geom_path() +
-                geom_point() +
+                geom_path(aes(color='train_obs_count')) +
+                geom_point(aes(color='train_obs_count')) +
+                scale_x_continuous(**x_args) +
                 ggtitle('{} by Fraction of Perturbed Images'.format(metric_in_title)) +
-                labs(x='Fraction', y=metric_in_title))
+                labs(x='Fraction', y=metric_in_title, color='Number of training images') +
+                scale_fill_brewer(type='qual', palette='Paired', direction=-1))
