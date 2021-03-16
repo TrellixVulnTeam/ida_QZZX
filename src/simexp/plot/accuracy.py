@@ -19,7 +19,6 @@ clear_theme = (theme_bw() +
                      plot_title=element_text(size=20, fontweight='normal'),
                      axis_title=element_text(size=14, fontweight='normal'),
                      line=element_line(colour='black', size=.5),
-                     axis_ticks=element_blank(),
                      strip_text_x=element_text(size=10),
                      strip_background=element_blank(),
                      legend_key=element_blank()))
@@ -83,7 +82,9 @@ class SurrogatesResultPlotter:
         else:
             metric_in_title = 'Cross-Entropy'
 
-        return (ggplot(df, aes('perturb_fraction')) +
+        return (ggplot(df, aes(x='perturb_fraction', y=metric)) +
                 clear_theme +
-                geom_path(aes(y=metric, fill='hyperparameters')) +
-                ggtitle('{} per Fraction of Perturbed Images'.format(metric_in_title)))
+                geom_path() +
+                geom_point() +
+                ggtitle('{} by Fraction of Perturbed Images'.format(metric_in_title)) +
+                labs(x='Fraction', y=metric_in_title))
