@@ -512,7 +512,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                if class_count < max(self.train_observations_per_class)}
             if len(below_threshold) > 0:
                 with self._log_task('WARNING: the following classes have less observations than the required {}:'):
-                    for class_name, class_count in below_threshold:
+                    for class_name, class_count in below_threshold.items():
                         self._log_item('Class {} has {} observations.'.format(class_name, class_count))
 
             for num_samples in self.train_observations_per_class:
