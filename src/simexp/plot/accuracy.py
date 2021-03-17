@@ -12,9 +12,7 @@ clear_theme = (theme_bw() +
                      panel_grid_major=element_blank(),
                      panel_grid_minor=element_blank(),
                      text=element_text(wrap=True,
-                                       family='Latin Modern Roman',
-                                       fontstretch='normal',
-                                       fontweight='light',
+                                       family='DejaVu Sans',
                                        size=16,
                                        colour='black'),
                      plot_title=element_text(size=20, fontweight='normal'),
@@ -87,10 +85,10 @@ class SurrogatesResultPlotter:
         x_args = {} if breaks is None else {'breaks': breaks}
 
         if self.results.train_obs_balanced:
-            df.train_obs_count = df.apply(lambda x: '{} (≤{} per class)'
-                                          .format(x.train_obs_count,
-                                                  x.train_obs_per_class_threshold),
-                                          axis=1)
+            s = df.apply(lambda x: '{} (≤{} per class)'.format(x.train_obs_count,
+                                                               x.train_obs_per_class_threshold),
+                         axis=1)
+            df.train_obs_count = pd.Categorical(s, ordered=True, categories=s.unique())  # ensure correct ordering
 
         return (ggplot(df, aes(x='perturb_fraction', y=metric)) +
                 clear_theme +
