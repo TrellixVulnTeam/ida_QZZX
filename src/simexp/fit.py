@@ -508,7 +508,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             total_per_class_counts = {row[Field.PREDICTED_CLASS.name]: int(row['count'])
                                       for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
             below_threshold = {self.tree.all_classes[class_id]: class_count
-                               for class_id, class_count in total_per_class_counts
+                               for class_id, class_count in total_per_class_counts.items()
                                if class_count < max(self.train_observations_per_class)}
             if len(below_threshold) > 0:
                 with self._log_task('WARNING: the following classes have less observations than the required {}:'):
