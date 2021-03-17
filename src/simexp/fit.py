@@ -517,7 +517,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
 
             for num_samples in self.train_observations_per_class:
                 fraction_per_class = {class_name: np.clip(float(num_samples) / float(class_count), 0, 1)
-                                      for class_name, class_count in total_per_class_counts}
+                                      for class_name, class_count in total_per_class_counts.items()}
                 yield train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class, seed=self.seed)
         else:
             for f in self.train_fractions:
