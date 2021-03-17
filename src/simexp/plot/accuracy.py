@@ -61,6 +61,7 @@ class SurrogatesResultPlotter:
         return (ggplot(df, aes('influence_estimator_name')) +
                 clear_theme +
                 geom_col(aes(y=metric, fill='hyperparameters')) +
+                expand_limits(y=0) +
                 ggtitle(title) +
                 labs(x='Pixel Influence Estimator', fill='Perturbation parameters') +
                 theme(axis_title_x=element_blank(),
@@ -95,6 +96,7 @@ class SurrogatesResultPlotter:
                 geom_path(aes(color='train_obs_count')) +
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
+                expand_limits(y=0) +
                 ggtitle('{} by Fraction of Perturbed Images'.format(metric_in_title)) +
                 labs(x='Fraction', y=metric_in_title, color='Number of training images') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
