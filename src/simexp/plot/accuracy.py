@@ -86,11 +86,17 @@ class SurrogatesResultPlotter:
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
+        if self.results.train_obs_balanced:
+            obs_legend = 'Number of training images per class,\nwith {} classes in total' \
+                .format(len(self.results.all_concept_names))
+        else:
+            obs_legend = 'Number of training images'
+
         return (ggplot(df, aes(x='perturb_fraction', y=metric)) +
                 clear_theme +
                 geom_path(aes(color='train_obs_count')) +
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
                 ggtitle('{} by Fraction of Perturbed Images'.format(metric_in_title)) +
-                labs(x='Fraction', y=metric_in_title, color='Number of training images') +
+                labs(x='Fraction', y=metric_in_title, color=obs_legend) +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))

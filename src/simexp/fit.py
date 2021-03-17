@@ -271,6 +271,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         perturbers: np.ndarray
         detectors: np.ndarray
         train_obs_count: np.ndarray
+        train_obs_balanced: bool
         perturb_fractions: np.ndarray
 
         def inspect_best(self, stop=None):
@@ -303,6 +304,10 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         def __add__(self, other):
             assert self.all_concept_names == other.all_concept_names,\
                 'cannot combine results for different lists of concepts'
+
+            assert self.train_obs_balanced == other.train_obs_balanced, \
+                'cannot combine results for balanced sampling with unbalanced sampling'
+
             return SurrogatesFitter.Results(all_concept_names=self.all_concept_names,
                                             scores=np.concatenate((self.scores, other.scores)),
                                             influence_estimators=np.concatenate((self.influence_estimators,
@@ -311,6 +316,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                             detectors=np.concatenate((self.detectors, other.detectors)),
                                             train_obs_count=np.concatenate((self.train_obs_count,
                                                                             other.train_obs_count)),
+                                            train_obs_balanced=self.train_obs_balanced,
                                             perturb_fractions=np.concatenate((self.perturb_fractions,
                                                                               other.perturb_fractions)))
 
@@ -490,10 +496,15 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                         perturbers=np.asarray(perturbers),
                                         detectors=np.asarray(detectors),
                                         train_obs_count=np.repeat(train_image_count, len(scores)),
+                                        train_obs_balanced=self.use_balanced_sampling,
                                         perturb_fractions=perturb_fractions)
 
+    @property
+    def use_balanced_sampling(self) -> bool:
+        return self.train_observations_per_class is not None
+
     def _train_df_sample_iter(self, train_df: DataFrame):
-        if self.train_observations_per_class is not None:
+        if self.use_balanced_sampling:
             total_per_class_counts = {row[Field.PREDICTED_CLASS.name]: int(row['count'])
                                       for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
             min_class, min_class_count = min(total_per_class_counts.items(), key=lambda x: x[1])
