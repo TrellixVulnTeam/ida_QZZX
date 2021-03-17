@@ -297,7 +297,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                'perturb_fraction': self.perturb_fractions}) \
                 .fillna({**{c: 'None' for c in ('influence_estimator', 'perturber', 'detector')},
                          **{'perturb_fraction': 0.}})
-            df.train_obs_count = df.train_obs_count.astype('category', ordered=True)
+            df.train_obs_count = df.train_obs_count.astype('category').cat.as_ordered()
             return df
 
         def __add__(self, other):
