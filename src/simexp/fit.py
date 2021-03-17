@@ -275,7 +275,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         train_obs_per_class_threshold: np.ndarray
 
         def __post_init__(self):
-            balanced = np.isnan(self.train_obs_per_class_threshold)
+            balanced = np.bitwise_not(np.isnan(self.train_obs_per_class_threshold))
             self.train_obs_balanced = np.all(balanced)
             if not self.train_obs_balanced:
                 assert not np.any(balanced), 'found mixed observations from balanced and unbalanced sampling'
