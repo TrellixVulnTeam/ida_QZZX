@@ -336,7 +336,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
     # number of observations to use from the train dataset for each class.
     # overrides `train_fractions`.
     # with multiple values, a grid search will be performed.
-    train_observations_per_class: Optional[List[float]] = None
+    train_observations_per_class: Optional[List[int]] = None
 
     # fraction of the training data of each surrogate model
     # for which perturbed data should be added, in the interval (0, 1].
@@ -494,10 +494,16 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
 
     def _train_df_sample_iter(self, train_df: DataFrame):
         if self.train_observations_per_class is not None:
-            for num_samples in self.train_observations_per_class:
-                fraction_per_class = {row[Field.PREDICTED_CLASS.name]:
-                                          np.clip(float(num_samples) / float(row['count']), 0, 1)
+            total_per_class_counts = {row[Field.PREDICTED_CLASS.name]: int(row['count'])
                                       for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
+            min_class, min_class_count = min(total_per_class_counts.items(), key=lambda x: x[1])
+            assert min_class_count > max(self.train_observations_per_class), \
+                'cannot sample {} observations per class: class {} has only {} observations in total' \
+                .format(max(self.train_observations_per_class), min_class, min_class_count)
+
+            for num_samples in self.train_observations_per_class:
+                fraction_per_class = {class_name: np.clip(float(num_samples) / float(class_count), 0, 1)
+                                      for class_name, class_count in total_per_class_counts}
                 yield train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class, seed=self.seed)
         else:
             for f in self.train_fractions:
