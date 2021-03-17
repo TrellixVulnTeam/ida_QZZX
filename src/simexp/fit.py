@@ -507,10 +507,13 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         if self.use_balanced_sampling:
             total_per_class_counts = {row[Field.PREDICTED_CLASS.name]: int(row['count'])
                                       for row in train_df.groupBy(Field.PREDICTED_CLASS.name).count().collect()}
-            min_class, min_class_count = min(total_per_class_counts.items(), key=lambda x: x[1])
-            assert min_class_count > max(self.train_observations_per_class), \
-                'cannot sample {} observations per class: class {} has only {} observations in total' \
-                .format(max(self.train_observations_per_class), min_class, min_class_count)
+            below_threshold = {self.tree.all_classes[class_id]: class_count
+                               for class_id, class_count in total_per_class_counts
+                               if class_count < max(self.train_observations_per_class)}
+            if len(below_threshold) > 0:
+                with self._log_task('WARNING: the following classes have less observations than the required {}:'):
+                    for class_name, class_count in below_threshold:
+                        self._log_item('Class {} has {} observations.'.format(class_name, class_count))
 
             for num_samples in self.train_observations_per_class:
                 fraction_per_class = {class_name: np.clip(float(num_samples) / float(class_count), 0, 1)
