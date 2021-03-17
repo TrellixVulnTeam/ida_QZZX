@@ -272,7 +272,13 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         detectors: np.ndarray
         train_obs_count: np.ndarray
         perturb_fractions: np.ndarray
-        train_obs_balanced: bool = False
+        train_obs_per_class_threshold: np.ndarray
+
+        def __post_init__(self):
+            balanced = np.isnan(self.train_obs_per_class_threshold)
+            self.train_obs_balanced = np.all(balanced)
+            if not self.train_obs_balanced:
+                assert not np.any(balanced), 'found mixed observations from balanced and unbalanced sampling'
 
         def inspect_best(self, stop=None):
             for rank, index in it.islice(enumerate(np.argsort(self.scores)), 0, stop):
@@ -295,6 +301,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                'perturber': self.perturbers,
                                'detector': self.detectors,
                                'train_obs_count': self.train_obs_count,
+                               'train_obs_per_class_threshold': self.train_obs_per_class_threshold,
                                'perturb_fraction': self.perturb_fractions}) \
                 .fillna({**{c: 'None' for c in ('influence_estimator', 'perturber', 'detector')},
                          **{'perturb_fraction': 0.}})
@@ -305,8 +312,8 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             assert self.all_concept_names == other.all_concept_names,\
                 'cannot combine results for different lists of concepts'
 
-            assert self.train_obs_balanced == other.train_obs_balanced, \
-                'cannot combine results for balanced sampling with unbalanced sampling'
+            train_obs_per_class_threshold = np.concatenate((self.train_obs_per_class_threshold,
+                                                            other.train_obs_per_class_threshold))
 
             return SurrogatesFitter.Results(all_concept_names=self.all_concept_names,
                                             scores=np.concatenate((self.scores, other.scores)),
@@ -316,7 +323,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                             detectors=np.concatenate((self.detectors, other.detectors)),
                                             train_obs_count=np.concatenate((self.train_obs_count,
                                                                             other.train_obs_count)),
-                                            train_obs_balanced=self.train_obs_balanced,
+                                            train_obs_per_class_threshold=train_obs_per_class_threshold,
                                             perturb_fractions=np.concatenate((self.perturb_fractions,
                                                                               other.perturb_fractions)))
 
@@ -450,7 +457,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                            test_obs.concept_counts, test_obs.predicted_classes)
 
     def _run_for_single_train_sample(self, train_df: DataFrame, perturbed_df: DataFrame, all_concept_names: [str],
-                                     test_obs: TestObservations):
+                                     train_obs_per_class: Optional[int], test_obs: TestObservations):
         # note: train_df.count() is non-deterministic due to the sampling in train_df,
         # except if a seed is set.
         train_image_count = train_df.count()
@@ -496,7 +503,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                         perturbers=np.asarray(perturbers),
                                         detectors=np.asarray(detectors),
                                         train_obs_count=np.repeat(train_image_count, len(scores)),
-                                        train_obs_balanced=self.use_balanced_sampling,
+                                        train_obs_per_class_threshold=np.repeat(train_obs_per_class, len(scores)),
                                         perturb_fractions=perturb_fractions)
 
     @property
@@ -515,13 +522,13 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                     for class_name, class_count in below_threshold.items():
                         self._log_item('Class {} has {} observations.'.format(class_name, class_count))
 
-            for num_samples in self.train_observations_per_class:
-                fraction_per_class = {class_name: np.clip(float(num_samples) / float(class_count), 0, 1)
+            for threshold in self.train_observations_per_class:
+                fraction_per_class = {class_name: np.clip(float(threshold) / float(class_count), 0, 1)
                                       for class_name, class_count in total_per_class_counts.items()}
-                yield train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class, seed=self.seed)
+                yield threshold, train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class, seed=self.seed)
         else:
             for f in self.train_fractions:
-                yield train_df.sample(f, seed=self.seed)
+                yield None, train_df.sample(f, seed=self.seed)
 
     def run(self) -> Results:
         with self._log_task('Training surrogate models'):
@@ -555,10 +562,12 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             self._log_item('Test data comprises {} observations.'.format(len(test_obs)))
 
             results = []
-            for train_sample_no, train_df_sample in enumerate(self._train_df_sample_iter(train_df)):
+            train_iter = self._train_df_sample_iter(train_df)
+            for train_sample_no, (train_obs_per_class, train_df_sample) in enumerate(train_iter):
                 with self._log_task('Running for training sample {}'.format(train_sample_no)):
                     results.append(self._run_for_single_train_sample(train_df=train_df_sample,
                                                                      perturbed_df=perturbed_df,
                                                                      all_concept_names=all_concept_names,
-                                                                     test_obs=test_obs))
+                                                                     test_obs=test_obs,
+                                                                     train_obs_per_class=train_obs_per_class))
             return reduce(lambda a, b: a + b, results)
