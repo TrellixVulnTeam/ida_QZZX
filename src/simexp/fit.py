@@ -287,15 +287,18 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             return self.inspect_best(stop=1)
 
         def to_flat_pandas(self) -> pd.DataFrame:
-            return pd.DataFrame({'cross_entropy': [score.cross_entropy for score in self.scores],
-                                 'top_k': [score.top_k_acc for score in self.scores],
-                                 'top_k_accuracy': [score.acc for score in self.scores],
-                                 'influence_estimator': self.influence_estimators,
-                                 'perturber': self.perturbers,
-                                 'detector': self.detectors,
-                                 'train_obs_count': self.train_obs_count,
-                                 'perturb_fraction': self.perturb_fractions}) \
-                .fillna({c: 'None' for c in ('influence_estimator', 'perturber', 'detector')})
+            df = pd.DataFrame({'cross_entropy': [score.cross_entropy for score in self.scores],
+                               'top_k': [score.top_k_acc for score in self.scores],
+                               'top_k_accuracy': [score.acc for score in self.scores],
+                               'influence_estimator': self.influence_estimators,
+                               'perturber': self.perturbers,
+                               'detector': self.detectors,
+                               'train_obs_count': self.train_obs_count,
+                               'perturb_fraction': self.perturb_fractions}) \
+                .fillna({**{c: 'None' for c in ('influence_estimator', 'perturber', 'detector')},
+                         **{'perturb_fraction': 0.}})
+            df.train_obs_count = df.train_obs_count.astype('category', ordered=True)
+            return df
 
         def __add__(self, other):
             assert self.all_concept_names == other.all_concept_names,\
@@ -479,13 +482,15 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                 perturbers.append(perturber)
                 detectors.append(detector)
 
+        perturb_fractions = np.nan_to_num(np.asarray(perturb_fractions, dtype=float), nan=0.)
+
         return SurrogatesFitter.Results(all_concept_names=all_concept_names,
                                         scores=np.asarray(scores, dtype=object),
                                         influence_estimators=np.asarray(influence_estimators),
                                         perturbers=np.asarray(perturbers),
                                         detectors=np.asarray(detectors),
                                         train_obs_count=np.repeat(train_image_count, len(scores)),
-                                        perturb_fractions=np.asarray(perturb_fractions, dtype=float))
+                                        perturb_fractions=perturb_fractions)
 
     def _train_df_sample_iter(self, train_df: DataFrame):
         if self.train_observations_per_class is not None:
