@@ -271,8 +271,8 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         perturbers: np.ndarray
         detectors: np.ndarray
         train_obs_count: np.ndarray
-        train_obs_balanced: bool
         perturb_fractions: np.ndarray
+        train_obs_balanced: bool = False
 
         def inspect_best(self, stop=None):
             for rank, index in it.islice(enumerate(np.argsort(self.scores)), 0, stop):
