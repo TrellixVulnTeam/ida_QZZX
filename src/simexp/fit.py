@@ -449,17 +449,18 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                           influence_estimator, perturber, detector)
             self._log_item('We have {} candidate observations.'.format(len(train_obs)))
 
-            indices = train_obs.filter_for_split(self.tree.k_folds)
-            remaining_count = np.count_nonzero(indices)
-            if remaining_count > 0:
-                self._log_item('After filtering for CV, {} observations remain.'.format(remaining_count))
-            else:
-                self._log_item('WARNING: There are not enough observations for a {}-fold CV.'
-                               .format(self.tree.k_folds))
-                indices = np.ones_like(indices)
+            # indices = train_obs.filter_for_split(self.tree.k_folds)
+            # remaining_count = np.count_nonzero(indices)
+            # if remaining_count > 0:
+            #     self._log_item('After filtering for CV, {} observations remain.'.format(remaining_count))
+            # else:
+            #     self._log_item('WARNING: There are not enough observations for a {}-fold CV.'
+            #                    'Resetting number of folds to 1 (no CV)'
+            #                    .format(self.tree.k_folds))
+            #     indices = np.ones_like(indices)
             group_df.unpersist()  # free memory
-            return self.tree.fit_and_score(train_obs.concept_counts[indices],
-                                           train_obs.predicted_classes[indices],
+            return self.tree.fit_and_score(train_obs.concept_counts,
+                                           train_obs.predicted_classes,
                                            test_obs.concept_counts, test_obs.predicted_classes)
 
     def _run_for_single_train_sample(self, train_df: DataFrame, perturbed_df: DataFrame, all_concept_names: [str],
