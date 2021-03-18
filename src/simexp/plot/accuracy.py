@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+import matplotlib as mpl
 import matplotlib.font_manager as font_manager
 import pandas as pd
 from plotnine import *
@@ -13,13 +14,14 @@ font_files = font_manager.findSystemFonts(fontpaths=font_dirs)
 for font_file in font_files:
     font_manager.fontManager.addfont(font_file)
 
+mpl.rcParams['mathtext.fontset'] = 'cm'
 
 clear_theme = (theme_bw() +
                theme(panel_border=element_blank(),
                      panel_grid=element_blank(),
                      panel_grid_major=element_blank(),
                      panel_grid_minor=element_blank(),
-                     text=element_text(wrap=True,
+                     text=element_text(wrap=False,
                                        family='CMU Serif',
                                        size=16,
                                        colour='black'),
@@ -33,7 +35,6 @@ clear_theme = (theme_bw() +
 
 @dataclass
 class SurrogatesResultPlotter:
-
     # the results to plot
     results: SurrogatesFitter.Results
 
@@ -57,12 +58,12 @@ class SurrogatesResultPlotter:
     def plot_accuracy_per_influence_estimator(self, metric: str = 'top_k_accuracy'):
         max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
-        df['hyperparameters'] = df.apply(lambda x: 'No perturbation' if x.perturber == 'None'
-                                         else '{},\n{}'.format(x.perturber, x.detector), axis=1)
+        df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
+        else '{},\n{}'.format(x.perturber, x.detector), axis=1)
         if metric == 'top_k_accuracy':
-            title = 'Highest Top-{}-Accuracy Per Influence Estimator'.format(self._get_k(df))
+            title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(self._get_k(df))
         else:
-            title = 'Lowest Cross-Entropy Per Influence Estimator'
+            title = 'Lowest Cross-Entropy Per Attribution Method'
 
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
 
@@ -71,7 +72,7 @@ class SurrogatesResultPlotter:
                 geom_col(aes(y=metric, fill='hyperparameters')) +
                 expand_limits(y=0) +
                 ggtitle(title) +
-                labs(x='Pixel Influence Estimator', fill='Perturbation parameters') +
+                labs(x='Pixel Attribution Method', fill='Augmentation parameters') +
                 theme(axis_title_x=element_blank(),
                       axis_title_y=element_blank(),
                       axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
@@ -83,7 +84,7 @@ class SurrogatesResultPlotter:
                                            breaks: Optional[List[float]] = None):
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df.hyperparameters = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
-                                                                       x.perturber, x.detector),
+                                                                    x.perturber, x.detector),
                                       axis=1)
 
         if metric == 'top_k_accuracy':
@@ -94,8 +95,8 @@ class SurrogatesResultPlotter:
         x_args = {} if breaks is None else {'breaks': breaks}
 
         if self.results.train_obs_balanced:
-            s = df.apply(lambda x: '{} (≤{} per class)'.format(x.train_obs_count,
-                                                               x.train_obs_per_class_threshold),
+            s = df.apply(lambda x: '{} ($\leq {}$ per class)'.format(x.train_obs_count,
+                                                                     x.train_obs_per_class_threshold),
                          axis=1)
             df.train_obs_count = pd.Categorical(s, ordered=True, categories=s.unique())  # ensure correct ordering
 
@@ -105,6 +106,6 @@ class SurrogatesResultPlotter:
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
                 expand_limits(y=0) +
-                ggtitle('{} by Fraction of Perturbed Images'.format(metric_in_title)) +
-                labs(x='Fraction', y=metric_in_title, color='Number of training images') +
+                ggtitle('{} by Fraction of Augmented Images'.format(metric_in_title)) +
+                labs(x='Fraction of Augmented Images', y=metric_in_title, color='Number of training images') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
