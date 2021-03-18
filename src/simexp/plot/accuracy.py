@@ -56,6 +56,8 @@ class SurrogatesResultPlotter:
         return df['top_k'][0]
 
     def plot_accuracy_per_influence_estimator(self, metric: str = 'top_k_accuracy'):
+        assert metric in ['top_k_accuracy', 'cross_entropy']
+
         max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
         df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
@@ -63,7 +65,7 @@ class SurrogatesResultPlotter:
         if metric == 'top_k_accuracy':
             title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(self._get_k(df))
         else:
-            title = 'Lowest Cross-Entropy Per Attribution Method'
+            title = 'Lowest Cross Entropy Per Attribution Method'
 
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
 
@@ -82,6 +84,8 @@ class SurrogatesResultPlotter:
 
     def plot_accuracy_per_perturb_fraction(self, metric: str = 'top_k_accuracy',
                                            breaks: Optional[List[float]] = None):
+        assert metric in ['top_k_accuracy', 'cross_entropy']
+
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df.hyperparameters = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
                                                                     x.perturber, x.detector),
@@ -90,7 +94,7 @@ class SurrogatesResultPlotter:
         if metric == 'top_k_accuracy':
             metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
         else:
-            metric_in_title = 'Cross-Entropy'
+            metric_in_title = 'Cross entropy'
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
