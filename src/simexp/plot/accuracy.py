@@ -20,7 +20,7 @@ clear_theme = (theme_bw() +
                      panel_grid_major=element_blank(),
                      panel_grid_minor=element_blank(),
                      text=element_text(wrap=True,
-                                       family='Times New Roman',
+                                       family='Computer Modern Roman',
                                        size=16,
                                        colour='black'),
                      plot_title=element_text(size=20, fontweight='normal'),
