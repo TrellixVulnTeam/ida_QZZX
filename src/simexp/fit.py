@@ -450,7 +450,13 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             self._log_item('We have {} candidate observations.'.format(len(train_obs)))
 
             indices = train_obs.filter_for_split(self.tree.k_folds)
-            self._log_item('After filtering for CV, {} observations remain.'.format(np.count_nonzero(indices)))
+            remaining_count = np.count_nonzero(indices)
+            if remaining_count > 0:
+                self._log_item('After filtering for CV, {} observations remain.'.format(remaining_count))
+            else:
+                self._log_item('WARNING: There are not enough observations for a {}-fold CV.'
+                               .format(self.tree.k_folds))
+                indices = np.ones_like(indices)
             group_df.unpersist()  # free memory
             return self.tree.fit_and_score(train_obs.concept_counts[indices],
                                            train_obs.predicted_classes[indices],
