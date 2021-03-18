@@ -8,10 +8,10 @@ from plotnine import *
 
 from simexp.fit import SurrogatesFitter
 
-font_dirs = list((Path(__file__).parent.parent / 'fonts').iterdir())
+font_dirs = [p for p in (Path(__file__).parent.parent / 'fonts').iterdir() if p.is_dir()]
 font_files = font_manager.findSystemFonts(fontpaths=font_dirs)
-font_list = font_manager.createFontList(font_files)
-font_manager.fontManager.ttflist.extend(font_list)
+for font_file in font_files:
+    font_manager.fontManager.addfont(font_file)
 
 
 clear_theme = (theme_bw() +
