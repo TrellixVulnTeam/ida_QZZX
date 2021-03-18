@@ -1,15 +1,12 @@
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import List, Optional
 
+import matplotlib.font_manager as font_manager
 import pandas as pd
 from plotnine import *
 
 from simexp.fit import SurrogatesFitter
-
-import matplotlib.font_manager as font_manager
-
 
 font_dirs = list((Path(__file__).parent.parent / 'fonts').iterdir())
 font_files = font_manager.findSystemFonts(fontpaths=font_dirs)
