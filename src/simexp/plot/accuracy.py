@@ -106,7 +106,7 @@ class SurrogatesResultPlotter:
         if metric == 'top_k_accuracy':
             metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
         else:
-            metric_in_title = 'Cross entropy'
+            metric_in_title = 'Cross Entropy'
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
