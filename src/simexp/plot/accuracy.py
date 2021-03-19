@@ -77,7 +77,7 @@ class SurrogatesResultPlotter:
                                                   if x.winner else x.influence_estimator_name, axis=1)
 
         df['num_decimals'] = (-np.log10(df[metric])).astype(int).clip(0, None) + 2
-        df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x[metric]), axis=1)
+        df['label'] = df.apply(lambda x: '${{:.{}f}}$'.format(x.num_decimals).format(x[metric]), axis=1)
 
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
