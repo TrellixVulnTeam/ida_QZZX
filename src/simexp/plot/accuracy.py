@@ -2,19 +2,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
 import matplotlib as mpl
-import matplotlib.font_manager as font_manager
+import matplotlib.font_manager as fm
 import pandas as pd
 from plotnine import *
 
 from simexp.fit import SurrogatesFitter
 
 font_dirs = [p for p in (Path(__file__).parent.parent / 'fonts').iterdir() if p.is_dir()]
-font_files = font_manager.findSystemFonts(fontpaths=font_dirs)
+font_files = fm.findSystemFonts(fontpaths=font_dirs)
 for font_file in font_files:
-    font_manager.fontManager.addfont(font_file)
+    fm.fontManager.addfont(font_file)
 
-mpl.rcParams['mathtext.fontset'] = 'cm'
+mpl.rcParams['mathtext.fontset'] = 'stix'
 
 clear_theme = (theme_bw() +
                theme(panel_border=element_blank(),
@@ -22,7 +23,7 @@ clear_theme = (theme_bw() +
                      panel_grid_major=element_blank(),
                      panel_grid_minor=element_blank(),
                      text=element_text(wrap=False,
-                                       family='CMU Serif',
+                                       family='Nimbus Roman',
                                        size=16,
                                        colour='black'),
                      plot_title=element_text(size=20, fontweight='normal'),
@@ -61,17 +62,28 @@ class SurrogatesResultPlotter:
         max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
         df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
-        else '{},\n{}'.format(x.perturber, x.detector), axis=1)
+                                         else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
+                                         .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
+                                         axis=1)
         if metric == 'top_k_accuracy':
             title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(self._get_k(df))
+            df['winner'] = df.top_k_accuracy == df.top_k_accuracy.max()
         else:
             title = 'Lowest Cross Entropy Per Attribution Method'
+            df['winner'] = df.cross_entropy == df.cross_entropy.min()
 
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
+        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
+                                                  if x.winner else x.influence_estimator_name, axis=1)
 
-        return (ggplot(df, aes('influence_estimator_name')) +
+        df['num_decimals'] = (-np.log10(df[metric])).astype(int).clip(0, None) + 2
+        df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x[metric]), axis=1)
+
+        return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
-                geom_col(aes(y=metric, fill='hyperparameters')) +
+                geom_col(aes(fill='hyperparameters', color='winner')) +
+                geom_text(aes(label='label'), size=14, va='bottom') +
+                scale_color_manual(values=('#00000000', 'black'), guide=None) +
                 expand_limits(y=0) +
                 ggtitle(title) +
                 labs(x='Pixel Attribution Method', fill='Augmentation parameters') +
