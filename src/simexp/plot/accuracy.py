@@ -74,13 +74,21 @@ class SurrogatesResultPlotter:
         if metric == 'top_k_accuracy':
             max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()  # max per group
             df = self.df.loc[max_indices]
-            title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(self._get_k(df))
+            k = self._get_k(df)
+            if normalization != 'none':
+                title = 'Gain in Top-{}-Accuracy Per Attribution Method'.format(k)
+            else:
+                title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(k)
             df['winner'] = df.top_k_accuracy == df.top_k_accuracy.max()  # global max
             sign = 1
         else:
             min_indices = self.df.groupby(by='influence_estimator')[metric].idxmin()
             df = self.df.loc[min_indices]
-            title = 'Lowest Cross Entropy Per Attribution Method'
+            if normalization != 'none':
+                title = 'Gain in Cross Entropy Per Attribution Method'
+            else:
+                title = 'Lowest Cross Entropy Per Attribution Method'
+
             df['winner'] = df.cross_entropy == df.cross_entropy.min()
             sign = -1
 
