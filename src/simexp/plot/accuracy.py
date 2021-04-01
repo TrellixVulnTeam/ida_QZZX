@@ -71,32 +71,35 @@ class SurrogatesResultPlotter:
         assert metric in ['top_k_accuracy', 'cross_entropy']
         assert normalization in ['none', 'difference', 'ratio']
 
-        max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
-        df = self.df.loc[max_indices]
-        df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
-                                         else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
-                                         .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
-                                         axis=1)
-
         if metric == 'top_k_accuracy':
+            max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()  # max per group
+            df = self.df.loc[max_indices]
             title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(self._get_k(df))
-            df['winner'] = df.top_k_accuracy == df.top_k_accuracy.max()
+            df['winner'] = df.top_k_accuracy == df.top_k_accuracy.max()  # global max
             sign = 1
         else:
+            min_indices = self.df.groupby(by='influence_estimator')[metric].idxmin()
+            df = self.df.loc[min_indices]
             title = 'Lowest Cross Entropy Per Attribution Method'
             df['winner'] = df.cross_entropy == df.cross_entropy.min()
             sign = -1
 
         if normalization == 'difference':
-            df[metric] = df[metric] - df['dummy_{}'.format(metric)] * sign
+            df[metric] = (df[metric] - df['dummy_{}'.format(metric)]) * sign
         elif normalization == 'ratio':
-            df[metric] = df[metric] / df['dummy_{}'.format(metric)] ** sign
+            df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
+
+        df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
+                                         else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
+                                         .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
+                                         axis=1)
 
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
         df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
                                                   if x.winner else x.influence_estimator_name, axis=1)
 
-        df['num_decimals'] = (-np.log10(df[metric])).astype(int).clip(0, None) + 2
+        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 2
+                                      if x[metric] != 0 else 0, axis=1)
         df['label'] = df.apply(lambda x: '${{:.{}f}}$'.format(x.num_decimals).format(x[metric]), axis=1)
 
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
