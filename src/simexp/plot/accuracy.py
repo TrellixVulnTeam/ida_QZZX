@@ -56,8 +56,20 @@ class SurrogatesResultPlotter:
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         return df['top_k'][0]
 
-    def plot_accuracy_per_influence_estimator(self, metric: str = 'top_k_accuracy'):
+    def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none'):
+        """
+        Plots a bar chart with one bar per influence estimator.
+        Each bar shows the best accuracy reached by the respective estimator,
+        across all tested hyperparameter combinations.
+
+        :param metric: which accuracy metric to use, one of 'top_k_accuracy' and 'cross_entropy'
+        :param normalization: how to normalize the metric with respect to the dummy baseline.
+            Choose 'none' for no normalization, 'difference' for computing the difference,
+            and 'ratio' for computing the ratio.
+        :return: the generated ggplot
+        """
         assert metric in ['top_k_accuracy', 'cross_entropy']
+        assert normalization in ['none', 'difference', 'ratio']
 
         max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()
         df = self.df.loc[max_indices]
@@ -65,12 +77,20 @@ class SurrogatesResultPlotter:
                                          else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
                                          .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
                                          axis=1)
+
         if metric == 'top_k_accuracy':
             title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(self._get_k(df))
             df['winner'] = df.top_k_accuracy == df.top_k_accuracy.max()
+            sign = 1
         else:
             title = 'Lowest Cross Entropy Per Attribution Method'
             df['winner'] = df.cross_entropy == df.cross_entropy.min()
+            sign = -1
+
+        if normalization == 'difference':
+            df[metric] = df[metric] - df['dummy_{}'.format(metric)] * sign
+        elif normalization == 'ratio':
+            df[metric] = df[metric] / df['dummy_{}'.format(metric)] ** sign
 
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
         df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
@@ -94,9 +114,22 @@ class SurrogatesResultPlotter:
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
 
-    def plot_accuracy_per_perturb_fraction(self, metric: str = 'top_k_accuracy',
+    def plot_accuracy_per_perturb_fraction(self, metric: str = 'cross_entropy', normalization: str = 'none',
                                            breaks: Optional[List[float]] = None):
+        """
+        Plots a line chart with one line per training sample.
+        The chart shows the accuracy of the influence estimator (y-axis)
+        depending on the fraction of perturbed images of the training sample (x-axis).
+
+        :param metric: which accuracy metric to use, one of 'top_k_accuracy' and 'cross_entropy'
+        :param normalization: how to normalize the metric with respect to the dummy baseline.
+            Choose 'none' for no normalization, 'difference' for computing the difference,
+            and 'ratio' for computing the ratio.
+        :param breaks: optional list that specifies the x-axis breaks
+        :return: the generated ggplot
+        """
         assert metric in ['top_k_accuracy', 'cross_entropy']
+        assert normalization in ['none', 'difference', 'ratio']
 
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df.hyperparameters = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
@@ -105,8 +138,15 @@ class SurrogatesResultPlotter:
 
         if metric == 'top_k_accuracy':
             metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
+            sign = 1
         else:
             metric_in_title = 'Cross Entropy'
+            sign = -1
+
+        if normalization == 'difference':
+            df[metric] = df[metric] - df['dummy_{}'.format(metric)] * sign
+        elif normalization == 'ratio':
+            df[metric] = df[metric] / df['dummy_{}'.format(metric)] ** sign
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
