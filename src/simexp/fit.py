@@ -328,7 +328,8 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                'train_obs_per_class_threshold': self.train_obs_per_class_threshold,
                                'perturb_fraction': self.perturb_fractions}) \
                 .fillna({**{c: 'None' for c in ('influence_estimator', 'perturber', 'detector')},
-                         **{'perturb_fraction': 0.}})
+                         **{c: 0. for c in ('perturb_fraction', 'top_k_accuracy', 'dummy_top_k_accuracy')},
+                         **{c: np.inf for c in ('cross_entropy', 'dummy_cross_entropy')}})
             df.train_obs_count = df.train_obs_count.astype('category').cat.as_ordered()
             return df
 
