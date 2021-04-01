@@ -155,9 +155,11 @@ class SurrogatesResultPlotter:
             sign = -1
 
         if normalization == 'difference':
-            df[metric] = df[metric] - df['dummy_{}'.format(metric)] * sign
+            df[metric] = (df[metric] - df['dummy_{}'.format(metric)]) * sign
         elif normalization == 'ratio':
-            df[metric] = df[metric] / df['dummy_{}'.format(metric)] ** sign
+            df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
+
+        title_prefix = 'Gain in ' if normalization != 'none' else ''
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
@@ -173,6 +175,6 @@ class SurrogatesResultPlotter:
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
                 expand_limits(y=0) +
-                ggtitle('{} by Fraction of Augmented Images'.format(metric_in_title)) +
+                ggtitle('{}{} by Fraction of Augmented Images'.format(title_prefix, metric_in_title)) +
                 labs(x='Fraction of Augmented Images', y=metric_in_title, color='Number of training images') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
