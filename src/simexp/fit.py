@@ -12,6 +12,7 @@ import pyspark.sql.functions as sf
 from petastorm.etl.dataset_metadata import get_schema_from_dataset_url
 from petastorm.unischema import Unischema, UnischemaField
 from pyspark.sql import DataFrame
+from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel
 from sklearn.metrics import roc_auc_score, log_loss
@@ -42,6 +43,10 @@ class TreeSurrogate(LoggingMixin):
         acc: float
         counts: np.ndarray
 
+        dummy_cross_entropy: float
+        dummy_gini: float
+        dummy_acc: float
+
         def __str__(self):
             res = self.cv_results
             entropies = np.asarray([res['split{}_test_score'.format(i)][self.cv_best_index]
@@ -57,9 +62,10 @@ class TreeSurrogate(LoggingMixin):
             for k, v in best_params.items():
                 s += '    \'{}\': {}\n'.format(k, v)
 
-            s += 'Expected cross-entropy: {:.3f}\n'.format(self.cross_entropy)
-            s += 'Expected gini: {:.3f}\n'.format(self.gini)
-            s += 'Expected top-{}-acc: {:.3f}\n'.format(self.top_k_acc, self.acc)
+            s += 'Expected cross-entropy: {:.3f} (vs. {:.3f} for dummy)\n' \
+                .format(self.cross_entropy, self.dummy_cross_entropy)
+            s += 'Expected gini: {:.3f} (vs. {:.3f} for dummy)\n'.format(self.gini, self.dummy_gini)
+            s += 'Expected top-{}-acc: {:.3f} (vs. {:.3f} for dummy)\n'.format(self.top_k_acc, self.acc, self.dummy_acc)
             return s
 
         def __eq__(self, other):
@@ -84,6 +90,10 @@ class TreeSurrogate(LoggingMixin):
         assert len(self.all_classes) > 1
         self.multi_class = len(self.all_classes) > 2
 
+        assert self.top_k_acc < len(self.all_classes), \
+            'Top-{}-accuracy with only {} classes is always 1, thus meaningless.' \
+            .format(self.top_k_acc, len(self.all_classes))
+
     @property
     def all_class_ids(self):
         return list(range(len(self.all_classes)))
@@ -93,9 +103,11 @@ class TreeSurrogate(LoggingMixin):
                               cv=self.k_folds, n_jobs=self.n_jobs,
                               scoring='neg_log_loss')
         cv = search.fit(X_train, y_train)
+        dummy = DummyClassifier(strategy='prior', random_state=self.random_state)
+        dummy.fit(X_train, y_train)
 
         try:
-            return self._score(cv, X_test, y_test)
+            return self._score(cv, dummy, X_test, y_test)
         except Exception as e:
             self._log_item('ERROR: The following exception occurred while scoring the model:\n{}'.format(str(e)))
             return cv
@@ -115,13 +127,12 @@ class TreeSurrogate(LoggingMixin):
         proba_ordered[:, idx] = probs
         return proba_ordered
 
-    def _score(self, cv: GridSearchCV, X_test, y_test) -> Score:
+    def _compute_scores(self, clf, X_test, y_test):
         """
-        Scores the performance of a classifier trained in `cv`.
+        Scores the performance of `clf`.
         """
-        best_pipeline = cv.best_estimator_
-        y_test_pred = best_pipeline.predict_proba(X_test)
-        y_test_pred = self._spread_probs_to_all_classes(y_test_pred, best_pipeline.classes_)
+        y_test_pred = clf.predict_proba(X_test)
+        y_test_pred = self._spread_probs_to_all_classes(y_test_pred, clf.classes_)
 
         if y_test_pred.shape[1] == 2:
             # binary case
@@ -130,8 +141,16 @@ class TreeSurrogate(LoggingMixin):
         cross_entropy = log_loss(y_test, y_test_pred)
         gini = self._gini_score(y_test, y_test_pred)
 
-        top_k_acc = self.top_k_acc if self.multi_class else 1
-        acc = self._top_k_acc_score(best_pipeline, X_test, y_test)
+        acc = self._top_k_acc_score(clf, X_test, y_test)
+        return cross_entropy, gini, acc
+
+    def _score(self, cv: GridSearchCV, dummy: DummyClassifier, X_test, y_test) -> Score:
+        """
+        Scores the performance of a classifier trained in `cv`, and of a `dummy` classifier trained on the same data.
+        """
+        best_pipeline = cv.best_estimator_
+        cross_entropy, gini, acc = self._compute_scores(cv, X_test, y_test)
+        dummy_cross_entropy, dummy_gini, dummy_acc = self._compute_scores(dummy, X_test, y_test)
 
         try:
             counts = self._get_class_counts_in_nodes(best_pipeline, X_test, y_test)
@@ -147,8 +166,11 @@ class TreeSurrogate(LoggingMixin):
                                    cv_n_splits=cv.n_splits_,
                                    cross_entropy=cross_entropy,
                                    gini=gini,
-                                   top_k_acc=top_k_acc,
+                                   top_k_acc=self.top_k_acc,
                                    acc=acc,
+                                   dummy_cross_entropy=dummy_cross_entropy,
+                                   dummy_gini=dummy_gini,
+                                   dummy_acc=dummy_acc,
                                    counts=counts)
 
     def _get_class_counts_in_nodes(self, best_pipeline, X_test, y_test):
@@ -280,23 +302,25 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             if not self.train_obs_balanced:
                 assert not np.any(balanced), 'found mixed observations from balanced and unbalanced sampling'
 
-        def inspect_best(self, stop=None):
+        def report_scores(self, stop=None) -> str:
             for rank, index in it.islice(enumerate(np.argsort(self.scores)), 0, stop):
-                print('-------------------------------------')
-                print('Rank {}:'.format(rank + 1))
-                print(self.scores[index])
-                print('estimator: {}'.format(self.influence_estimators[index]))
-                print('perturber: {}'.format(self.perturbers[index]))
-                print('detector: {}'.format(self.detectors[index]))
-                print()
+                s = '-------------------------------------'
+                s += 'Rank {}:\n'.format(rank + 1)
+                s += str(self.scores[index]) + '\n'
+                s += 'estimator: {}\n'.format(self.influence_estimators[index])
+                s += 'perturber: {}\n'.format(self.perturbers[index])
+                s += 'detector: {}\n\n'.format(self.detectors[index])
+                return s
 
         def __str__(self):
-            return self.inspect_best(stop=1)
+            return self.report_scores(stop=1)
 
         def to_flat_pandas(self) -> pd.DataFrame:
             df = pd.DataFrame({'cross_entropy': [score.cross_entropy for score in self.scores],
                                'top_k': [score.top_k_acc for score in self.scores],
                                'top_k_accuracy': [score.acc for score in self.scores],
+                               'dummy_cross_entropy': [score.dummy_cross_entropy for score in self.scores],
+                               'dummy_top_k_accuracy': [score.dummy_acc for score in self.scores],
                                'influence_estimator': self.influence_estimators,
                                'perturber': self.perturbers,
                                'detector': self.detectors,
@@ -449,15 +473,6 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                           influence_estimator, perturber, detector)
             self._log_item('We have {} candidate observations.'.format(len(train_obs)))
 
-            # indices = train_obs.filter_for_split(self.tree.k_folds)
-            # remaining_count = np.count_nonzero(indices)
-            # if remaining_count > 0:
-            #     self._log_item('After filtering for CV, {} observations remain.'.format(remaining_count))
-            # else:
-            #     self._log_item('WARNING: There are not enough observations for a {}-fold CV.'
-            #                    'Resetting number of folds to 1 (no CV)'
-            #                    .format(self.tree.k_folds))
-            #     indices = np.ones_like(indices)
             group_df.unpersist()  # free memory
             return self.tree.fit_and_score(train_obs.concept_counts,
                                            train_obs.predicted_classes,
