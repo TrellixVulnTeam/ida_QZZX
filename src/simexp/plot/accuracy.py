@@ -28,6 +28,8 @@ clear_theme = (theme_bw() +
                                        colour='black'),
                      plot_title=element_text(size=20, fontweight='normal'),
                      axis_title=element_text(size=14, fontweight='normal'),
+                     axis_title_x=element_text(margin={'t': 10}),
+                     axis_title_y=element_text(margin={'r': 10}),
                      line=element_line(colour='black', size=.5),
                      strip_text_x=element_text(size=10),
                      strip_background=element_blank(),
@@ -123,7 +125,6 @@ class SurrogatesResultPlotter:
                 labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters') +
                 theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
                       axis_title_x=element_blank(),
-                      axis_title_y=element_text(margin={'r': 10}),
                       legend_title=element_text(margin={'b': 10}),
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
