@@ -88,6 +88,12 @@ class SurrogatesResultPlotter:
 
         return df, metric_in_title
 
+    @staticmethod
+    def _make_bold_if_winner(df, col_name: str):
+        df[col_name] = df.apply(lambda x: r'$\mathbf{{{}}}$'.format(x.influence_estimator_name)
+                                if x.winner else x[col_name], axis=1)
+        return df
+
     def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none',
                                                    show_best_params: bool = False):
         """
@@ -112,11 +118,10 @@ class SurrogatesResultPlotter:
             best_indices = df.groupby(by='influence_estimator')[metric].idxmin()
             df['winner'] = df[metric] == df[metric].min()
 
-        df['influence_estimator_name'] = df.apply(lambda x: r'\mathbf{{{}}}'.format(x.influence_estimator_name)
-                                                  if x.winner else x.influence_estimator_name, axis=1)
-        df['label'] = df.apply(lambda x: r'\mathbf{{{}}}'.format(x.label) if x.winner else x.label, axis=1)
-
         df = df.loc[best_indices]
+
+        df = self._make_bold_if_winner(df, 'influence_estimator_name')
+        df = self._make_bold_if_winner(df, 'label')
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
@@ -127,7 +132,7 @@ class SurrogatesResultPlotter:
             plot += scale_color_manual(values=('#00000000', 'black'), guide=None)
             plot += scale_fill_brewer(type='qual', palette='Paired')
         else:
-            plot += geom_col(color='black')
+            plot += geom_col(color='black', fill='none')
 
         return (plot
                 + geom_text(aes(label='label'), size=14, va='bottom')
