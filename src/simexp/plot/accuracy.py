@@ -83,8 +83,6 @@ class SurrogatesResultPlotter:
                                          .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
                                          axis=1)
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
-        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
-                                                  if x.winner else x.influence_estimator_name, axis=1)
 
         return df, metric_in_title
 
@@ -108,6 +106,9 @@ class SurrogatesResultPlotter:
         else:
             best_indices = self.df.groupby(by='influence_estimator')[metric].idxmin()
             df['winner'] = df[metric] == df[metric].min()
+
+        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
+                                                  if x.winner else x.influence_estimator_name, axis=1)
 
         df = df.loc[best_indices]
 
