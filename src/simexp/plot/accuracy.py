@@ -112,7 +112,7 @@ class SurrogatesResultPlotter:
 
         df = df.loc[best_indices]
 
-        y_label = r'$\widehat{{A}} [{}]$'.format(metric_in_title) if normalization != 'none' else metric_in_title
+        y_label = r'$\widehat{{A}}$ [{}]'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
