@@ -101,10 +101,10 @@ class SurrogatesResultPlotter:
         df, metric_in_title = self._get_normalized_df(metric, normalization)
 
         if normalization != 'none' or metric == 'top_k_accuracy':
-            best_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()  # max diff or ratio per group
+            best_indices = df.groupby(by='influence_estimator')[metric].idxmax()  # max diff or ratio per group
             df['winner'] = df[metric] == df[metric].max()  # global max
         else:
-            best_indices = self.df.groupby(by='influence_estimator')[metric].idxmin()
+            best_indices = df.groupby(by='influence_estimator')[metric].idxmin()
             df['winner'] = df[metric] == df[metric].min()
 
         df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
@@ -112,16 +112,16 @@ class SurrogatesResultPlotter:
 
         df = df.loc[best_indices]
 
+        y_label = r'$\widehat{{A}} [{}]$'.format(metric_in_title) if normalization != 'none' else metric_in_title
+
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
                 geom_col(aes(fill='hyperparameters', color='winner')) +
                 geom_text(aes(label='label'), size=14, va='bottom') +
                 scale_color_manual(values=('#00000000', 'black'), guide=None) +
                 expand_limits(y=0) +
-                labs(x='Pixel Attribution Method', fill='Augmentation parameters') +
-                theme(axis_title_x=element_blank(),
-                      axis_title_y=element_blank(),
-                      axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
+                labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters') +
+                theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
                       legend_title=element_text(margin={'b': 10}),
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
@@ -141,11 +141,6 @@ class SurrogatesResultPlotter:
         :return: the generated ggplot
         """
         df, metric_in_title = self._get_normalized_df(metric, normalization)
-
-        df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
-        df.hyperparameters = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
-                                                                    x.perturber, x.detector),
-                                      axis=1)
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
