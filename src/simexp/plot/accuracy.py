@@ -51,7 +51,7 @@ class SurrogatesResultPlotter:
             .str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
                          r'\((?P<influence_estimator_params>.*)\)$',
                          expand=True) \
-            .fillna('None')
+            .fillna('No attribution')
 
     @staticmethod
     def _get_k(df: pd.DataFrame):
