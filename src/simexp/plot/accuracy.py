@@ -118,22 +118,25 @@ class SurrogatesResultPlotter:
         df = df.loc[best_indices]
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
-        labs_args = {'x': 'Attribution Method', 'y': y_label}
-        if show_best_params:
-            labs_args.update(fill='Best augmentation parameters')
 
-        return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
-                clear_theme +
-                geom_col(aes(fill='hyperparameters', color='winner')) +
-                geom_text(aes(label='label'), size=14, va='bottom') +
-                scale_color_manual(values=('#00000000', 'black'), guide=None) +
-                expand_limits(y=0) +
-                labs(**labs_args) +
-                theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
-                      axis_title_x=element_blank(),
-                      legend_title=element_text(margin={'b': 10}),
-                      legend_entry_spacing=5) +
-                scale_fill_brewer(type='qual', palette='Paired'))
+        plot = ggplot(df, aes(x='influence_estimator_name', y=metric)) + clear_theme
+
+        if show_best_params:
+            plot += geom_col(aes(fill='hyperparameters', color='winner'))
+            plot += scale_color_manual(values=('#00000000', 'black'), guide=None)
+            plot += scale_fill_brewer(type='qual', palette='Paired')
+        else:
+            plot += geom_col(aes(fill='winner'))
+            plot += scale_fill_manual(values=('#00000000', 'black'), guide=None)
+
+        return (plot
+                + geom_text(aes(label='label'), size=14, va='bottom')
+                + expand_limits(y=0)
+                + labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters')
+                + theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
+                        axis_title_x=element_blank(),
+                        legend_title=element_text(margin={'b': 10}),
+                        legend_entry_spacing=5))
 
     def plot_accuracy_per_perturb_fraction(self, metric: str = 'cross_entropy', normalization: str = 'none',
                                            breaks: Optional[List[float]] = None):
