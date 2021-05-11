@@ -112,7 +112,7 @@ class SurrogatesResultPlotter:
 
         df = df.loc[best_indices]
 
-        y_label = r'$\widehat{{A}}$ [{}]'.format(metric_in_title) if normalization != 'none' else metric_in_title
+        y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
@@ -122,6 +122,7 @@ class SurrogatesResultPlotter:
                 expand_limits(y=0) +
                 labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters') +
                 theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
+                      axis_title_x=element_blank(),
                       legend_title=element_text(margin={'b': 10}),
                       legend_entry_spacing=5) +
                 scale_fill_brewer(type='qual', palette='Paired'))
