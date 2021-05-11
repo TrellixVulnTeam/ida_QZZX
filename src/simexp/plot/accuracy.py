@@ -56,6 +56,38 @@ class SurrogatesResultPlotter:
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         return df['top_k'][0]
 
+    def _get_normalized_df(self, metric: str, normalization: str):
+        assert metric in ['top_k_accuracy', 'cross_entropy']
+        assert normalization in ['none', 'difference', 'ratio']
+
+        df = self.df
+
+        if metric == 'top_k_accuracy':
+            metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
+            sign = 1
+        else:
+            metric_in_title = 'Cross Entropy'
+            sign = -1
+
+        if normalization == 'difference':
+            df[metric] = (df[metric] - df['dummy_{}'.format(metric)]) * sign
+        elif normalization == 'ratio':
+            df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
+
+        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 2
+                                      if x[metric] != 0 else 0, axis=1)
+        df['label'] = df.apply(lambda x: '${{:.{}f}}$'.format(x.num_decimals).format(x[metric]), axis=1)
+
+        df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
+                                         else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
+                                         .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
+                                         axis=1)
+        df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
+        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
+                                                  if x.winner else x.influence_estimator_name, axis=1)
+
+        return df, metric_in_title
+
     def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none'):
         """
         Plots a bar chart with one bar per influence estimator.
@@ -68,47 +100,16 @@ class SurrogatesResultPlotter:
             and 'ratio' for computing the ratio.
         :return: the generated ggplot
         """
-        assert metric in ['top_k_accuracy', 'cross_entropy']
-        assert normalization in ['none', 'difference', 'ratio']
+        df, metric_in_title = self._get_normalized_df(metric, normalization)
 
-        if metric == 'top_k_accuracy':
-            max_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()  # max per group
-            df = self.df.loc[max_indices]
-            k = self._get_k(df)
-            if normalization != 'none':
-                title = 'Gain in Top-{}-Accuracy Per Attribution Method'.format(k)
-            else:
-                title = 'Highest Top-{}-Accuracy Per Attribution Method'.format(k)
-            df['winner'] = df.top_k_accuracy == df.top_k_accuracy.max()  # global max
-            sign = 1
+        if normalization != 'none' or metric == 'top_k_accuracy':
+            best_indices = self.df.groupby(by='influence_estimator')[metric].idxmax()  # max diff or ratio per group
+            df['winner'] = df[metric] == df[metric].max()  # global max
         else:
-            min_indices = self.df.groupby(by='influence_estimator')[metric].idxmin()
-            df = self.df.loc[min_indices]
-            if normalization != 'none':
-                title = 'Gain in Cross Entropy Per Attribution Method'
-            else:
-                title = 'Lowest Cross Entropy Per Attribution Method'
+            best_indices = self.df.groupby(by='influence_estimator')[metric].idxmin()
+            df['winner'] = df[metric] == df[metric].min()
 
-            df['winner'] = df.cross_entropy == df.cross_entropy.min()
-            sign = -1
-
-        if normalization == 'difference':
-            df[metric] = (df[metric] - df['dummy_{}'.format(metric)]) * sign
-        elif normalization == 'ratio':
-            df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
-
-        df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
-                                         else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
-                                         .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
-                                         axis=1)
-
-        df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
-        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
-                                                  if x.winner else x.influence_estimator_name, axis=1)
-
-        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 2
-                                      if x[metric] != 0 else 0, axis=1)
-        df['label'] = df.apply(lambda x: '${{:.{}f}}$'.format(x.num_decimals).format(x[metric]), axis=1)
+        df = df.loc[best_indices]
 
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
@@ -116,7 +117,6 @@ class SurrogatesResultPlotter:
                 geom_text(aes(label='label'), size=14, va='bottom') +
                 scale_color_manual(values=('#00000000', 'black'), guide=None) +
                 expand_limits(y=0) +
-                ggtitle(title) +
                 labs(x='Pixel Attribution Method', fill='Augmentation parameters') +
                 theme(axis_title_x=element_blank(),
                       axis_title_y=element_blank(),
@@ -139,27 +139,12 @@ class SurrogatesResultPlotter:
         :param breaks: optional list that specifies the x-axis breaks
         :return: the generated ggplot
         """
-        assert metric in ['top_k_accuracy', 'cross_entropy']
-        assert normalization in ['none', 'difference', 'ratio']
+        df, metric_in_title = self._get_normalized_df(metric, normalization)
 
         df = pd.concat([self.df, self._extract_ie_names_and_params(self.df)], axis=1)
         df.hyperparameters = df.apply(lambda x: '{}\n{}\n{}'.format(x.influence_estimator_name,
                                                                     x.perturber, x.detector),
                                       axis=1)
-
-        if metric == 'top_k_accuracy':
-            metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
-            sign = 1
-        else:
-            metric_in_title = 'Cross Entropy'
-            sign = -1
-
-        if normalization == 'difference':
-            df[metric] = (df[metric] - df['dummy_{}'.format(metric)]) * sign
-        elif normalization == 'ratio':
-            df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
-
-        title_prefix = 'Gain in ' if normalization != 'none' else ''
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
@@ -175,6 +160,5 @@ class SurrogatesResultPlotter:
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
                 expand_limits(y=0) +
-                ggtitle('{}{} by Fraction of Augmented Images'.format(title_prefix, metric_in_title)) +
                 labs(x='Fraction of Augmented Images', y=metric_in_title, color='Number of training images') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
