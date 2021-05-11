@@ -78,7 +78,7 @@ class SurrogatesResultPlotter:
 
         df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 3
                                       if x[metric] != 0 else 0, axis=1)
-        df['label'] = df.apply(lambda x: '${{:.{}f}}$'.format(x.num_decimals).format(x[metric]), axis=1)
+        df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x[metric]), axis=1)
 
         df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
                                          else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
@@ -87,12 +87,6 @@ class SurrogatesResultPlotter:
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
 
         return df, metric_in_title
-
-    @staticmethod
-    def _make_bold_if_winner(df, col_name: str):
-        df[col_name] = df.apply(lambda x: r'$\mathbf{{{}}}$'.format(x.influence_estimator_name)
-                                if x.winner else x[col_name], axis=1)
-        return df
 
     def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none',
                                                    show_best_params: bool = False):
@@ -118,10 +112,11 @@ class SurrogatesResultPlotter:
             best_indices = df.groupby(by='influence_estimator')[metric].idxmin()
             df['winner'] = df[metric] == df[metric].min()
 
-        df = df.loc[best_indices]
+        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
+                                                  if x.winner else x.influence_estimator_name, axis=1)
+        df['label'] = df.apply(lambda x: r'$\mathbf{{{}}}$'.format(x.label) if x.winner else x.label, axis=1)
 
-        df = self._make_bold_if_winner(df, 'influence_estimator_name')
-        df = self._make_bold_if_winner(df, 'label')
+        df = df.loc[best_indices]
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
