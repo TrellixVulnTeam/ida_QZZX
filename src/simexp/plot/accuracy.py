@@ -74,7 +74,7 @@ class SurrogatesResultPlotter:
         elif normalization == 'ratio':
             df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
 
-        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 2
+        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 3
                                       if x[metric] != 0 else 0, axis=1)
         df['label'] = df.apply(lambda x: '${{:.{}f}}$'.format(x.num_decimals).format(x[metric]), axis=1)
 
@@ -143,6 +143,7 @@ class SurrogatesResultPlotter:
         :return: the generated ggplot
         """
         df, metric_in_title = self._get_normalized_df(metric, normalization)
+        y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
@@ -158,5 +159,5 @@ class SurrogatesResultPlotter:
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
                 expand_limits(y=0) +
-                labs(x='Fraction of Augmented Images', y=metric_in_title, color='Number of training images') +
+                labs(x='Fraction of Augmented Images', y=y_label, color='Number of training images') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
