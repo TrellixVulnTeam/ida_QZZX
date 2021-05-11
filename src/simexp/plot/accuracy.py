@@ -88,7 +88,8 @@ class SurrogatesResultPlotter:
 
         return df, metric_in_title
 
-    def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none'):
+    def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none',
+                                                   show_best_params: bool = False):
         """
         Plots a bar chart with one bar per influence estimator.
         Each bar shows the best accuracy reached by the respective estimator,
@@ -98,6 +99,8 @@ class SurrogatesResultPlotter:
         :param normalization: how to normalize the metric with respect to the dummy baseline.
             Choose 'none' for no normalization, 'difference' for computing the difference,
             and 'ratio' for computing the ratio.
+        :param show_best_params: whether to use fill colors for showing which hyperparameters
+            lead to the respective best accuracy of each influence estimator
         :return: the generated ggplot
         """
         df, metric_in_title = self._get_normalized_df(metric, normalization)
@@ -115,6 +118,9 @@ class SurrogatesResultPlotter:
         df = df.loc[best_indices]
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
+        labs_args = {'x': 'Attribution Method', 'y': y_label}
+        if show_best_params:
+            labs_args.update(fill='Best augmentation parameters')
 
         return (ggplot(df, aes(x='influence_estimator_name', y=metric)) +
                 clear_theme +
@@ -122,7 +128,7 @@ class SurrogatesResultPlotter:
                 geom_text(aes(label='label'), size=14, va='bottom') +
                 scale_color_manual(values=('#00000000', 'black'), guide=None) +
                 expand_limits(y=0) +
-                labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters') +
+                labs(**labs_args) +
                 theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
                       axis_title_x=element_blank(),
                       legend_title=element_text(margin={'b': 10}),
