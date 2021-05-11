@@ -112,8 +112,9 @@ class SurrogatesResultPlotter:
             best_indices = df.groupby(by='influence_estimator')[metric].idxmin()
             df['winner'] = df[metric] == df[metric].min()
 
-        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
+        df['influence_estimator_name'] = df.apply(lambda x: r'\mathbf{{{}}}'.format(x.influence_estimator_name)
                                                   if x.winner else x.influence_estimator_name, axis=1)
+        df['label'] = df.apply(lambda x: r'\mathbf{{{}}}'.format(x.label) if x.winner else x.label, axis=1)
 
         df = df.loc[best_indices]
 
@@ -126,8 +127,7 @@ class SurrogatesResultPlotter:
             plot += scale_color_manual(values=('#00000000', 'black'), guide=None)
             plot += scale_fill_brewer(type='qual', palette='Paired')
         else:
-            plot += geom_col(aes(fill='winner'))
-            plot += scale_fill_manual(values=('#00000000', 'black'), guide=None)
+            plot += geom_col(color='black')
 
         return (plot
                 + geom_text(aes(label='label'), size=14, va='bottom')
