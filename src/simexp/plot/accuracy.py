@@ -24,10 +24,10 @@ clear_theme = (theme_bw() +
                      panel_grid_minor=element_blank(),
                      text=element_text(wrap=False,
                                        family='Nimbus Roman No9 L',
-                                       size=16,
+                                       size=10,
                                        colour='black'),
-                     plot_title=element_text(size=20, fontweight='normal'),
-                     axis_title=element_text(size=14, fontweight='normal'),
+                     plot_title=element_text(size=14, fontweight='normal'),
+                     axis_title=element_text(size=10, fontweight='normal'),
                      axis_title_x=element_text(margin={'t': 10}),
                      axis_title_y=element_text(margin={'r': 10}),
                      line=element_line(colour='black', size=.5),
@@ -130,7 +130,7 @@ class SurrogatesResultPlotter:
             plot += geom_col(color='black', fill='none')
 
         return (plot
-                + geom_text(aes(label='label'), size=14, va='bottom')
+                + geom_text(aes(label='label'), va='bottom')  # size=14
                 + expand_limits(y=0)
                 + labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters')
                 + theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
