@@ -117,8 +117,8 @@ class SurrogatesResultPlotter:
         df = df.loc[best_indices]
 
         # mark best influence estimator with an asterisk and make the corresponding label bold
-        df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
-                                                  if x.winner else x.influence_estimator_name, axis=1)
+        # df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
+        #                                           if x.winner else x.influence_estimator_name, axis=1)
         df['label'] = df.apply(lambda x: r'$\mathbf{{{}}}$'.format(x.label) if x.winner else x.label, axis=1)
         # sort influence estimators from worst to best
         ie_names_sorted = pd.unique(df.sort_values(by=metric, ascending=higher_is_better)['influence_estimator_name'])
