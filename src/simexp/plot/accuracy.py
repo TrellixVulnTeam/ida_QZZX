@@ -58,7 +58,7 @@ class SurrogatesResultPlotter:
         assert df['top_k'].nunique() == 1, 'cannot merge top-k accuracies with different k'
         return df['top_k'][0]
 
-    def _get_normalized_df(self, metric: str, normalization: str):
+    def _get_normalized_df(self, metric: str, normalization: str, num_digits: int):
         assert metric in ['top_k_accuracy', 'cross_entropy']
         assert normalization in ['none', 'difference', 'ratio']
 
@@ -76,7 +76,7 @@ class SurrogatesResultPlotter:
         elif normalization == 'ratio':
             df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
 
-        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + 3
+        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + num_digits - 1
                                       if x[metric] != 0 else 0, axis=1)
         df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x[metric]), axis=1)
 
@@ -89,7 +89,7 @@ class SurrogatesResultPlotter:
         return df, metric_in_title
 
     def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none',
-                                                   show_best_params: bool = False):
+                                                   num_digits: int = 3, show_best_params: bool = False):
         """
         Plots a bar chart with one bar per influence estimator.
         Each bar shows the best accuracy reached by the respective estimator,
@@ -99,24 +99,30 @@ class SurrogatesResultPlotter:
         :param normalization: how to normalize the metric with respect to the dummy baseline.
             Choose 'none' for no normalization, 'difference' for computing the difference,
             and 'ratio' for computing the ratio.
+        :param num_digits: how many digits of the metric to display
         :param show_best_params: whether to use fill colors for showing which hyperparameters
             lead to the respective best accuracy of each influence estimator
         :return: the generated ggplot
         """
-        df, metric_in_title = self._get_normalized_df(metric, normalization)
+        df, metric_in_title = self._get_normalized_df(metric, normalization, num_digits)
+        higher_is_better = normalization != 'none' or metric == 'top_k_accuracy'
 
-        if normalization != 'none' or metric == 'top_k_accuracy':
+        if higher_is_better:
             best_indices = df.groupby(by='influence_estimator')[metric].idxmax()  # max diff or ratio per group
             df['winner'] = df[metric] == df[metric].max()  # global max
         else:
             best_indices = df.groupby(by='influence_estimator')[metric].idxmin()
             df['winner'] = df[metric] == df[metric].min()
 
+        df = df.loc[best_indices]
+
+        # mark best influence estimator with an asterisk and make the corresponding label bold
         df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
                                                   if x.winner else x.influence_estimator_name, axis=1)
         df['label'] = df.apply(lambda x: r'$\mathbf{{{}}}$'.format(x.label) if x.winner else x.label, axis=1)
-
-        df = df.loc[best_indices]
+        # sort influence estimators from worst to best
+        ie_names_sorted = pd.unique(df.sort_values(by=metric, ascending=higher_is_better)['influence_estimator_name'])
+        df['influence_estimator_name'] = pd.Categorical(df['influence_estimator_name'], ie_names_sorted)
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
@@ -130,7 +136,7 @@ class SurrogatesResultPlotter:
             plot += geom_col(color='black', fill='none')
 
         return (plot
-                + geom_text(aes(label='label'), va='bottom')  # size=14
+                + geom_text(aes(label='label'), size=8, position=position_dodge(width=0.9), va='bottom')
                 + expand_limits(y=0)
                 + labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters')
                 + theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
@@ -139,7 +145,7 @@ class SurrogatesResultPlotter:
                         legend_entry_spacing=5))
 
     def plot_accuracy_per_perturb_fraction(self, metric: str = 'cross_entropy', normalization: str = 'none',
-                                           breaks: Optional[List[float]] = None):
+                                           num_digits: int = 3, breaks: Optional[List[float]] = None):
         """
         Plots a line chart with one line per training sample.
         The chart shows the accuracy of the influence estimator (y-axis)
@@ -149,10 +155,11 @@ class SurrogatesResultPlotter:
         :param normalization: how to normalize the metric with respect to the dummy baseline.
             Choose 'none' for no normalization, 'difference' for computing the difference,
             and 'ratio' for computing the ratio.
+        :param num_digits: how many digits of the metric to display
         :param breaks: optional list that specifies the x-axis breaks
         :return: the generated ggplot
         """
-        df, metric_in_title = self._get_normalized_df(metric, normalization)
+        df, metric_in_title = self._get_normalized_df(metric, normalization, num_digits)
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
         x_args = {} if breaks is None else {'breaks': breaks}
