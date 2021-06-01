@@ -28,8 +28,8 @@ clear_theme = (theme_bw() +
                                        colour='black'),
                      plot_title=element_text(size=14, fontweight='normal'),
                      axis_title=element_text(size=10, fontweight='normal'),
-                     axis_title_x=element_text(margin={'t': 10}),
-                     axis_title_y=element_text(margin={'r': 10}),
+                     axis_title_x=element_text(margin={'t': 5}),
+                     axis_title_y=element_text(margin={'r': 5}),
                      line=element_line(colour='black', size=.5),
                      strip_text_x=element_text(size=10),
                      strip_background=element_blank(),
@@ -65,7 +65,7 @@ class SurrogatesResultPlotter:
         df = self.df
 
         if metric == 'top_k_accuracy':
-            metric_in_title = 'Top-{}-Accuracy'.format(self._get_k(df))
+            metric_in_title = 'Top-{} Accuracy'.format(self._get_k(df))
             sign = 1
         else:
             metric_in_title = 'Cross Entropy'
@@ -76,9 +76,11 @@ class SurrogatesResultPlotter:
         elif normalization == 'ratio':
             df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
 
-        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x[metric])).clip(0, None).astype(int) + num_digits - 1
-                                      if x[metric] != 0 else 0, axis=1)
-        df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x[metric]), axis=1)
+        # compute mean performance of each hyperparameter set
+        df['mean'] = df.groupby(['influence_estimator', 'perturber', 'detector'])[metric].transform(lambda x: x.mean())
+        df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x['mean'])).clip(0, None).astype(int) + num_digits - 1
+                                      if x['mean'] != 0 else 0, axis=1)
+        df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x['mean']), axis=1)
 
         df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
                                          else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
@@ -107,12 +109,13 @@ class SurrogatesResultPlotter:
         df, metric_in_title = self._get_normalized_df(metric, normalization, num_digits)
         higher_is_better = normalization != 'none' or metric == 'top_k_accuracy'
 
+        # find hyperparameters with best mean performance for each influence estimator
         if higher_is_better:
-            best_indices = df.groupby(by='influence_estimator')[metric].idxmax()  # max diff or ratio per group
-            df['winner'] = df[metric] == df[metric].max()  # global max
+            df['winner'] = df['mean'] == df['mean'].max()  # global max
+            best_indices = df.groupby(by='influence_estimator')['mean'].transform(max) == df['mean']
         else:
-            best_indices = df.groupby(by='influence_estimator')[metric].idxmin()
-            df['winner'] = df[metric] == df[metric].min()
+            df['winner'] = df['mean'] == df['mean'].min()
+            best_indices = df.groupby(by='influence_estimator')['mean'].transform(min) == df['mean']
 
         df = df.loc[best_indices]
 
@@ -121,7 +124,7 @@ class SurrogatesResultPlotter:
         #                                           if x.winner else x.influence_estimator_name, axis=1)
         df['label'] = df.apply(lambda x: r'$\mathbf{{{}}}$'.format(x.label) if x.winner else x.label, axis=1)
         # sort influence estimators from worst to best
-        ie_names_sorted = pd.unique(df.sort_values(by=metric, ascending=higher_is_better)['influence_estimator_name'])
+        ie_names_sorted = pd.unique(df.sort_values(by='mean', ascending=higher_is_better)['influence_estimator_name'])
         df['influence_estimator_name'] = pd.Categorical(df['influence_estimator_name'], ie_names_sorted)
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
@@ -129,14 +132,13 @@ class SurrogatesResultPlotter:
         plot = ggplot(df, aes(x='influence_estimator_name', y=metric)) + clear_theme
 
         if show_best_params:
-            plot += geom_col(aes(fill='hyperparameters', color='winner'))
-            plot += scale_color_manual(values=('#00000000', 'black'), guide=None)
+            plot += geom_boxplot(aes(fill='hyperparameters'))
             plot += scale_fill_brewer(type='qual', palette='Paired')
         else:
-            plot += geom_col(color='black', fill='none')
+            plot += geom_boxplot()
 
         return (plot
-                + geom_text(aes(label='label'), size=8, position=position_dodge(width=0.9), va='bottom')
+                + geom_hline(yintercept=0, linetype='dashed')
                 + expand_limits(y=0)
                 + labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters')
                 + theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
