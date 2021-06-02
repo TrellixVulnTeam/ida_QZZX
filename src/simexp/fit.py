@@ -272,7 +272,7 @@ class TrainObservations(ConceptCountObservations):
         `ceil(security_factor * num_splits)` times.
         Use this to keep only classes where at least one prediction for each CV split is available.
         """
-        min_samples = math.ceil(security_factor * float(num_splits))  # need >= num_splits samples for each scene
+        min_samples = math.ceil(security_factor * float(num_splits))  # need >= num_splits samples for each class
         enough_samples = list(s for s, c in self.class_counts(all_classes) if c >= min_samples)
         return np.isin(self.predicted_classes, enough_samples)
 

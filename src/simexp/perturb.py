@@ -328,7 +328,7 @@ class CLInterface:
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Leverage pixel observe_influence estimators, such as LIME or DeepLift,'
+    parser = ArgumentParser(description='Leverage pixel influence estimators, such as LIME or DeepLift,'
                                         'to improve the training data for surrogate models of an image classifier.'
                                         'The generated training data is not in the pixel space used by the classifier,'
                                         'but in the space of "concept-counts" on images.')
