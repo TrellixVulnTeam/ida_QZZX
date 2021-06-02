@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import numpy as np
 import matplotlib as mpl
@@ -38,6 +38,11 @@ clear_theme = (theme_bw() +
 
 @dataclass
 class SurrogatesResultPlotter:
+
+    DUMMY_NO_IE_NAME = 'No attribution\n+ Dummy model'
+
+    NO_IE_NAME = 'No attribution'
+
     # the results to plot
     results: SurrogatesFitter.Results
 
@@ -51,7 +56,7 @@ class SurrogatesResultPlotter:
             .str.extract(r'^(?P<influence_estimator_name>.*)InfluenceEstimator'
                          r'\((?P<influence_estimator_params>.*)\)$',
                          expand=True) \
-            .fillna('No attribution')
+            .fillna(SurrogatesResultPlotter.NO_IE_NAME)
 
     @staticmethod
     def _get_k(df: pd.DataFrame):
@@ -59,25 +64,34 @@ class SurrogatesResultPlotter:
         return df['top_k'][0]
 
     def _get_normalized_df(self, metric: str, normalization: str, num_digits: int):
-        assert metric in ['top_k_accuracy', 'cross_entropy']
+        assert metric in ['top_k_accuracy', 'inverse_top_k_accuracy', 'cross_entropy']
         assert normalization in ['none', 'difference', 'ratio']
 
         df = self.df
 
-        if metric == 'top_k_accuracy':
-            metric_in_title = 'Top-{} Accuracy'.format(self._get_k(df))
-            sign = 1
-        else:
-            metric_in_title = 'Cross Entropy'
+        if metric == 'inverse_top_k_accuracy':
+            metric_in_title = '1 - Top-{} Accuracy'.format(self._get_k(df))
+            df['metric'] = 1 - df['top_k_accuracy']
+            df['dummy_metric'] = 1 - df['dummy_top_k_accuracy']
             sign = -1
+        else:
+            df['metric'] = df[metric]
+            df['dummy_metric'] = df['dummy_{}'.format(metric)]
+
+            if metric == 'top_k_accuracy':
+                metric_in_title = 'Top-{} Accuracy'.format(self._get_k(df))
+                sign = 1
+            elif metric == 'cross_entropy':
+                metric_in_title = 'Cross Entropy'
+                sign = -1
 
         if normalization == 'difference':
-            df[metric] = (df[metric] - df['dummy_{}'.format(metric)]) * sign
+            df['metric'] = (df['metric'] - df['dummy_metric']) * sign
         elif normalization == 'ratio':
-            df[metric] = (df[metric] / df['dummy_{}'.format(metric)]) ** sign
+            df['metric'] = (df['metric'] / df['dummy_metric']) ** sign
 
         # compute mean performance of each hyperparameter set
-        df['mean'] = df.groupby(['influence_estimator', 'perturber', 'detector'])[metric].transform(lambda x: x.mean())
+        df['mean'] = df.groupby(['influence_estimator', 'perturber', 'detector'])['metric'].transform(lambda x: x.mean())
         df['num_decimals'] = df.apply(lambda x: -np.log10(np.abs(x['mean'])).clip(0, None).astype(int) + num_digits - 1
                                       if x['mean'] != 0 else 0, axis=1)
         df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x['mean']), axis=1)
@@ -91,19 +105,22 @@ class SurrogatesResultPlotter:
         return df, metric_in_title
 
     def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none',
-                                                   num_digits: int = 3, show_best_params: bool = False):
+                                                   num_digits: int = 3, show_best_params: bool = False,
+                                                   expand_limits_kwargs: Dict[str, Any] = {}):
         """
         Plots a bar chart with one bar per influence estimator.
         Each bar shows the best accuracy reached by the respective estimator,
         across all tested hyperparameter combinations.
 
-        :param metric: which accuracy metric to use, one of 'top_k_accuracy' and 'cross_entropy'
+        :param metric: which accuracy metric to use, one of 'top_k_accuracy', 'inverse_top_k_accuracy'
+            and 'cross_entropy'
         :param normalization: how to normalize the metric with respect to the dummy baseline.
             Choose 'none' for no normalization, 'difference' for computing the difference,
             and 'ratio' for computing the ratio.
         :param num_digits: how many digits of the metric to display
         :param show_best_params: whether to use fill colors for showing which hyperparameters
             lead to the respective best accuracy of each influence estimator
+        :param expand_limits_kwargs: how to expand the limits of the plot, e.g., to include y=0
         :return: the generated ggplot
         """
         df, metric_in_title = self._get_normalized_df(metric, normalization, num_digits)
@@ -119,6 +136,14 @@ class SurrogatesResultPlotter:
 
         df = df.loc[best_indices]
 
+        if normalization == 'none':
+            sample_size = np.count_nonzero(df['influence_estimator'] == 'None')
+            sample = df['dummy_metric'].sample(sample_size)
+            dummy_df = pd.DataFrame({'metric': sample,
+                                     'influence_estimator_name': self.DUMMY_NO_IE_NAME,
+                                     'mean': sample.mean()})
+            df = pd.concat([df, dummy_df])
+
         # mark best influence estimator with an asterisk and make the corresponding label bold
         # df['influence_estimator_name'] = df.apply(lambda x: '* {}'.format(x.influence_estimator_name)
         #                                           if x.winner else x.influence_estimator_name, axis=1)
@@ -129,17 +154,28 @@ class SurrogatesResultPlotter:
 
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
-        plot = ggplot(df, aes(x='influence_estimator_name', y=metric)) + clear_theme
+        plot = ggplot(df, aes(x='influence_estimator_name', y='metric')) + clear_theme
+
+        if normalization == 'difference':
+            plot += geom_hline(yintercept=0, linetype='dashed')
+        elif normalization == 'ratio':
+            plot += geom_hline(yintercept=1, linetype='dashed')
+        elif normalization == 'none':
+            no_attribution_mean = df[df['influence_estimator'] == 'None']['metric'].mean()
+            plot += geom_hline(yintercept=no_attribution_mean, linetype='dashed')
+            dummy_mean = df[df['influence_estimator_name'] == self.DUMMY_NO_IE_NAME]['metric'].mean()
+            plot += geom_hline(yintercept=dummy_mean, linetype='dashed')
 
         if show_best_params:
-            plot += geom_boxplot(aes(fill='hyperparameters'))
+            plot += geom_boxplot(aes(fill='hyperparameters', middle='mean'))
             plot += scale_fill_brewer(type='qual', palette='Paired')
         else:
-            plot += geom_boxplot()
+            plot += geom_jitter(height=0, width=0.1, shape='o', fill='white', stroke=.3)
+
+        plot += stat_summary(fun_data='mean_cl_boot', geom='crossbar')
 
         return (plot
-                + geom_hline(yintercept=0, linetype='dashed')
-                + expand_limits(y=0)
+                + expand_limits(**expand_limits_kwargs)
                 + labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters')
                 + theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
                         axis_title_x=element_blank(),
