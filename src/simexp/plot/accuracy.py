@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -43,6 +44,8 @@ class SurrogatesResultPlotter:
 
     NO_IE_NAME = 'No attribution'
 
+    PARAM_NO_RESAMPLING = 'No resampling'
+
     # the results to plot
     results: SurrogatesFitter.Results
 
@@ -57,6 +60,25 @@ class SurrogatesResultPlotter:
                          r'\((?P<influence_estimator_params>.*)\)$',
                          expand=True) \
             .fillna(SurrogatesResultPlotter.NO_IE_NAME)
+
+    @staticmethod
+    def _formalize_hyperparameters(df_row):
+        if df_row.perturber == 'None':
+            return SurrogatesResultPlotter.PARAM_NO_RESAMPLING
+
+        if df_row.perturber.startswith('LocalPerturber'):
+            resampler = r'Local resampler $\\mathbf{R}_x^\mathrm{loc}$'
+            k = int(re.fullmatch(r'^LocalPerturber\(max_perturbations=(?P<k>.*)\)$', df_row.perturber).group('k'))
+        elif df_row.perturber.startswith('GlobalPerturber'):
+            resampler = r'Global resampler $\\mathbf{R}_x^\mathrm{glob}$'
+            k = int(re.fullmatch(r'^GlobalPerturber\(num_perturbations=(?P<k>.*)\)$', df_row.perturber).group('k'))
+        else:
+            raise RuntimeError('Unknown perturber: {}'.format(df_row.perturber))
+
+        epsilon = float(re.fullmatch(r'^LiftInfluenceDetector\(lift_threshold=(?P<e>.*)\)$', df_row.detector)
+                        .group('e'))
+
+        return '{};\n$k={}$; $\\epsilon={}$'.format(resampler, k, epsilon)
 
     @staticmethod
     def _get_k(df: pd.DataFrame):
@@ -96,10 +118,7 @@ class SurrogatesResultPlotter:
                                       if x['mean'] != 0 else 0, axis=1)
         df['label'] = df.apply(lambda x: '{{:.{}f}}'.format(x.num_decimals).format(x['mean']), axis=1)
 
-        df['hyperparameters'] = df.apply(lambda x: 'No augmentation' if x.perturber == 'None'
-                                         else '$\\mathtt{{{}}}$,\n$\\mathtt{{{}}}$'
-                                         .format(x.perturber.replace('_', r'\_'), x.detector.replace('_', r'\_')),
-                                         axis=1)
+        df['hyperparameters'] = df.apply(self._formalize_hyperparameters, axis=1)
         df = pd.concat([df, self._extract_ie_names_and_params(df)], axis=1)
 
         return df, metric_in_title
@@ -141,6 +160,7 @@ class SurrogatesResultPlotter:
             sample = df['dummy_metric'].sample(sample_size)
             dummy_df = pd.DataFrame({'metric': sample,
                                      'influence_estimator_name': self.DUMMY_NO_IE_NAME,
+                                     'hyperparameters': self.PARAM_NO_RESAMPLING,
                                      'mean': sample.mean()})
             df = pd.concat([df, dummy_df])
 
@@ -162,22 +182,21 @@ class SurrogatesResultPlotter:
             plot += geom_hline(yintercept=1, linetype='dashed')
         elif normalization == 'none':
             no_attribution_mean = df[df['influence_estimator'] == 'None']['metric'].mean()
-            plot += geom_hline(yintercept=no_attribution_mean, linetype='dashed')
             dummy_mean = df[df['influence_estimator_name'] == self.DUMMY_NO_IE_NAME]['metric'].mean()
-            plot += geom_hline(yintercept=dummy_mean, linetype='dashed')
+            baseline_mean = max(no_attribution_mean, dummy_mean) if higher_is_better else min(no_attribution_mean, dummy_mean)
+            plot += geom_hline(yintercept=baseline_mean, linetype='dashed')
 
         if show_best_params:
-            plot += geom_boxplot(aes(fill='hyperparameters', middle='mean'))
+            plot += stat_summary(aes(fill='hyperparameters'), fun_data='mean_cl_boot', geom='crossbar')
             plot += scale_fill_brewer(type='qual', palette='Paired')
         else:
-            plot += geom_jitter(height=0, width=0.1, shape='o', fill='white', stroke=.3)
-
-        plot += stat_summary(fun_data='mean_cl_boot', geom='crossbar')
+            plot += stat_summary(fun_data='mean_cl_boot', geom='crossbar')
 
         return (plot
+                + geom_jitter(height=0, width=0.1, shape='o', fill='white', stroke=.3)
                 + expand_limits(**expand_limits_kwargs)
-                + labs(x='Attribution Method', y=y_label, fill='Best augmentation parameters')
-                + theme(axis_text_x=element_text(angle=-45, hjust=0, vjust=1),
+                + labs(x='Attribution Method', y=y_label, fill='Best resampling parameters')
+                + theme(axis_text_x=element_text(angle=-30, hjust=0, vjust=1),
                         axis_title_x=element_blank(),
                         legend_title=element_text(margin={'b': 10}),
                         legend_entry_spacing=5))
@@ -208,11 +227,11 @@ class SurrogatesResultPlotter:
                          axis=1)
             df.train_obs_count = pd.Categorical(s, ordered=True, categories=s.unique())  # ensure correct ordering
 
-        return (ggplot(df, aes(x='perturb_fraction', y=metric)) +
+        return (ggplot(df, aes(x='perturb_fraction', y='metric')) +
                 clear_theme +
                 geom_path(aes(color='train_obs_count')) +
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
-                expand_limits(y=0) +
-                labs(x='Fraction of Augmented Images', y=y_label, color='Number of training images') +
+                # expand_limits(y=0) +
+                labs(x='Fraction $f$ of Resampled Observations', y=y_label, color='Number of training observations') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
