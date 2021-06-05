@@ -491,7 +491,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                            test_obs.concept_counts, test_obs.predicted_classes)
 
     def _run_for_single_train_sample(self, train_df: DataFrame, perturbed_df: DataFrame, all_concept_names: [str],
-                                     train_obs_per_class: Union[int, np.nan], test_obs: TestObservations):
+                                     train_obs_per_class: int, test_obs: TestObservations):
         # note: train_df.count() is non-deterministic due to the sampling in train_df,
         # except if a seed is set.
         train_image_count = train_df.count()
