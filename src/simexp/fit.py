@@ -491,7 +491,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                                            test_obs.concept_counts, test_obs.predicted_classes)
 
     def _run_for_single_train_sample(self, train_df: DataFrame, perturbed_df: DataFrame, all_concept_names: [str],
-                                     train_obs_per_class: int, test_obs: TestObservations):
+                                     train_obs_per_class: Optional[int], test_obs: TestObservations):
         # note: train_df.count() is non-deterministic due to the sampling in train_df,
         # except if a seed is set.
         train_image_count = train_df.count()
@@ -531,6 +531,9 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
 
         perturb_fractions = np.nan_to_num(np.asarray(perturb_fractions, dtype=float), nan=0.)
 
+        if train_obs_per_class is None:
+            train_obs_per_class = np.nan  # use type that numpy understands better
+
         return SurrogatesFitter.Results(all_concept_names=all_concept_names,
                                         scores=np.asarray(scores, dtype=object),
                                         influence_estimators=np.asarray(influence_estimators),
@@ -563,7 +566,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                 yield threshold, train_df.sampleBy(Field.PREDICTED_CLASS.name, fraction_per_class, seed=self.seed)
         else:
             for f in self.train_fractions:
-                yield np.nan, train_df.sample(f, seed=self.seed)
+                yield None, train_df.sample(f, seed=self.seed)
 
     def run(self) -> Results:
         with self._log_task('Training surrogate models'):
