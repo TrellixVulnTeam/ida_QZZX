@@ -336,8 +336,10 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
             return df
 
         def __add__(self, other):
-            assert self.all_concept_names == other.all_concept_names,\
-                'cannot combine results for different lists of concepts'
+            if self.all_concept_names != other.all_concept_names:
+                print('WARNING: you combine results with differing `all_concept_names`.'
+                      'As a result, the relationship between `all_concept_names` and '
+                      'the features of the surrogate trees is lost.')
 
             train_obs_per_class_threshold = np.concatenate((self.train_obs_per_class_threshold,
                                                             other.train_obs_per_class_threshold))
@@ -591,7 +593,7 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
                     self._log_item('Adding concept {} to test data'.format(concept_field.name))
                     test_df = test_df.withColumn(concept_name, sf.lit(0))
 
-            all_concept_names = [f.name for f in all_concept_fields]
+            all_concept_names = sorted(f.name for f in all_concept_fields)  # without sorting this is in a random order
             self._log_item('Using {} concepts in total (train + perturbations + test data).'
                            .format(len(all_concept_names)))
 
