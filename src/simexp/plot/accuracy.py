@@ -67,10 +67,10 @@ class SurrogatesResultPlotter:
             return SurrogatesResultPlotter.PARAM_NO_RESAMPLING
 
         if df_row.perturber.startswith('LocalPerturber'):
-            resampler = r'Local resampler $\\mathbf{R}_x^\mathrm{loc}$'
+            resampler = r'Local resampler $\mathbf{R}_x^\mathrm{loc}$'
             k = int(re.fullmatch(r'^LocalPerturber\(max_perturbations=(?P<k>.*)\)$', df_row.perturber).group('k'))
         elif df_row.perturber.startswith('GlobalPerturber'):
-            resampler = r'Global resampler $\\mathbf{R}_x^\mathrm{glob}$'
+            resampler = r'Global resampler $\mathbf{R}_x^\mathrm{glob}$'
             k = int(re.fullmatch(r'^GlobalPerturber\(num_perturbations=(?P<k>.*)\)$', df_row.perturber).group('k'))
         else:
             raise RuntimeError('Unknown perturber: {}'.format(df_row.perturber))
@@ -125,6 +125,7 @@ class SurrogatesResultPlotter:
 
     def plot_best_accuracy_per_influence_estimator(self, metric: str = 'cross_entropy', normalization: str = 'none',
                                                    num_digits: int = 3, show_best_params: bool = False,
+                                                   show_dummy: bool = False,
                                                    expand_limits_kwargs: Dict[str, Any] = {}):
         """
         Plots a bar chart with one bar per influence estimator.
@@ -139,6 +140,7 @@ class SurrogatesResultPlotter:
         :param num_digits: how many digits of the metric to display
         :param show_best_params: whether to use fill colors for showing which hyperparameters
             lead to the respective best accuracy of each influence estimator
+        :param show_dummy: whether to show the dummy baseline as own column if `normalization` is 'none'
         :param expand_limits_kwargs: how to expand the limits of the plot, e.g., to include y=0
         :return: the generated ggplot
         """
@@ -155,7 +157,7 @@ class SurrogatesResultPlotter:
 
         df = df.loc[best_indices]
 
-        if normalization == 'none':
+        if normalization == 'none' and show_dummy:
             sample_size = np.count_nonzero(df['influence_estimator'] == 'None')
             sample = df['dummy_metric'].sample(sample_size)
             dummy_df = pd.DataFrame({'metric': sample,
@@ -233,5 +235,6 @@ class SurrogatesResultPlotter:
                 geom_point(aes(color='train_obs_count')) +
                 scale_x_continuous(**x_args) +
                 # expand_limits(y=0) +
-                labs(x='Fraction $f$ of Resampled Observations', y=y_label, color='Number of training observations') +
+                labs(x='Fraction $f$ of Resampled Observations', y=y_label,
+                     color='Number of training observations $|\mathcal{D}|$') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1))
