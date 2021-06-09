@@ -298,12 +298,6 @@ class SurrogatesFitter(ComposableDataclass, LoggingMixin):
         perturb_fractions: np.ndarray
         train_obs_per_class_threshold: np.ndarray
 
-        def __post_init__(self):
-            balanced = np.bitwise_not(np.isnan(self.train_obs_per_class_threshold))
-            self.train_obs_balanced = np.all(balanced)
-            if not self.train_obs_balanced:
-                assert not np.any(balanced), 'found mixed observations from balanced and unbalanced sampling'
-
         def report_scores(self, stop=None) -> str:
             for rank, index in it.islice(enumerate(np.argsort(self.scores)), 0, stop):
                 s = '-------------------------------------'
