@@ -221,13 +221,19 @@ class SurrogatesResultPlotter:
         df, metric_in_title = self._get_normalized_df(metric, normalization, num_digits)
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
+        none_indices = df['influence_estimator'] == 'None'
+        none_rows = df.loc[none_indices].unique()
+        df = df.loc[np.bitwise_not(none_indices)]
+        for influence_estimator_name in df['influence_estimator_name'].unique():
+            df = pd.concat([df, none_rows.assign(influence_estimator_name=influence_estimator_name)])
+
         x_args = {} if breaks is None else {'breaks': breaks}
 
-        if self.results.train_obs_balanced:
-            s = df.apply(lambda x: '{} ($\leq {}$ per class)'.format(x.train_obs_count,
-                                                                     x.train_obs_per_class_threshold),
-                         axis=1)
-            df.train_obs_count = pd.Categorical(s, ordered=True, categories=s.unique())  # ensure correct ordering
+        s = df.apply(lambda x: '${}$ ($\leq {}$ per class)'.format(x.train_obs_count,
+                                                                   x.train_obs_per_class_threshold)
+                     if not np.isnan(x.train_obs_per_class_threshold) else '${}$'.format(x.train_obs_count),
+                     axis=1)
+        df.train_obs_count = pd.Categorical(s, ordered=True, categories=s.unique())  # ensure correct ordering
 
         return (ggplot(df, aes(x='perturb_fraction', y='metric')) +
                 clear_theme +
@@ -237,4 +243,5 @@ class SurrogatesResultPlotter:
                 # expand_limits(y=0) +
                 labs(x='Fraction $f$ of Resampled Observations', y=y_label,
                      color='Number of training observations $|\mathcal{D}|$') +
-                scale_fill_brewer(type='qual', palette='Paired', direction=-1))
+                scale_fill_brewer(type='qual', palette='Paired', direction=-1) +
+                facet_grid(facets='~ influence_estimator_name'))
