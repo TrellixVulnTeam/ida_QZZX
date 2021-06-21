@@ -1,6 +1,6 @@
 import io
 from contextlib import redirect_stdout
-from typing import Optional, List, Literal
+from typing import Optional, List
 
 import numpy as np
 from sklearn.tree._tree import Tree
