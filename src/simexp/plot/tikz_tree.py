@@ -19,13 +19,15 @@ PREAMBLE = r"""
 """
 
 
-TIKZ_STANDALONE_DOC = r"""
+TIKZ_STANDALONE_DOC_BEFORE = r"""
 \documentclass[tikz]{standalone}
 \begin{document}
 \begin{tikzpicture}
 [level distance=12mm]
 {\scriptsize%
-{}%
+"""
+
+TIKZ_STANDALONE_DOC_AFTER = r"""
 }
 \end{tikzpicture}
 \end{document}
@@ -213,4 +215,4 @@ def tree_to_tikz(tree_: Tree,
             recurse(0, -1, min_conf)  # start with the root node id and its parent depth
             print(';')
 
-        return TIKZ_STANDALONE_DOC.format(buf.getvalue())
+        return TIKZ_STANDALONE_DOC_BEFORE + '{}%'.format(buf.getvalue()) + TIKZ_STANDALONE_DOC_AFTER
