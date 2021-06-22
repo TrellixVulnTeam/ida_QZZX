@@ -34,6 +34,7 @@ class TreeSurrogate(LoggingMixin):
         cv_results: Dict[str, Any]
         cv_best_index: int
         cv_n_splits: int
+        selected_features: np.ndarray
         tree: Tree
         seen_classes: np.ndarray
 
@@ -163,6 +164,7 @@ class TreeSurrogate(LoggingMixin):
 
         return TreeSurrogate.Score(cv_results=cv.cv_results_,
                                    cv_best_index=cv.best_index_,
+                                   selected_features=cv.best_estimator_['fsel'].get_support(),
                                    tree=cv.best_estimator_['clf'].tree_,
                                    seen_classes=cv.best_estimator_['clf'].classes_,
                                    cv_n_splits=cv.n_splits_,
