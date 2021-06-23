@@ -222,10 +222,11 @@ class SurrogatesResultPlotter:
         y_label = 'Advantage in {}'.format(metric_in_title) if normalization != 'none' else metric_in_title
 
         none_indices = df['influence_estimator'] == 'None'
-        none_rows = df.loc[none_indices].unique()
+        none_rows = df.loc[none_indices].drop_duplicates()
         df = df.loc[np.bitwise_not(none_indices)]
         for influence_estimator_name in df['influence_estimator_name'].unique():
             df = pd.concat([df, none_rows.assign(influence_estimator_name=influence_estimator_name)])
+        df.sort_values(by=['influence_estimator_name', 'train_obs_count', 'perturb_fraction'], inplace=True)
 
         x_args = {} if breaks is None else {'breaks': breaks}
 
@@ -242,6 +243,6 @@ class SurrogatesResultPlotter:
                 scale_x_continuous(**x_args) +
                 # expand_limits(y=0) +
                 labs(x='Fraction $f$ of Resampled Observations', y=y_label,
-                     color='Number of training observations $|\mathcal{D}|$') +
+                     color='Training observations $|\mathcal{D}|$') +
                 scale_fill_brewer(type='qual', palette='Paired', direction=-1) +
                 facet_grid(facets='~ influence_estimator_name'))
