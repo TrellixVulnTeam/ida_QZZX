@@ -72,7 +72,7 @@ def _print_node(indent, tikz_prefix, feature, threshold, counts, conf,
               end='')
     elif show_inner_conf or is_leaf:
         print((r'\\[1mm]' + '\n' + pretty_indent +
-               '${conf:.2f}$').format(conf=conf), end='')
+               '${count}$ / ${conf:.2f}$').format(count=sum(counts), conf=conf), end='')
 
     print('}}', end='')
 
