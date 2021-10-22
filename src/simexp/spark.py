@@ -108,12 +108,14 @@ class SparkSessionConfig:
     master: str
     driver_memory: str
     exec_memory: str
+    max_result_size: str = '2G'
     local_dir: str = '/tmp'
 
     def __post_init__(self):
         self.builder = SparkSession.builder \
             .config('spark.driver.memory', self.driver_memory) \
             .config('spark.executor.memory', self.exec_memory) \
+            .config('spark.driver.maxResultSize', self.max_result_size) \
             .config('spark.local.dir', self.local_dir) \
             .master(self.master)
 
@@ -241,7 +243,7 @@ class ConceptMasksUnion(ComposableDataclass):
     def _get_union_of_describers_df(self):
         @sf.udf(st.ArrayType(st.StringType()))
         def unique_cleaned_concept_names(describer_name, concept_names):
-            concept_names = Field.CONCEPT_NAMES.decode(concept_names)
+            concept_names = np.asarray(Field.CONCEPT_NAMES.decode(concept_names), dtype=np.unicode_)
             concept_names = (describer_name + '.' + np.char.asarray(np.unique(concept_names))).lower().tolist()
 
             cleaned_concept_names = []
