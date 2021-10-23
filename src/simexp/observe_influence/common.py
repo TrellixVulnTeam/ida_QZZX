@@ -23,8 +23,8 @@ class InfluenceEstimator(abc.ABC):
     @abc.abstractmethod
     def get_influence_mask(self, classifier: Classifier, img: np.ndarray, pred_class: np.uint16) -> np.ndarray:
         """
-        Returns a float numpy array in the dimensions of the input `img` whose entries sum up to 1
-        and represent the influence of each pixel on the classification `pred_class` by `classifier`.
+        Returns a float numpy array in the dimensions of the input `img` whose entries
+        represent the influence of each pixel on the classification `pred_class` by `classifier`.
         """
         pass
 
@@ -153,7 +153,7 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
     search_num_features: int = 100000
     num_samples: int = 1000
 
-    positive_only: bool = True
+    positive_only: bool = False
     negative_only: bool = False
     hide_rest: bool = False
     explain_num_features: int = 5
@@ -168,13 +168,8 @@ class LIMEInfluenceEstimator(InfluenceEstimator):
                                                  top_labels=None,
                                                  num_features=self.search_num_features,
                                                  num_samples=self.num_samples)
-        _, influence_mask = explanation.get_image_and_mask(pred_class,
-                                                           positive_only=self.positive_only,
-                                                           negative_only=self.negative_only,
-                                                           num_features=self.explain_num_features,
-                                                           min_weight=self.min_weight)
 
-        if not np.any(influence_mask):
-            return np.ones(influence_mask.shape) / np.size(influence_mask)
-
-        return influence_mask.astype(np.float_) / np.count_nonzero(influence_mask)
+        mask = np.zeros(explanation.segments.shape, dtype=np.float_)
+        for feature, weight in explanation.local_exp:
+            mask[explanation.segments == feature] = weight
+        return mask
