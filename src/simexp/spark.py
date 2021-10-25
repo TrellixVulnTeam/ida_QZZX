@@ -256,7 +256,8 @@ class ConceptMasksUnion(ComposableDataclass):
 
             return cleaned_concept_names
 
-        return reduce(DataFrame.union, [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls]) \
+        return reduce(DataFrame.unionByName,
+                      [self.spark_cfg.session.read.parquet(url) for url in self.concept_mask_urls]) \
             .withColumn('tmp', unique_cleaned_concept_names(Field.DESCRIBER.name,
                                                             Field.CONCEPT_NAMES.name)) \
             .drop(Field.DESCRIBER.name, Field.CONCEPT_NAMES.name) \
