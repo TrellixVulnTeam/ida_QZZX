@@ -244,7 +244,7 @@ class ConceptMasksUnion(ComposableDataclass):
         @sf.udf(st.ArrayType(st.StringType()))
         def unique_cleaned_concept_names(describer_name, concept_names):
             concept_names = np.asarray(Field.CONCEPT_NAMES.decode(concept_names), dtype=np.unicode_)
-            concept_names = (describer_name + '.' + np.char.asarray(np.unique(concept_names))).lower().tolist()
+            concept_names = (describer_name + '.' + np.char.asarray(concept_names)).lower().tolist()
 
             cleaned_concept_names = []
             for concept_name in concept_names:
