@@ -1,6 +1,6 @@
 import abc
 from dataclasses import dataclass, field
-from typing import Optional, Type, List
+from typing import Optional, Type, List, Dict, Any
 
 import numpy as np
 import torch
@@ -29,8 +29,12 @@ class CaptumInfluenceEstimator(InfluenceEstimator, abc.ABC):
 
         img_tensor = torch.from_numpy(img).float().to(classifier.torch_cfg.device).permute(2, 0, 1).unsqueeze(0)
         algo = self.algorithm(classifier.torch_model)
-        attr = algo.attribute(img_tensor, target=int(pred_class))
+        attr = algo.attribute(img_tensor, target=int(pred_class), **self._attribution_extra_args())
         return np.sum(np.transpose(attr.squeeze(0).cpu().detach().numpy().astype(np.float_), (1, 2, 0)), 2)
+
+    @staticmethod
+    def _attribution_extra_args() -> Dict[str, Any]:
+        return {}
 
 
 @dataclass(unsafe_hash=True)
@@ -41,6 +45,10 @@ class IntegratedGradientsInfluenceEstimator(CaptumInfluenceEstimator):
 @dataclass(unsafe_hash=True)
 class SaliencyInfluenceEstimator(CaptumInfluenceEstimator):
     algorithm: GradientAttribution = field(default=Saliency, init=False)
+
+    @staticmethod
+    def _attribution_extra_args() -> Dict[str, Any]:
+        return {'abs': False}
 
 
 @dataclass(unsafe_hash=True)
