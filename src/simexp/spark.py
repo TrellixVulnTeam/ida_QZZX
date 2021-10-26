@@ -35,7 +35,6 @@ class Field(UnischemaField, Enum):
     PERTURBER = UnischemaField('perturber', np.unicode_, (), ScalarCodec(st.StringType()), True)
     DETECTOR = UnischemaField('detector', np.unicode_, (), ScalarCodec(st.StringType()), True)
     CONCEPT_COUNTS = UnischemaField('concept_counts', np.uint8, (None,), CompressedNdarrayCodec(), False)
-    PERTURBED_IMAGE_ID = UnischemaField('perturbed_image_id', np.unicode_, (), ScalarCodec(st.StringType()), True)
 
     @classmethod
     def _missing_(cls, value):
