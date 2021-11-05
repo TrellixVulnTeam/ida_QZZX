@@ -155,10 +155,10 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
                 influential_counts = np.zeros((len(self.all_concept_names),), dtype=np.uint8)
                 influential_concepts_idx = detector.detect(influence_mask, concept_masks)
                 if len(influential_concepts_idx) > 0:
-                    influential_concept_names = concept_names[influential_concepts_idx]
+                    influential_concept_names = np.asarray(concept_names)[influential_concepts_idx]
 
                     for concept_name, concept_mask in zip(influential_concept_names,
-                                                          concept_masks[influential_concepts_idx]):
+                                                          np.asarray(concept_masks)[influential_concepts_idx]):
                         influential_counts[self.all_concept_names.index(concept_name)] += 1
 
                 for perturber in self.perturbers:
@@ -168,11 +168,11 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
                                           **dict(zip(self.all_concept_names, perturbed_counts))})
 
         with self._log_task('Searching influential concepts on images:'):
-            return self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner') \
-                .withColumn('exploded', sf.explode(_perturb(sf.col(Field.CONCEPT_NAMES.name),
-                                                            sf.col(Field.CONCEPT_MASKS.name),
-                                                            sf.col(Field.INFLUENCE_MASK.name)))) \
-                .select(Field.IMAGE_ID.name,
-                        Field.PREDICTED_CLASS.name,
-                        Field.INFLUENCE_ESTIMATOR.name,
-                        sf.col('exploded.*'))
+            return (self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
+                    .withColumn('exploded', sf.explode(_perturb(sf.col(Field.CONCEPT_NAMES.name),
+                                                                sf.col(Field.CONCEPT_MASKS.name),
+                                                                sf.col(Field.INFLUENCE_MASK.name))))
+                    .select(Field.IMAGE_ID.name,
+                            Field.PREDICTED_CLASS.name,
+                            Field.INFLUENCE_ESTIMATOR.name,
+                            sf.col('exploded.*')))
