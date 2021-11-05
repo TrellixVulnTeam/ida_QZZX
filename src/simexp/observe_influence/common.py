@@ -81,10 +81,11 @@ class InfluenceGenerator(DictBasedDataGenerator):
                         ax.set_axis_off()
                         fig.add_axes(ax)
                         viz.visualize_image_attr(np.expand_dims(influence_mask, 2), row.image,
-                                                 sign='positive', method='blended_heat_map', use_pyplot=False,
+                                                 sign='all', method='blended_heat_map', use_pyplot=False,
                                                  plt_fig_axis=(fig, ax))
                         plt.show()
-                        input('--- press enter to continue ---')
+                        input('--- showing influences from {}.\n'
+                              'press enter to continue ---'.format(influence_estimator))
                         plt.clf()
 
                     yield {Field.IMAGE_ID.name: row.image_id,
