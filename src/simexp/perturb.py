@@ -167,7 +167,7 @@ class PerturbedConceptCountsGenerator(ConceptMasksUnion, DataGenerator):
                                           Field.DETECTOR.name: str(detector),
                                           **dict(zip(self.all_concept_names, perturbed_counts))})
 
-        with self._log_task('Searching influential concepts on images:'):
+        with self.log_task('Searching influential concepts on images:'):
             return (self.union_df.join(self._get_influences_df(), on=Field.IMAGE_ID.name, how='inner')
                     .withColumn('exploded', sf.explode(_perturb(sf.col(Field.CONCEPT_NAMES.name),
                                                                 sf.col(Field.CONCEPT_MASKS.name),
