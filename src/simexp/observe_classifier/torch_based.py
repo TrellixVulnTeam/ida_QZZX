@@ -6,7 +6,7 @@ from simple_parsing import ArgumentParser
 from simexp.common import LoggingConfig
 from simexp.observe_classifier.common import ClassifierObservationGenerator
 from simexp.spark import PetastormWriteConfig
-from simexp.torch_extensions.classifier import TorchImageClassifierLoader
+from liga.torch_extensions.classifier import TorchImageClassifierLoader
 
 
 @dataclass

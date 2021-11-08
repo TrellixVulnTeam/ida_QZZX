@@ -16,7 +16,7 @@ from torch.nn.functional import softmax
 
 from simexp.common import Classifier, ComposableDataclass
 from simexp.describe.torch_based.common import TorchConfig
-from simexp.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
+from liga.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simexp.util.webcache import WebCache
 
 
@@ -127,7 +127,7 @@ class TorchImageClassifier(Classifier, Serializable):
 class TorchImageClassifierSerialization:
     path: str  # path to a json serialization of a TorchImageClassifier
 
-    _COLLECTION_PACKAGE = 'simexp.classifier_collection.torch'
+    _COLLECTION_PACKAGE = 'liga.classifier_collection.torch'
 
     def _raise_invalid_path(self):
         raise ValueError('Classifier path {} is neither a valid path, nor does it point to a valid resource.'
@@ -149,7 +149,7 @@ class TorchImageClassifierSerialization:
 class TorchImageClassifierLoader(ComposableDataclass):
     classifier_serial: TorchImageClassifierSerialization = None
     torch_cfg: TorchConfig = None
-    classifier: Classifier = field(default=None, init=False)
+    classifier: TorchImageClassifier = field(default=None, init=False)
 
     def __post_init__(self):
         super().__post_init__()

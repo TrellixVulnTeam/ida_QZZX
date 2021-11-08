@@ -17,7 +17,7 @@ from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
 from pyspark.sql import SparkSession, DataFrame
 
-from simexp.common import RowDict, LoggingMixin, ComposableDataclass
+from simexp.common import RowDict, NestedLogger, ComposableDataclass
 
 
 class Field(UnischemaField, Enum):
@@ -144,7 +144,7 @@ class SparkSessionConfig:
 
 
 @dataclass
-class DataGenerator(ComposableDataclass, LoggingMixin, abc.ABC):
+class DataGenerator(ComposableDataclass, NestedLogger, abc.ABC):
 
     @abc.abstractmethod
     def to_df(self) -> DataFrame:
@@ -177,20 +177,20 @@ class DictBasedDataGenerator(DataGenerator):
         """
 
     def _generate_with_logging(self):
-        with self._log_task('Describing with: {}'.format(self.name)):
+        with self.log_task('Describing with: {}'.format(self.name)):
             start_time = time.time()
             last_time = start_time
 
             for num_rows, row_dict in enumerate(self.generate()):
                 current_time = time.time()
                 if current_time - last_time > 5:
-                    self._log_item('Described {} rows so far.'
-                                   .format(num_rows + 1))
+                    self.log_item('Described {} rows so far.'
+                                  .format(num_rows + 1))
                     last_time = current_time
                 yield row_dict
 
                 if self.time_limit_s is not None and current_time - start_time > self.time_limit_s:
-                    self._log_item('Reached timeout! Stopping.')
+                    self.log_item('Reached timeout! Stopping.')
                     break
 
     def _get_batches(self, batch_size):
@@ -219,7 +219,7 @@ class DictBasedDataGenerator(DataGenerator):
                 df = self.spark_cfg.session.createDataFrame([dict_to_spark_row(self.output_schema, r) for r in batch],
                                                             self.output_schema.as_spark_schema())
                 self.spark_cfg.write_petastorm(df, write_cfg=write_cfg, mode='append')
-                self._log_item('Finished writing of intermediate dataframe!')
+                self.log_item('Finished writing of intermediate dataframe!')
 
 
 @dataclass

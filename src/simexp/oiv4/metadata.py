@@ -102,7 +102,7 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
             pass
 
         assert subset in ['train', 'test', 'validation']
-        label_id_by_name = {label_name: label_id for label_id, label_name in enumerate(self.object_names)}
+        object_id_by_name = {label_name: object_id for object_id, label_name in enumerate(self.object_names)}
 
         with self.cache.open('{}-annotations-bbox.csv'.format(subset),
                              self.LABELS_URL + '{}/'.format(subset)) \
@@ -120,7 +120,7 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
                     boxes_row_map[image_id] = [row]
 
             boxes_map = {
-                image_id: np.array([(label_id_by_name[self.object_name_for_label_id(row['LabelName'])],
+                image_id: np.array([(object_id_by_name[self.object_name_for_label_id(row['LabelName'])],
                                      float(row['XMin']), float(row['XMax']),
                                      float(row['YMin']), float(row['YMax']),
                                      bool(row['IsOccluded']),

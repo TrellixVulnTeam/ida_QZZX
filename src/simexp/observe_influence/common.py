@@ -64,10 +64,10 @@ class InfluenceGenerator(DictBasedDataGenerator):
 
                 if self.observations_per_class is not None:
                     if count_per_class[pred] >= self.observations_per_class:
-                        self._log_item('Skipping, we already have enough observations of class {}.'.format(pred))
+                        self.log_item('Skipping, we already have enough observations of class {}.'.format(pred))
                         continue
                     elif np.sum(count_per_class) >= self.classifier.num_classes * self.observations_per_class:
-                        self._log_item('Stopping, we now have enough observations of all classes.')
+                        self.log_item('Stopping, we now have enough observations of all classes.')
                         break
 
                 count_per_class[pred] += 1

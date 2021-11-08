@@ -12,7 +12,7 @@ from simexp.common import LoggingConfig, Classifier
 from simexp.observe_influence.common import InfluenceEstimator, AnchorInfluenceEstimator, LIMEInfluenceEstimator, \
     InfluenceGenerator
 from simexp.spark import Schema, PetastormWriteConfig
-from simexp.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierLoader
+from liga.torch_extensions.classifier import TorchImageClassifier, TorchImageClassifierLoader
 
 
 @dataclass(unsafe_hash=True)

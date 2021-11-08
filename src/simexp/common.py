@@ -30,26 +30,26 @@ class LoggingConfig:
 
 
 @dataclass
-class LoggingMixin:
+class NestedLogger:
     log_nesting: int = field(default=0, init=False)
 
-    def _log(self, msg):
+    def log(self, msg):
         prefix = '--' * self.log_nesting + ' ' if self.log_nesting else ''
         logging.info(prefix + msg)
 
-    def _log_item(self, msg):
-        self._log('<{}/>'.format(msg))
+    def log_item(self, msg):
+        self.log('<{}/>'.format(msg))
 
     def _log_group_start(self, msg):
-        self._log('<{}>'.format(msg))
+        self.log('<{}>'.format(msg))
         self.log_nesting += 1
 
     def _log_group_end(self):
         self.log_nesting -= 1
-        self._log('<done/>')
+        self.log('<done/>')
 
     @contextmanager
-    def _log_task(self, msg):
+    def log_task(self, msg):
         self._log_group_start(msg)
         try:
             yield None
@@ -116,11 +116,19 @@ class ImageClassProvider(abc.ABC):
 class ImageObjectProvider(abc.ABC):
 
     @abc.abstractmethod
+    def object_names(self) -> [str]:
+        """
+        Returns a list of all object names that this class can provide for images.
+        The index of an object name in this list represents the id of the object.
+        """
+
+    @abc.abstractmethod
     def get_object_bounding_boxes(self, image_id: str, subset: Optional[str] = None) \
-            -> Iterable[Tuple[str, int, int, int, int]]:
+            -> Iterable[Tuple[int, int, int, int, int]]:
         """
         Returns the ground-truth bounding boxes for the image identified by `image_id`.
-        Each box is a 5-tuple of concept name, x_min, y_min, x_max, y_max.
+        Each box is a 5-tuple `(object_id, x_min, y_min, x_max, y_max)`.
+        `object_id` identifies an object in the list of names provided by the method `object_names()`.
         In some datasets image ids are only unique per `subset`, i.e. validation or train subset.
         In this case, the subset must be specified.
         Raises a `KeyError` if no bounding box is known for `image_id`.
