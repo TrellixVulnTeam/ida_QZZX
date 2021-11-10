@@ -38,6 +38,9 @@ class DummyType2Explainer(Type2Explainer):
                            self.interpreter(image, image_id)),
                        it.repeat(1.))
 
+    def __str__(self):
+        return 'none'
+
 
 class CaptumAttributionWrapper:
 
