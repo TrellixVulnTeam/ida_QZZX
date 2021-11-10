@@ -1,4 +1,4 @@
-from typing import Type, Optional, List, Tuple
+from typing import Type, Optional, Tuple, Iterable
 
 import numpy as np
 from captum.attr import GradientAttribution, Saliency, IntegratedGradients, DeepLift
@@ -23,18 +23,20 @@ class GradientAttributionType2Explainer(Type2Explainer):
                                                        **additional_init_args)
         self.takes_additional_attribution_args = takes_additional_attribution_args
 
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> List[Tuple[int, float]]:
-        ids_and_masks = self.interpreter(image=image,
-                                         image_id=image_id,
-                                         **kwargs)
-        if not self.takes_additional_attribution_args:
-            kwargs = {}
-        if len(ids_and_masks) > 0:
-            feature_influences = (self.captum_wrapper(image=image,
-                                                      additional_attribution_args=kwargs)
-                                  .transpose(1, 2, 0))  # CxHxW -> HxWxC
-            return [(concept_id, np.sum(feature_influences[mask]).item()) for concept_id, mask in ids_and_masks]
-        return []
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
+        feature_influences = None
+
+        for concept_id, mask in self.interpreter(image=image,
+                                                 image_id=image_id,
+                                                 **kwargs):
+            if not self.takes_additional_attribution_args:
+                kwargs = {}
+
+            if feature_influences is None:
+                feature_influences = (self.captum_wrapper(image=image,
+                                                          additional_attribution_args=kwargs)
+                                      .transpose(1, 2, 0))  # CxHxW -> HxWxC
+            yield concept_id, np.sum(feature_influences[mask]).item()
 
 
 class SaliencyType2Explainer(GradientAttributionType2Explainer):
@@ -52,7 +54,7 @@ class SaliencyType2Explainer(GradientAttributionType2Explainer):
                                 abs=False)  # we want positive *and* negative attribution values
         # we ignore kwargs here because the Saliency class cannot deal with them
 
-    def __repr__(self):
+    def __str__(self):
         return 'saliency'
 
 
@@ -64,7 +66,7 @@ class IntegratedGradientsType2Explainer(GradientAttributionType2Explainer):
                          interpreter=interpreter,
                          gradient_attribution_method=IntegratedGradients)
 
-    def __repr__(self):
+    def __str__(self):
         return 'igrad'
 
 
@@ -76,5 +78,5 @@ class DeepLiftType2Explainer(GradientAttributionType2Explainer):
                          interpreter=interpreter,
                          gradient_attribution_method=DeepLift)
 
-    def __repr__(self):
+    def __str__(self):
         return 'deeplift'

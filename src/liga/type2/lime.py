@@ -65,9 +65,9 @@ class LimeType2Explainer(Type2Explainer):
         return np.bitwise_not(reduce(np.bitwise_or, masks)).astype(np.bool)
 
     def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> List[Tuple[int, float]]:
-        ids_and_masks = self.interpreter(image=image,
-                                         image_id=image_id,
-                                         **kwargs)
+        ids_and_masks = list(self.interpreter(image=image,
+                                              image_id=image_id,
+                                              **kwargs))
         if len(ids_and_masks) > 0:
             ids, masks = list(zip(*ids_and_masks))
             kwargs.update(image=image,
@@ -76,8 +76,7 @@ class LimeType2Explainer(Type2Explainer):
             influences = self.captum_wrapper(image=image,
                                              additional_attribution_args=kwargs)
             # the following zip removes the complement mask automagically
-            return [(concept_id, influence) for concept_id, influence in zip(ids, influences)]
-        return []
+            yield from ((concept_id, influence) for concept_id, influence in zip(ids, influences))
 
-    def __repr__(self):
+    def __str__(self):
         return 'lime'

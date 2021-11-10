@@ -1,5 +1,5 @@
 import time
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, TypeVar, Dict, Any
 
 import numpy as np
 
@@ -8,13 +8,16 @@ from liga.type2.common import Type2Explainer
 from simexp.common import NestedLogger
 
 
+T = TypeVar('T')
+
+
 def liga(rng: np.random.Generator,
-         type1: Type1Explainer,
+         type1: Type1Explainer[T],
          type2: Type2Explainer,
          image_iter: Iterable[Tuple[str, np.ndarray]],
          log_nesting: int = 0,
          log_frequency_s: int = 10,
-         **kwargs):
+         **kwargs) -> Tuple[T, Dict[str, Any]]:
 
     logger = NestedLogger()
     logger.log_nesting = log_nesting
@@ -27,9 +30,9 @@ def liga(rng: np.random.Generator,
         last_log_time = time.time()
 
         for obs_no, (image_id, image) in enumerate(image_iter):
-            concept_influences = type2(image=image,
-                                       image_id=image_id,
-                                       **kwargs)
+            concept_influences = list(type2(image=image,
+                                            image_id=image_id,
+                                            **kwargs))
             if len(concept_influences) == 0:
                 continue
 
@@ -56,15 +59,20 @@ def liga(rng: np.random.Generator,
             if current_time - last_log_time > log_frequency_s:
                 with logger.log_task('Status update'):
                     logger.log_item('Processed {} observations'
-                                    .format(obs_no))
+                                    .format(obs_no + 1))
                     logger.log_item('{} observations had influential concepts'
                                     .format(influential_count))
                     logger.log_item('LIGA\'s augmentation produced {} additional observations.'
                                     .format(augmentation_count))
+                last_log_time = current_time
 
-        return type1(concept_counts,
-                     predicted_classes,
-                     **kwargs)
+        stats = {'influential_count': influential_count,
+                 'augmentation_count': augmentation_count}
+        surrogate = type1(concept_counts,
+                          predicted_classes,
+                          list(range(type2.classifier.num_classes)),
+                          **kwargs)
+        return surrogate, stats
 
 
 def concept_ids_to_counts(concept_ids: Iterable[int],

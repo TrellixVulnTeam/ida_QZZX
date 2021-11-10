@@ -1,5 +1,6 @@
 import abc
-from typing import Optional, Type, Mapping, Any, Tuple, List
+import itertools as it
+from typing import Optional, Type, Mapping, Any, Tuple, Iterable
 
 import numpy as np
 import torch
@@ -18,13 +19,24 @@ class Type2Explainer(abc.ABC):
         self.interpreter = interpreter
 
     @abc.abstractmethod
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> List[Tuple[int, float]]:
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
         """
         Takes an input *image* of the classifier and returns the influence of each instance of
         an interpretable concept on *image* on the output of the classifier.
         The influence estimator can use an additional *image_id* to lookup interpretable concepts of *image*.
         """
         pass
+
+
+class DummyType2Explainer(Type2Explainer):
+
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
+        """
+        Assigns positive influence of 1. to each interpretable concept on *image* / the image represented by *image_id*.
+        """
+        yield from zip(map(lambda p: p[0],  # only return concept_id from pair (concept_id, mask)
+                           self.interpreter(image, image_id)),
+                       it.repeat(1.))
 
 
 class CaptumAttributionWrapper:

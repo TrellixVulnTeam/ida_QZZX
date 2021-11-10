@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, List, Tuple
+from typing import Optional, Tuple, Iterable
 
 import numpy as np
 
@@ -8,16 +8,12 @@ class Interpreter(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def name(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def concepts(self):
+    def concepts(self) -> [str]:
         pass
 
     @abc.abstractmethod
-    def __call__(self, image: Optional[np.ndarray], image_id: Optional[str], **kwargs) -> List[Tuple[int, np.ndarray]]:
+    def __call__(self, image: Optional[np.ndarray], image_id: Optional[str], **kwargs) \
+            -> Iterable[Tuple[int, np.ndarray]]:
         """
         Returns a list of pairs, each consisting of an interpretable concept
         and the occurrence of this concept on *image*.
@@ -38,18 +34,17 @@ class JoinedInterpreter(Interpreter):
         self.prefix = prefix_interpreter_name
         self.clean = clean_concept_names
 
-    @property
-    def name(self):
-        return 'Join({})'.format(', '.join([i.name for i in self.interpreters]))
+    def __str__(self) -> str:
+        return 'Join({})'.format(', '.join([str(i) for i in self.interpreters]))
 
     @property
-    def concepts(self):
+    def concepts(self) -> [str]:
         if self.prefix:
-            concepts = [i.name + '.' + c for i in self.interpreters for c in i.concepts]
+            concepts = [str(i) + '.' + c for i in self.interpreters for c in i.concepts]
         else:
             concepts = [c for i in self.interpreters for c in i.concepts]
         if self.clean:
-            concepts = map(self._clean, concepts)
+            concepts = list(map(self._clean, concepts))
         return concepts
 
     @staticmethod
@@ -62,10 +57,9 @@ class JoinedInterpreter(Interpreter):
     def __call__(self,
                  image: Optional[np.ndarray],
                  image_id: Optional[str],
-                 **kwargs) -> List[Tuple[int, np.ndarray]]:
-        concept_masks = []
+                 **kwargs) -> Iterable[Tuple[int, np.ndarray]]:
         offset = 0
         for interpreter in self.interpreters:
             for concept_id, concept_mask in interpreter(image, image_id, **kwargs):
-                concept_masks.append((concept_id + offset, concept_mask))
-            offset += interpreter.num_concepts
+                yield concept_id + offset, concept_mask
+            offset += len(interpreter.concepts)

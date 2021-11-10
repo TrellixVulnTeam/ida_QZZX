@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple
+from typing import Optional, Tuple, Iterable
 
 import numpy as np
 import skimage
@@ -13,10 +13,10 @@ class PerceivableColorsInterpreter(Interpreter):
     """
 
     # names of all perceivable colors used by this describer
-    COLOR_NAMES = np.char.array(['red', 'orange', 'gold', 'yellow',
-                                 'green', 'turquoise', 'blue',
-                                 'purple', 'magenta',
-                                 'black', 'white', 'grey'])
+    COLOR_NAMES = ['red', 'orange', 'gold', 'yellow',
+                   'green', 'turquoise', 'blue',
+                   'purple', 'magenta',
+                   'black', 'white', 'grey', 'unclear']
 
     # assign natural language color names to hue values
     HUE_MAP = {20.: 'red',
@@ -36,12 +36,11 @@ class PerceivableColorsInterpreter(Interpreter):
         self._hue_bins = np.array([0.] + list(self.HUE_MAP.keys())) / 360.
         self._pool = None
 
-    @property
-    def name(self):
+    def __str__(self) -> str:
         return 'perceivable_colors'
 
     @property
-    def concepts(self):
+    def concepts(self) -> [str]:
         return self.COLOR_NAMES
 
     @staticmethod
@@ -75,7 +74,8 @@ class PerceivableColorsInterpreter(Interpreter):
 
         return hue, sat, light
 
-    def __call__(self, image: Optional[np.ndarray], image_id: Optional[str], **kwargs) -> List[Tuple[int, np.ndarray]]:
+    def __call__(self, image: Optional[np.ndarray], image_id: Optional[str], **kwargs) \
+            -> Iterable[Tuple[int, np.ndarray]]:
         with np.errstate(divide='ignore', invalid='ignore'):
             hue, sat, light = self._rgb_to_hsl(image)
 
@@ -91,8 +91,8 @@ class PerceivableColorsInterpreter(Interpreter):
                                       np.bitwise_and(grey_or_white_map, np.bitwise_not(maps['grey'])))
         remaining = np.bitwise_and(remaining, np.logical_not(grey_or_white_map))
 
-        maps['none'] = np.bitwise_and(remaining, sat < 0.7)  # color of pixel is undefined, not clear enough
-        remaining = np.bitwise_and(remaining, np.logical_not(maps['none']))
+        maps['unclear'] = np.bitwise_and(remaining, sat < 0.7)  # color of pixel is undefined, not clear enough
+        remaining = np.bitwise_and(remaining, np.logical_not(maps['unclear']))
 
         hue_maps = self._hue_bins[:, None, None] > hue
         for hue_map, hue_name in zip(hue_maps, self._hue_bin_names):
@@ -106,4 +106,4 @@ class PerceivableColorsInterpreter(Interpreter):
         maps['red'] = np.bitwise_or(maps['red'], remaining)  # the remaining are pixels with hue 1 = max. red
 
         # convert to integer ids and throw away empty masks
-        return [(self.concepts.index(color_name), mask) for color_name, mask in maps.items() if np.any(mask)]
+        return ((self.concepts.index(color_name), mask) for color_name, mask in maps.items() if np.any(mask))
