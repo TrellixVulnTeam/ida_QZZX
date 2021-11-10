@@ -1,3 +1,4 @@
+import pickle
 from collections import Counter
 from typing import List, Union, Dict, Any, Tuple, Optional
 import itertools as it
@@ -64,9 +65,17 @@ class TreeType1Explainer(Type1Explainer[GridSearchCV]):
     def determine_k_folds(predicted_classes: [int]):
         return Counter(predicted_classes).most_common()[-1][1]
 
-    def get_complexity_metrics(self, model: GridSearchCV) -> Dict[str, Any]:
+    @staticmethod
+    def get_complexity_metrics(model: GridSearchCV, **kwargs) -> Dict[str, Any]:
         return {'tree_n_leaves': model.best_estimator_.get_n_leaves(),
                 'tree_depth': model.best_estimator_.get_depth()}
+
+    @staticmethod
+    def get_fitted_params(model: GridSearchCV) -> Dict[str, Any]:
+        pickled_tree_str = pickle.dumps(obj=model.best_estimator_.tree_,
+                                        protocol=0).decode()  # protocol 0 to ensure that we only have ASCII characters
+        return {**model.get_params(),
+                'pickled_tree': pickled_tree_str}
 
     def __repr__(self):
         return 'tree'

@@ -63,13 +63,13 @@ class Experiment(NestedLogger):
     def all_class_ids(self) -> [int]:
         return list(range(self.classifier.num_classes))
 
-    def run(self, **kwargs) -> Iterable[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    def run(self, **kwargs):
         """
         Runs the configured number of repetitions of the experiment.
-        For each repetition, yields a tuple *(surrogate, stats, metrics)*.
+        For each repetition, yields a tuple *(surrogate, stats, fit_params, metrics)*.
         *surrogate* is the fitted surrogate model.
-        *stats* and *metrics* are dicts that contain the augmentation statistics
-        from the LIGA algorithm and the experimental results, respectively.
+        *stats*, *fit_params*, and *metrics* are dicts that contain the augmentation statistics
+        from the LIGA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
         Passes *kwargs* to the LIGA algorithm.
         """
         with self.log_task('Running experiment...'):
@@ -90,10 +90,10 @@ class Experiment(NestedLogger):
 
                     with self.log_task('Scoring surrogate model...'):
                         test_obs = it.islice(image_iter, self.num_test_obs)
-                        metrics = self.score(surrogate, test_obs)
+                        fit_params, metrics = self.score(surrogate, test_obs)
 
                     metrics['runtime_s'] = stop - start
-                    yield surrogate, stats, metrics
+                    yield surrogate, stats, fit_params, metrics
 
     @contextmanager
     def _prepare_image_iter(self) -> Iterable[Tuple[str, np.ndarray]]:
@@ -138,7 +138,7 @@ class Experiment(NestedLogger):
         proba_ordered[:, idx] = probs
         return proba_ordered
 
-    def score(self, surrogate, image_iter) -> Dict[str, Any]:
+    def score(self, surrogate, image_iter) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         x_test, y_test = self._prepare_test_observations(image_iter)
         y_test_pred = surrogate.predict_proba(x_test)
         y_test_pred = self._spread_probs_to_all_classes(y_test_pred, surrogate.classes_)
@@ -147,11 +147,12 @@ class Experiment(NestedLogger):
             # binary case
             y_test_pred = y_test_pred[:, 1]
 
+        fit_params = self.type1.get_fitted_params(surrogate)
         metrics = self.type1.get_complexity_metrics(surrogate)
         metrics.update({'cross_entropy': log_loss(y_test, y_test_pred, labels=self.all_class_ids),
                         'gini': self._gini_score(y_test, y_test_pred),
                         'acc': self._top_k_acc_score(surrogate, x_test, y_test)})
-        return metrics
+        return fit_params, metrics
 
     def _top_k_acc_score(self, estimator, inputs, target_outputs):
         cls_ids = {cls: cls_id for cls_id, cls in enumerate(estimator.classes_)}
@@ -207,26 +208,32 @@ def run_experiments(name: str,
     with (exp_dir / 'results_packed.csv').open('w') as packed_csv_file:
         with (exp_dir / 'results_unpacked.csv').open('w') as unpacked_csv_file:
 
-            fields = ['params', 'rep_no', 'stats', 'metrics']
+            fields = ['params', 'rep_no', 'stats', 'fit_params', 'metrics']
             packed_writer = csv.DictWriter(packed_csv_file, fieldnames=fields)
             packed_writer.writeheader()
 
             first_run = True
 
             for e in experiments:
-                for rep_no, (surrogate, stats, metrics) in enumerate(e.run(**kwargs)):
+                for rep_no, (surrogate, stats, fit_params, metrics) in enumerate(e.run(**kwargs)):
                     packed_writer.writerow({'params': e.params,
                                             'rep_no': rep_no,
                                             'stats': stats,
+                                            'fit_params': fit_params,
                                             'metrics': metrics})
                     packed_csv_file.flush()  # make sure intermediate results are written
 
                     if first_run:
                         param_names = list(e.params.keys())
                         stats_names = list(stats.keys())
+                        fit_params_names = list(fit_params.keys())
                         metric_names = list(metrics.keys())
-                        can_unpack = len(set(param_names).union(set(metric_names)).union(set(stats_names))) \
-                            == len(param_names) + len(stats_names) + len(metric_names)
+                        all_names = (set(param_names)
+                                     .union(set(metric_names))
+                                     .union(set(fit_params_names))
+                                     .union(set(stats_names)))
+                        exp_names_len = len(param_names) + len(stats_names) + len(fit_params_names) + len(metric_names)
+                        can_unpack = len(all_names) == exp_names_len
                         fields = param_names + ['rep_no'] + stats_names + metric_names
                         unpacked_writer = csv.DictWriter(unpacked_csv_file, fieldnames=fields)
                         unpacked_writer.writeheader()
@@ -234,9 +241,10 @@ def run_experiments(name: str,
 
                     if set(e.params.keys()) == set(param_names) \
                             and set(metrics.keys()) == set(metric_names) \
+                            and set(fit_params.keys()) == set(fit_params_names) \
                             and set(stats.keys()) == set(stats_names) \
                             and can_unpack:
-                        merged = {**e.params, **metrics, **stats, 'rep_no': rep_no}
+                        merged = {**e.params, **metrics, **stats, **fit_params, 'rep_no': rep_no}
                         unpacked_writer.writerow(merged)
                         unpacked_csv_file.flush()
                     else:

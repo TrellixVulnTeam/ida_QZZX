@@ -18,6 +18,12 @@ class Type1Explainer(abc.ABC, Generic[T]):
         Trains a scikit-learn model to predict *classes* based on *concept_counts*.
         """
 
+    @staticmethod
     @abc.abstractmethod
-    def get_complexity_metrics(self, model: T) -> Dict[str, Any]:
+    def get_complexity_metrics(model: T) -> Dict[str, Any]:
         pass
+
+    @staticmethod
+    @abc.abstractmethod
+    def get_fitted_params(model: T) -> Dict[str, Any]:
+        return model.get_params()
