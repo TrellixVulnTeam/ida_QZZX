@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import timeit
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping, Any, Dict, Tuple, Iterable, List, ContextManager, Optional
+from typing import Mapping, Any, Dict, Tuple, Iterable, List, ContextManager
 
 import numpy as np
 from importlib import resources
@@ -66,19 +66,19 @@ class Experiment(NestedLogger):
     def run(self, **kwargs) -> Iterable[Tuple[Dict[str, Any], Dict[str, Any]]]:
         """
         Runs the configured number of repetitions of the experiment.
-        For each repetition, yields a tuple *(stats, metrics)* of dicts that contain
-        the augmentation statistics from the LIGA algorithm and the experimental results, respectively.
+        For each repetition, yields a tuple *(surrogate, stats, metrics)*.
+        *surrogate* is the fitted surrogate model.
+        *stats* and *metrics* are dicts that contain the augmentation statistics
+        from the LIGA algorithm and the experimental results, respectively.
         Passes *kwargs* to the LIGA algorithm.
         """
         with self.log_task('Running experiment...'):
             self.log_item('Parameters: {}'.format(self.params))
 
             with self._prepare_image_iter() as image_iter:
-                for rep_no in range(self.repetitions):
+                for rep_no in range(1, self.repetitions + 1):
                     # we draw new train and test observations for each repetition
                     train_obs = it.islice(image_iter, self.num_train_obs)
-                    test_obs = it.islice(image_iter, self.num_test_obs)
-
                     start = timeit.default_timer()
                     surrogate, stats = liga(rng=self.rng,
                                             type1=self.type1,
@@ -89,15 +89,17 @@ class Experiment(NestedLogger):
                     stop = timeit.default_timer()
 
                     with self.log_task('Scoring surrogate model...'):
+                        test_obs = it.islice(image_iter, self.num_test_obs)
                         metrics = self.score(surrogate, test_obs)
 
                     metrics['runtime_s'] = stop - start
-                    yield stats, metrics
+                    yield surrogate, stats, metrics
 
     @contextmanager
     def _prepare_image_iter(self) -> Iterable[Tuple[str, np.ndarray]]:
         reader = make_reader(self.images_url,
-                             workers_count=1)  # only 1 worker to ensure determinism of results
+                             workers_count=1,  # only 1 worker to ensure determinism of results
+                             shuffle_row_groups=True)  # this is non-deterministic unless you set random.seed() !
         try:
             def image_iter() -> Iterable[Tuple[str, np.ndarray]]:
                 for row in reader:
@@ -212,7 +214,7 @@ def run_experiments(name: str,
             first_run = True
 
             for e in experiments:
-                for rep_no, (stats, metrics) in enumerate(e.run(**kwargs)):
+                for rep_no, (surrogate, stats, metrics) in enumerate(e.run(**kwargs)):
                     packed_writer.writerow({'params': e.params,
                                             'rep_no': rep_no,
                                             'stats': stats,
