@@ -1,4 +1,3 @@
-import pickle
 from collections import Counter
 from typing import List, Union, Dict, Any, Tuple, Optional
 import itertools as it
@@ -72,10 +71,7 @@ class TreeType1Explainer(Type1Explainer[GridSearchCV]):
 
     @staticmethod
     def get_fitted_params(model: GridSearchCV) -> Dict[str, Any]:
-        pickled_tree_str = pickle.dumps(obj=model.best_estimator_.tree_,
-                                        protocol=0).decode()  # protocol 0 to ensure that we only have ASCII characters
-        return {**model.get_params(),
-                'pickled_tree': pickled_tree_str}
+        return model.best_params_
 
-    def __repr__(self):
+    def __str__(self):
         return 'tree'
