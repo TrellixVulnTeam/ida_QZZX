@@ -26,4 +26,4 @@ class Type1Explainer(abc.ABC, Generic[T]):
     @staticmethod
     @abc.abstractmethod
     def get_fitted_params(model: T) -> Dict[str, Any]:
-        return model.get_params()
+        pass
