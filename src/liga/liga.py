@@ -3,6 +3,7 @@ from typing import Iterable, Tuple, TypeVar, Dict, Any
 
 import numpy as np
 
+from liga.interpret.common import Interpreter
 from liga.type1.common import Type1Explainer
 from liga.type2.common import Type2Explainer
 from simexp.common import NestedLogger
@@ -37,11 +38,10 @@ def liga(rng: np.random.Generator,
                 continue
 
             concept_ids, influences = list(zip(*concept_influences))
-            counts = concept_ids_to_counts(concept_ids,
-                                           num_concepts)
             if not any([i > 0 for i in influences]):
                 continue
 
+            counts = type2.interpreter.concept_ids_to_counts(concept_ids)
             influential_count += 1
             concept_counts.append(counts)
             predicted_class = type2.classifier.predict_single(image)
@@ -50,7 +50,8 @@ def liga(rng: np.random.Generator,
             for counts_subset in random_subsets(rng=rng,
                                                 concept_ids=concept_ids,
                                                 influences=influences,
-                                                num_concepts=num_concepts):
+                                                num_concepts=num_concepts,
+                                                interpreter=type2.interpreter):
                 augmentation_count += 1
                 concept_counts.append(counts_subset)
                 predicted_classes.append(predicted_class)
@@ -77,18 +78,11 @@ def liga(rng: np.random.Generator,
         return surrogate, stats
 
 
-def concept_ids_to_counts(concept_ids: Iterable[int],
-                          num_concepts: int) -> [int]:
-    counts = [0] * num_concepts
-    for concept_id in concept_ids:
-        counts[concept_id] += 1
-    return counts
-
-
 def random_subsets(rng: np.random.Generator,
                    concept_ids: [int],
                    influences: [float],
-                   num_concepts: int):
+                   num_concepts: int,
+                   interpreter: Interpreter):
     concept_ids = np.array(concept_ids)
     influences = np.array(influences)
 
@@ -102,5 +96,4 @@ def random_subsets(rng: np.random.Generator,
         concept_ids_idx[droppable_idx] = random_flip
         never_dropped = np.bitwise_and(never_dropped, random_flip)
         selected_concept_ids = concept_ids[concept_ids_idx]
-        yield concept_ids_to_counts(concept_ids=selected_concept_ids,
-                                    num_concepts=num_concepts)
+        yield interpreter.concept_ids_to_counts(selected_concept_ids)

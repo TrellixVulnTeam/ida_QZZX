@@ -1,4 +1,5 @@
 import csv
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,37 @@ class OIV4MetadataProvider(ImageIdProvider, ImageObjectProvider, OIV4CacheMixin)
 
         for box in self.boxes_map(subset)[image_id]:
             yield box['class_id'], box['x_min'], box['y_min'], box['x_max'], box['y_max']
+
+    @cached_property
+    def _get_implication_map(self) -> Mapping[int, Iterable[int]]:
+        """
+        Returns a mapping from "label ids of objects" to human readable label names.
+        See `object_name_for_label_id()` below.
+        """
+        def descend(impl_tree, impl_map):
+            object_name = self.object_name_for_label_id(impl_tree['LabelName'])
+            object_id = self.object_names.index(object_name)
+
+            if 'Subcategory' in impl_tree:
+                for child in impl_tree['Subcategory']:
+                    child_object_name = self.object_name_for_label_id(child['LabelName'])
+                    child_object_id = self.object_names.index(child_object_name)
+                    impl_map[child_object_id].append(object_id)
+                    for prev_impl_obj_id in impl_map[object_id]:
+                        # compute transitive closure
+                        impl_map[child_object_id].append(prev_impl_obj_id)
+                    descend(child, impl_map)
+
+        with self.cache.open('bbox_labels_600_hierarchy.json', self.LABELS_URL) \
+                as implications_file:
+            tree = json.load(implications_file)
+            impl_map = {object_id: [] for object_id in range(len(self.object_names))}
+            for child in tree['Subcategory']:  # skip
+                descend(child, impl_map)
+            return impl_map
+
+    def get_implied_objects(self, object_id: int):
+        return self._get_implication_map[object_id]
 
     @cached_property
     def _object_names_by_label_id(self) -> Mapping[str, str]:

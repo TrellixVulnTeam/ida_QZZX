@@ -11,6 +11,21 @@ class Interpreter(abc.ABC):
     def concepts(self) -> [str]:
         pass
 
+    def get_implied_concepts(self, concept_id: int) -> Iterable[int]:
+        """
+        Subclasses can override this method if some concepts imply other ones.
+        This enables the LIGA augmentation procedure to produce consistent sets of concept instances.
+        """
+        return []
+
+    def concept_ids_to_counts(self, concept_ids: Iterable[int]) -> [int]:
+        counts = [0] * len(self.concepts)
+        for concept_id in concept_ids:
+            counts[concept_id] += 1
+            for impl_concept_id in self.get_implied_concepts(concept_id):
+                counts[impl_concept_id] += 1
+        return counts
+
     @abc.abstractmethod
     def __call__(self, image: Optional[np.ndarray], image_id: Optional[str], **kwargs) \
             -> Iterable[Tuple[int, np.ndarray]]:

@@ -16,7 +16,7 @@ from importlib import resources
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
-from liga.liga import liga, concept_ids_to_counts
+from liga.liga import liga
 from liga.torch_extensions.classifier import TorchImageClassifier
 from liga.type1.common import Type1Explainer
 from liga.type2.common import Type2Explainer
@@ -123,8 +123,7 @@ class Experiment(NestedLogger):
                 ids_and_masks = list(self.type2.interpreter(image, image_id))
                 if len(ids_and_masks) > 0:
                     concept_ids, _ = list(zip(*self.type2.interpreter(image, image_id)))
-                    concept_counts.append(concept_ids_to_counts(concept_ids,
-                                                                len(self.concepts)))
+                    concept_counts.append(self.type2.interpreter.concept_ids_to_counts(concept_ids))
                 else:
                     concept_counts.append(np.zeros(len(self.concepts), dtype=np.int))
                 predicted_classes.append(self.classifier.predict_single(image))

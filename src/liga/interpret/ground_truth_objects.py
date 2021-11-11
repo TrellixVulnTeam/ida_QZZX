@@ -34,6 +34,9 @@ class GroundTruthObjectsInterpreter(Interpreter):
     def concepts(self):
         return self.gt_object_provider.object_names
 
+    def get_implied_concepts(self, concept_id: int) -> Iterable[int]:
+        return self.gt_object_provider.get_implied_objects(concept_id)
+
     def __call__(self, image: Optional[np.ndarray], image_id: Optional[str],
                  image_size: Optional[Tuple[int, int]] = None, **kwargs) -> Iterable[Tuple[int, np.ndarray]]:
         assert image_id is not None, ('This interpreter requires image ids in order to look up bounding boxes from '

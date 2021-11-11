@@ -133,3 +133,9 @@ class ImageObjectProvider(abc.ABC):
         In this case, the subset must be specified.
         Raises a `KeyError` if no bounding box is known for `image_id`.
         """
+
+    def get_implied_objects(self, object_id: int) -> Iterable[int]:
+        """
+        Subclasses can override this if some concepts imply others.
+        """
+        return []
