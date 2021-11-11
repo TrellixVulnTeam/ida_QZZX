@@ -1,5 +1,5 @@
+import json
 import logging
-from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from typing import Optional, Tuple
@@ -8,41 +8,52 @@ from unittest import mock
 import numpy as np
 import torch
 import torchvision
-from simple_parsing import Serializable
 from skimage import img_as_float
 from skimage.transform import resize
 from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
-from simexp.common import Classifier, ComposableDataclass
+from simexp.common import Classifier
 from simexp.describe.torch_based.common import TorchConfig
 from liga.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
 from simexp.util.webcache import WebCache
 
 
-@dataclass
-class TorchImageClassifier(Classifier, Serializable):
+_COLLECTION_PACKAGE = 'liga.classifier_collection.torch'
 
-    # an optional file to load this model from
-    # if None, the model will be loaded from the torchvision collection.
-    param_url: Optional[str]
 
-    # whether this model uses `DataParallel`
-    is_parallel: bool
+class TorchImageClassifier(Classifier):
 
-    # torch configuration to use
-    torch_cfg: TorchConfig
+    def __init__(self,
+                 name: str,
+                 num_classes: str,
+                 param_url: Optional[str],
+                 is_parallel: bool,
+                 torch_cfg: TorchConfig,
+                 input_size: Tuple[int, int] = (224, 224),
+                 cache: WebCache = WebCache(),
+                 is_latin1: bool = False):
+        """
 
-    # required input size of the model
-    input_size: Tuple[int, int] = (224, 224)
+        :param name: name of this model
+        :param num_classes: how many classes this classifier discriminates
+        :param param_url: an optional file to load this model from.
+            if None, the model will be loaded from the torchvision collection.
+        :param is_parallel: whether this model uses `DataParallel`
+        :param torch_cfg: torch_cfg: TorchConfig
+        :param input_size: required input size of the model
+        :param cache: WebCache = WebCache()
+        :param is_latin1: whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch versions)
+        """
+        super().__init__(name=name, num_classes=num_classes)
 
-    # where to cache downloaded information
-    cache: WebCache = WebCache()
+        self.param_url = param_url
+        self.is_parallel = is_parallel
+        self.torch_cfg = torch_cfg
+        self.input_size = input_size
+        self.cache = cache
+        self.is_latin1 = is_latin1
 
-    # whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch versions)
-    is_latin1: bool = False
-
-    def __post_init__(self):
         if self.param_url:
             self.url, self.file_name = self.param_url.rsplit('/', 1)
             self.url += '/'
@@ -53,6 +64,18 @@ class TorchImageClassifier(Classifier, Serializable):
         means, sds = np.asarray([0.485, 0.456, 0.406]), np.asarray([0.229, 0.224, 0.225])
         self._means_nested = means[None, None, :]
         self._sds_nested = sds[None, None, :]
+
+    @staticmethod
+    def from_json_file(path: str, torch_cfg: TorchConfig):
+        with resources.path(_COLLECTION_PACKAGE, path) as path:
+            with path.open('r') as f:
+                json_dict = json.load(f)
+                return TorchImageClassifier(name=json_dict['name'],
+                                            param_url=json_dict['param_url'],
+                                            is_parallel=json_dict['is_parallel'],
+                                            num_classes=json_dict['num_classes'],
+                                            is_latin1=json_dict['is_latin1'],
+                                            torch_cfg=torch_cfg)
 
     def _convert_latin1_to_unicode_and_cache(self):
         dest_path = self.cache.cache_dir / self.file_name
@@ -121,42 +144,3 @@ class TorchImageClassifier(Classifier, Serializable):
         logits = self.torch_model(image_tensors)
         probs = softmax(logits, dim=1)
         return probs.detach().cpu().numpy()
-
-
-@dataclass
-class TorchImageClassifierSerialization:
-    path: str  # path to a json serialization of a TorchImageClassifier
-
-    _COLLECTION_PACKAGE = 'liga.classifier_collection.torch'
-
-    def _raise_invalid_path(self):
-        raise ValueError('Classifier path {} is neither a valid path, nor does it point to a valid resource.'
-                         .format(self.path))
-
-    def __post_init__(self):
-        if not Path(self.path).exists():
-            try:
-                if self.path.endswith('.json') and resources.is_resource(self._COLLECTION_PACKAGE, self.path):
-                    with resources.path(self._COLLECTION_PACKAGE, self.path) as path:
-                        self.path = str(path)
-                else:
-                    self._raise_invalid_path()
-            except ModuleNotFoundError:
-                self._raise_invalid_path()
-
-
-@dataclass
-class TorchImageClassifierLoader(ComposableDataclass):
-    classifier_serial: TorchImageClassifierSerialization = None
-    torch_cfg: TorchConfig = None
-    classifier: TorchImageClassifier = field(default=None, init=False)
-
-    def __post_init__(self):
-        super().__post_init__()
-
-        # load the classifier from its name
-        @dataclass
-        class PartialTorchImageClassifier(TorchImageClassifier):
-            torch_cfg: TorchConfig = field(default_factory=lambda: self.torch_cfg, init=False)
-
-        self.classifier = PartialTorchImageClassifier.load(self.classifier_serial.path)
