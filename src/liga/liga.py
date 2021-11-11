@@ -68,10 +68,12 @@ def liga(rng: np.random.Generator,
 
         stats = {'influential_count': influential_count,
                  'augmentation_count': augmentation_count}
-        surrogate = type1(concept_counts,
-                          predicted_classes,
-                          list(range(type2.classifier.num_classes)),
-                          **kwargs)
+
+        with logger.log_task('Fitting surrogate model...'):
+            surrogate = type1(concept_counts,
+                              predicted_classes,
+                              list(range(type2.classifier.num_classes)),
+                              **kwargs)
         return surrogate, stats
 
 
