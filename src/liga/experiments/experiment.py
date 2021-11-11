@@ -16,11 +16,53 @@ from importlib import resources
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
+from liga.interpret.common import Interpreter
 from liga.liga import liga
 from liga.torch_extensions.classifier import TorchImageClassifier
 from liga.type1.common import Type1Explainer
 from liga.type2.common import Type2Explainer
 from simexp.common import NestedLogger
+
+
+@contextmanager
+def _prepare_image_iter(images_url) -> Iterable[Tuple[str, np.ndarray]]:
+    reader = make_reader(images_url,
+                         workers_count=1,  # only 1 worker to ensure determinism of results
+                         shuffle_row_groups=True)  # this is non-deterministic unless you set random.seed() !
+    try:
+        def image_iter() -> Iterable[Tuple[str, np.ndarray]]:
+            for row in reader:
+                yield row.image_id, row.image
+
+        yield image_iter()
+    finally:
+        reader.stop()
+        reader.join()
+
+
+_TEST_CACHE = {}
+
+
+def _prepare_test_observations(test_images_url: str,
+                               interpreter: Interpreter,
+                               classifier: TorchImageClassifier,
+                               num_test_obs: int) -> Tuple[Iterable[List[int]], Iterable[int]]:
+    key = (test_images_url, interpreter, classifier.name, num_test_obs)
+    if key not in _TEST_CACHE:
+        concept_counts = []
+        predicted_classes = []
+        with _prepare_image_iter(test_images_url) as test_iter:
+            for image_id, image in it.islice(test_iter, num_test_obs):
+                ids_and_masks = list(interpreter(image, image_id))
+                if len(ids_and_masks) > 0:
+                    concept_ids, _ = list(zip(*interpreter(image, image_id)))
+                    concept_counts.append(interpreter.concept_ids_to_counts(concept_ids))
+                else:
+                    concept_counts.append(np.zeros(len(interpreter.concepts), dtype=np.int))
+                predicted_classes.append(classifier.predict_single(image))
+            _TEST_CACHE[key] = concept_counts, predicted_classes
+
+    return _TEST_CACHE[key]
 
 
 @dataclass
@@ -51,7 +93,6 @@ class Experiment(NestedLogger):
     @property
     def params(self) -> Mapping[str, Any]:
         return {'classifier': self.classifier.name,
-                'images_url': self.train_images_url,
                 'num_train_obs': self.num_train_obs,
                 'interpreter': str(self.type2.interpreter),
                 'type1': str(self.type1),
@@ -75,59 +116,27 @@ class Experiment(NestedLogger):
         from the LIGA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
         Passes *kwargs* to the LIGA algorithm.
         """
-        with self.log_task('Generating and caching test observations...'):
-            x_test, y_test = self._prepare_test_observations()
-
         with self.log_task('Running experiment...'):
             self.log_item('Parameters: {}'.format(self.params))
 
-            with self._prepare_image_iter(self.train_images_url) as train_iter:
+            with _prepare_image_iter(self.train_images_url) as train_images_iter:
                 for rep_no in range(1, self.repetitions + 1):
-                    # we draw new train and test observations for each repetition
-                    train_obs = it.islice(train_iter, self.num_train_obs)
+                    # we draw new train observations for each repetition by continuing the iterator
                     start = timeit.default_timer()
                     surrogate, stats = liga(rng=self.rng,
                                             type1=self.type1,
                                             type2=self.type2,
-                                            image_iter=train_obs,
+                                            image_iter=it.islice(train_images_iter,
+                                                                 self.num_train_obs),
                                             log_nesting=self.log_nesting,
                                             **kwargs)
                     stop = timeit.default_timer()
 
                     with self.log_task('Scoring surrogate model...'):
-                        fit_params, metrics = self.score(surrogate, x_test, y_test)
+                        fit_params, metrics = self.score(surrogate)
 
                     metrics['runtime_s'] = stop - start
                     yield surrogate, stats, fit_params, metrics
-
-    @contextmanager
-    def _prepare_image_iter(self, images_url) -> Iterable[Tuple[str, np.ndarray]]:
-        reader = make_reader(images_url,
-                             workers_count=1,  # only 1 worker to ensure determinism of results
-                             shuffle_row_groups=True)  # this is non-deterministic unless you set random.seed() !
-        try:
-            def image_iter() -> Iterable[Tuple[str, np.ndarray]]:
-                for row in reader:
-                    yield row.image_id, row.image
-
-            yield image_iter()
-        finally:
-            reader.stop()
-            reader.join()
-
-    def _prepare_test_observations(self) -> Tuple[List[List[int]], List[int]]:
-        concept_counts = []
-        predicted_classes = []
-        with self._prepare_image_iter(self.test_images_url) as test_iter:
-            for image_id, image in test_iter:
-                ids_and_masks = list(self.type2.interpreter(image, image_id))
-                if len(ids_and_masks) > 0:
-                    concept_ids, _ = list(zip(*self.type2.interpreter(image, image_id)))
-                    concept_counts.append(self.type2.interpreter.concept_ids_to_counts(concept_ids))
-                else:
-                    concept_counts.append(np.zeros(len(self.concepts), dtype=np.int))
-                predicted_classes.append(self.classifier.predict_single(image))
-            return concept_counts, predicted_classes
 
     def _spread_probs_to_all_classes(self, probs, classes_) -> np.ndarray:
         """
@@ -144,7 +153,12 @@ class Experiment(NestedLogger):
         proba_ordered[:, idx] = probs
         return proba_ordered
 
-    def score(self, surrogate, x_test, y_test) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def score(self, surrogate) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        x_test, y_test = _prepare_test_observations(self.test_images_url,
+                                                    self.type2.interpreter,
+                                                    self.type2.classifier,
+                                                    self.num_test_obs)
+
         y_test_pred = surrogate.predict_proba(x_test)
         y_test_pred = self._spread_probs_to_all_classes(y_test_pred, surrogate.classes_)
 
@@ -165,8 +179,10 @@ class Experiment(NestedLogger):
         top_k_indices = np.argsort(predicted)[:, -self.top_k_acc:]
         warnings = set()
 
+        total_count = 0
         hit_count = 0
         for y, pred_indices in zip(target_outputs, top_k_indices):
+            total_count += 1
             try:
                 cls_id = cls_ids[y]
             except KeyError:
@@ -179,7 +195,7 @@ class Experiment(NestedLogger):
             self.log_item('Classes {} of the test data were not in the training data of this classifier.'
                           .format(warnings))
 
-        return float(hit_count) / float(len(inputs))
+        return float(hit_count) / float(total_count)
 
     def _gini_score(self, y_true, y_pred):
         multi_class = 'ovo' if self.multi_class else 'raise'
@@ -243,7 +259,8 @@ def run_experiments(name: str,
                                      .union(set(metric_names))
                                      .union(set(fit_params_names))
                                      .union(set(stats_names)))
-                        exp_names_len = len(param_names) + len(stats_names) + len(fit_params_names) + len(metric_names)
+                        exp_names_len = len(param_names) + len(stats_names) + len(fit_params_names) \
+                            + len(metric_names)
                         can_unpack = len(all_names) == exp_names_len
                         fields = (param_names +
                                   ['rep_no'] +
@@ -269,9 +286,9 @@ def run_experiments(name: str,
                         unpacked_writer.writerow(merged)
                         unpacked_csv_file.flush()
                     else:
-                        logging.warning('Could not unpack result of experiment into the same csv as previous results,'
-                                        'because the experiment generates a different set of params, '
-                                        'stats or metrics.\n'
+                        logging.warning('Could not unpack result of experiment into the same csv as '
+                                        'previous results, because the experiment generates a different set '
+                                        'of params, stats or metrics.\n'
                                         'Params: {}\n'
                                         'Stats: {}\n'
                                         'Metrics: {}'.format(e.params, stats, metrics))
