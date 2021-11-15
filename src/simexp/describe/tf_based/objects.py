@@ -9,9 +9,9 @@ from PIL import Image, ImageDraw
 from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
-from simexp.common import LoggingConfig
+from liga.common import LoggingConfig
 from simexp.describe.tf_based.base import TFDescriber
-from simexp.oiv4.metadata import OIV4MetadataProvider
+from liga.oiv4.metadata import OIV4MetadataProvider
 from simexp.spark import Field, Schema, PetastormWriteConfig
 
 mp = multiprocessing.get_context('spawn')

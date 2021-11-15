@@ -3,7 +3,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from liga.torch_extensions.classifier import TorchImageClassifierSerialization, TorchImageClassifierLoader
+from liga.torch_extensions.classifier import TorchImageClassifier
 from simexp.describe.torch_based.common import TorchConfig
 
 
@@ -20,8 +20,7 @@ def image():
 @pytest.fixture()
 def classifier():
     torch_cfg = TorchConfig()
-    alexnet_serial = TorchImageClassifierSerialization('places365_alexnet.json')
-    yield TorchImageClassifierLoader(alexnet_serial, torch_cfg).classifier
+    yield TorchImageClassifier.from_json_file('places365_alexnet.json')
 
 
 @pytest.fixture()

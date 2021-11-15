@@ -1,7 +1,10 @@
 import abc
-from typing import Optional, Tuple, Iterable
+from typing import Optional, Tuple, Iterable, List
 
 import numpy as np
+import itertools as it
+
+from liga.util.itertools import random_sublists
 
 
 class Interpreter(abc.ABC):
@@ -37,6 +40,47 @@ class Interpreter(abc.ABC):
         Alternatively, an interpreter can also require an *image_id* that identifies an image within some dataset.
         """
 
+    def get_counterfactuals(self,
+                            rng: np.random.Generator,
+                            image: Optional[np.ndarray] = None,
+                            image_id: Optional[str] = None,
+                            max_counterfactuals: Optional[int] = None,
+                            max_perturbed_concepts: Optional[int] = None,
+                            max_perturbed_area: float = 0.2) -> Iterable[Tuple[List[int], np.ndarray]]:
+        ids_and_masks = list(self(image=image, image_id=image_id))
+        if len(ids_and_masks) > 0:
+            ids, masks = list(zip(*ids_and_masks))
+            counts = self.concept_ids_to_counts(ids)
+            num_pixels = float(image.shape[0] * image.shape[1])
+
+            for dropped_ids_and_masks in it.islice(random_sublists(rng=rng,
+                                                                   the_list=ids_and_masks,
+                                                                   max_size=max_perturbed_concepts,
+                                                                   include_empty=False),
+                                                   max_counterfactuals):
+                dropped_ids_and_masks = [(i, m) for i, m in dropped_ids_and_masks
+                                         if float(np.count_nonzero(m)) / num_pixels <= max_perturbed_area]
+                if len(dropped_ids_and_masks) == 0:
+                    continue
+
+                dropped_ids, dropped_masks = list(zip(*dropped_ids_and_masks))
+                perturbed_image = image.copy()
+                dropped_counts = self.concept_ids_to_counts(dropped_ids)
+                perturbed_counts = np.asarray(counts) - np.asarray(dropped_counts)
+                assert np.all(perturbed_counts >= 0)
+                for mask in dropped_masks:
+                    # replace concept from image with black area
+                    perturbed_image[mask] = (0, 0, 0)
+                    # rng.uniform(0., 255., size=(np.count_nonzero(mask), 3))
+                #
+                # from matplotlib import pyplot as plt
+                # plt.imshow(perturbed_image, interpolation='nearest')
+                # print('image had original concepts {}.\n{} were dropped.'
+                #       .format([self.concepts[i] for i in ids],
+                #               [self.concepts[i] for i in dropped_ids]))
+
+                yield perturbed_counts, perturbed_image
+
 
 class JoinedInterpreter(Interpreter):
 
@@ -49,6 +93,10 @@ class JoinedInterpreter(Interpreter):
         self.prefix = prefix_interpreter_name
         self.clean = clean_concept_names
 
+        self.interpreter_id_by_concept_id = []
+        for interpreter_id, interpreter in enumerate(self.interpreters):
+            self.interpreter_id_by_concept_id += [interpreter_id] * len(interpreter.concepts)
+
     def __str__(self) -> str:
         return 'Join({})'.format(', '.join([str(i) for i in self.interpreters]))
 
@@ -59,7 +107,7 @@ class JoinedInterpreter(Interpreter):
         else:
             concepts = [c for i in self.interpreters for c in i.concepts]
         if self.clean:
-            concepts = list(map(self._clean, concepts))
+            concepts = [self._clean(c) for c in concepts]
         return concepts
 
     @staticmethod
@@ -68,6 +116,10 @@ class JoinedInterpreter(Interpreter):
             if c in concept_name:
                 concept_name = concept_name.replace(c, '_')
         return concept_name
+
+    def get_implied_concepts(self, concept_id: int) -> Iterable[int]:
+        interpreter = self.interpreters[self.interpreter_id_by_concept_id[concept_id]]
+        return interpreter.get_implied_concepts(concept_id)
 
     def __call__(self,
                  image: Optional[np.ndarray],

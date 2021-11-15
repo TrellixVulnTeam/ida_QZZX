@@ -3,7 +3,7 @@ from typing import Optional, Tuple, Iterable
 import numpy as np
 
 from liga.interpret.common import Interpreter
-from simexp.common import ImageObjectProvider
+from liga.common import ImageObjectProvider
 
 
 class GroundTruthObjectsInterpreter(Interpreter):

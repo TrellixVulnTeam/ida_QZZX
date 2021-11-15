@@ -9,7 +9,7 @@ from captum.attr import visualization as viz
 from lime import lime_image
 from petastorm.unischema import Unischema
 
-from simexp.common import Classifier, RowDict
+from liga.common import Classifier, RowDict
 from simexp.describe.common import ImageReadConfig
 from simexp.spark import DictBasedDataGenerator, Schema, Field
 

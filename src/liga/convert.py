@@ -7,8 +7,9 @@ import numpy as np
 from PIL import Image
 from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
+import pyspark.sql.functions as sf
 
-from simexp.common import LoggingConfig, ImageIdProvider
+from liga.common import LoggingConfig, ImageIdProvider
 from simexp.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
 
 
@@ -33,6 +34,7 @@ class ConvertTask:
     min_length: Optional[int] = None
     max_length: Optional[int] = None
     num_partitions: int = 64 * 3
+    randomize_order_seed: Optional[int] = None
 
     def __post_init__(self):
         if isinstance(self.images_dir, str):
@@ -86,6 +88,8 @@ class ConvertTask:
     def run(self):
         rows = [dict_to_spark_row(self.write_cfg.output_schema, row_dict) for row_dict in self.generate()]
         df = self.spark_cfg.session.createDataFrame(rows, self.write_cfg.output_schema.as_spark_schema())
+        if self.randomize_order_seed is not None:
+            df = df.orderBy(sf.rand(seed=self.randomize_order_seed))
         self.spark_cfg.write_petastorm(df, self.write_cfg)
 
 

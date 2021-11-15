@@ -76,7 +76,7 @@ class LimeType2Explainer(Type2Explainer):
             influences = self.captum_wrapper(image=image,
                                              additional_attribution_args=kwargs)
             # the following zip removes the complement mask automagically
-            yield from ((concept_id, influence) for concept_id, influence in zip(ids, influences))
+            yield from zip(ids, masks, influences)
 
     def __str__(self):
         return 'lime'

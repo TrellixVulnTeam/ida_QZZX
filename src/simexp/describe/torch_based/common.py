@@ -4,7 +4,7 @@ from typing import Iterable
 
 import torch
 
-from simexp.common import RowDict
+from liga.common import RowDict
 from simexp.describe.common import DictBasedImageDescriber
 
 
@@ -15,13 +15,6 @@ class TorchConfig:
     def __post_init__(self):
         self.use_cuda = self.use_cuda and torch.cuda.is_available()
         self.device: torch.device = torch.device('cuda') if self.use_cuda else torch.device('cpu')
-
-    def set_device(self):
-        """
-        Context manager that executes the contained code with the
-        configured torch device.
-        """
-        return torch.cuda.device(self.device if self.use_cuda else -1)
 
 
 @dataclass

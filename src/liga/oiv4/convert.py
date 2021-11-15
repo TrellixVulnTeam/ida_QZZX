@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
-from simexp.common import ImageIdProvider
-from simexp.convert import main, ConvertTask
-from simexp.oiv4.metadata import OIV4MetadataProvider
+from liga.common import ImageIdProvider
+from liga.convert import main, ConvertTask
+from liga.oiv4.metadata import OIV4MetadataProvider
 
 
 @dataclass

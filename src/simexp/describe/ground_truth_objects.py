@@ -3,7 +3,7 @@ from typing import Iterator, Optional
 
 import numpy as np
 
-from simexp.common import ImageObjectProvider, RowDict
+from liga.common import ImageObjectProvider, RowDict
 from simexp.describe.common import DictBasedImageDescriber
 from simexp.spark import Field
 

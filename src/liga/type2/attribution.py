@@ -23,7 +23,8 @@ class GradientAttributionType2Explainer(Type2Explainer):
                                                        **additional_init_args)
         self.takes_additional_attribution_args = takes_additional_attribution_args
 
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
+            -> Iterable[Tuple[int, np.ndarray, float]]:
         feature_influences = None
 
         for concept_id, mask in self.interpreter(image=image,
@@ -36,7 +37,9 @@ class GradientAttributionType2Explainer(Type2Explainer):
                 feature_influences = (self.captum_wrapper(image=image,
                                                           additional_attribution_args=kwargs)
                                       .transpose(1, 2, 0))  # CxHxW -> HxWxC
-            yield concept_id, np.sum(feature_influences[mask]).item()
+
+            influence = np.sum(feature_influences[mask]).item()
+            yield concept_id, mask, influence
 
 
 class SaliencyType2Explainer(GradientAttributionType2Explainer):

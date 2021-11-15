@@ -17,7 +17,7 @@ from petastorm.tf_utils import make_petastorm_dataset
 from petastorm.unischema import UnischemaField, Unischema, dict_to_spark_row
 from pyspark.sql import SparkSession, DataFrame
 
-from simexp.common import RowDict, NestedLogger, ComposableDataclass
+from liga.common import RowDict, NestedLogger, ComposableDataclass
 
 
 class Field(UnischemaField, Enum):

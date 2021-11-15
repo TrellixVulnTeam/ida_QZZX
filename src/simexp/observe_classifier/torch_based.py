@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from petastorm.unischema import Unischema
 from simple_parsing import ArgumentParser
 
-from simexp.common import LoggingConfig
+from liga.common import LoggingConfig
 from simexp.observe_classifier.common import ClassifierObservationGenerator
 from simexp.spark import PetastormWriteConfig
 from liga.torch_extensions.classifier import TorchImageClassifierLoader

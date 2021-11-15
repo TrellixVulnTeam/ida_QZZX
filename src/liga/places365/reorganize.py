@@ -5,8 +5,8 @@ from typing import Union, Optional
 
 from simple_parsing import ArgumentParser
 
-from simexp.common import LoggingConfig
-from simexp.places365.metadata import Places365MetadataProvider, Places365Task
+from liga.common import LoggingConfig
+from liga.places365.metadata import Places365MetadataProvider, Places365Task
 
 
 @dataclass

@@ -1,4 +1,5 @@
 import abc
+import functools
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -67,17 +68,31 @@ class ClassificationTask:
         pass
 
 
-@dataclass
 class Classifier(abc.ABC):
     """
     Abstract base class for classifiers.
     """
 
-    # name of this model
-    name: str
+    def __init__(self,
+                 name: str,
+                 num_classes: int,
+                 memoize_predictions: int = 0):
+        """
+        :param name: name of this model
+        :param num_classes: how many classes this classifier discriminates
+        :param memoize_predictions: how many predictions to cache for subsequent calls
+        """
+        self.name = name
+        self.num_classes = num_classes
+        self.memoize_predictions = memoize_predictions
 
-    # how many classes this classifier discriminates
-    num_classes: int
+        if self.memoize_predictions > 0:
+            wrapped = functools.lru_cache(maxsize=self.memoize_predictions)(lambda img_id: self._predict_current())
+            self._predict_from_image_id = wrapped
+        else:
+            self._predict_from_image_id = lambda img_id: self._predict_current()
+
+        self._current_image = None
 
     @abc.abstractmethod
     def predict_proba(self, inputs: np.ndarray) -> np.ndarray:
@@ -86,8 +101,17 @@ class Classifier(abc.ABC):
         The distributions are encoded as a float array.
         """
 
-    def predict_single(self, image: np.ndarray) -> np.uint16:
-        return np.uint16(np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]))
+    def _predict_current(self):
+        return np.argmax(self.predict_proba(np.expand_dims(self._current_image, 0))[0]).item()
+
+    def predict_single(self, image: np.ndarray, image_id: Optional[str] = None) -> int:
+        self._current_image = image
+        if image_id is not None:
+            pred = self._predict_from_image_id(image_id)
+        else:
+            pred = self._predict_current()
+        self._current_image = None
+        return pred
 
 
 class ImageIdProvider(abc.ABC):

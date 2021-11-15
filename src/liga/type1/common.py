@@ -15,7 +15,8 @@ class Type1Explainer(abc.ABC, Generic[T]):
                  all_classes: Optional[List[int]],
                  **kwargs) -> T:
         """
-        Trains a scikit-learn model to predict *classes* based on *concept_counts*.
+        Trains a scikit-learn model to predict *predicted_classes* based on *concept_counts*.
+        Uses *concept_influence_order* to select the most influential concepts.
         """
 
     @staticmethod
@@ -26,4 +27,14 @@ class Type1Explainer(abc.ABC, Generic[T]):
     @staticmethod
     @abc.abstractmethod
     def get_fitted_params(model: T) -> Dict[str, Any]:
+        pass
+
+    @staticmethod
+    @abc.abstractmethod
+    def get_plot_representation(model: T) -> Dict[str, str]:
+        pass
+
+    @staticmethod
+    @abc.abstractmethod
+    def plot(experiment_name: str, exp_no: int, **kwargs):
         pass

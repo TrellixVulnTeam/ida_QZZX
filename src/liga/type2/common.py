@@ -19,27 +19,14 @@ class Type2Explainer(abc.ABC):
         self.interpreter = interpreter
 
     @abc.abstractmethod
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
+            -> Iterable[Tuple[int, np.ndarray, float]]:
         """
-        Takes an input *image* of the classifier and returns the influence of each instance of
+        Takes an input *image* of the classifier and returns the location and influence of each instance of
         an interpretable concept on *image* on the output of the classifier.
         The influence estimator can use an additional *image_id* to lookup interpretable concepts of *image*.
         """
         pass
-
-
-class DummyType2Explainer(Type2Explainer):
-
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
-        """
-        Assigns positive influence of 1. to each interpretable concept on *image* / the image represented by *image_id*.
-        """
-        yield from zip(map(lambda p: p[0],  # only return concept_id from pair (concept_id, mask)
-                           self.interpreter(image, image_id)),
-                       it.repeat(1.))
-
-    def __str__(self):
-        return 'none'
 
 
 class CaptumAttributionWrapper:
@@ -59,7 +46,7 @@ class CaptumAttributionWrapper:
             additional_attribution_args = {}
         predicted_class = self.classifier.predict_single(image)
         image_tensor = (torch.from_numpy(np.expand_dims(image, 0))
-                        .to(self.classifier.torch_cfg.device,
+                        .to(self.classifier.device,
                             dtype=torch.float)
                         .permute(0, 3, 1, 2)
                         .contiguous())  # H x W x C  -->  C x H x W

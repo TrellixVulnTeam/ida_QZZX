@@ -3,9 +3,9 @@ import re
 from dataclasses import field, dataclass
 from typing import Mapping
 
-from simexp.common import ImageIdProvider, ImageClassProvider, ClassificationTask
-from simexp.util.functools import cached_property
-from simexp.util.webcache import WebCache
+from liga.common import ImageIdProvider, ImageClassProvider, ClassificationTask
+from liga.util.functools import cached_property
+from liga.util.webcache import WebCache
 
 
 @dataclass

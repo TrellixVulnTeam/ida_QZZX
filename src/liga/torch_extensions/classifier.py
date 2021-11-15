@@ -13,10 +13,9 @@ from skimage.transform import resize
 from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
-from simexp.common import Classifier
-from simexp.describe.torch_based.common import TorchConfig
+from liga.common import Classifier
+from liga.util.webcache import WebCache
 from liga.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
-from simexp.util.webcache import WebCache
 
 
 _COLLECTION_PACKAGE = 'liga.classifier_collection.torch'
@@ -26,10 +25,11 @@ class TorchImageClassifier(Classifier):
 
     def __init__(self,
                  name: str,
-                 num_classes: str,
+                 num_classes: int,
                  param_url: Optional[str],
                  is_parallel: bool,
-                 torch_cfg: TorchConfig,
+                 memoize: int = 0,
+                 use_cuda: bool = True,
                  input_size: Tuple[int, int] = (224, 224),
                  cache: WebCache = WebCache(),
                  is_latin1: bool = False):
@@ -40,16 +40,19 @@ class TorchImageClassifier(Classifier):
         :param param_url: an optional file to load this model from.
             if None, the model will be loaded from the torchvision collection.
         :param is_parallel: whether this model uses `DataParallel`
-        :param torch_cfg: torch_cfg: TorchConfig
+        :param memoize: how many predictions to cache
         :param input_size: required input size of the model
         :param cache: WebCache = WebCache()
         :param is_latin1: whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch versions)
         """
-        super().__init__(name=name, num_classes=num_classes)
+        super().__init__(name=name,
+                         num_classes=num_classes,
+                         memoize_predictions=memoize)
 
         self.param_url = param_url
         self.is_parallel = is_parallel
-        self.torch_cfg = torch_cfg
+        self.use_cuda = use_cuda and torch.cuda.is_available()
+        self.device: torch.device = torch.device('cuda') if self.use_cuda else torch.device('cpu')
         self.input_size = input_size
         self.cache = cache
         self.is_latin1 = is_latin1
@@ -66,7 +69,7 @@ class TorchImageClassifier(Classifier):
         self._sds_nested = sds[None, None, :]
 
     @staticmethod
-    def from_json_file(path: str, torch_cfg: TorchConfig):
+    def from_json_file(path: str, **kwargs):
         with resources.path(_COLLECTION_PACKAGE, path) as path:
             with path.open('r') as f:
                 json_dict = json.load(f)
@@ -75,7 +78,7 @@ class TorchImageClassifier(Classifier):
                                             is_parallel=json_dict['is_parallel'],
                                             num_classes=json_dict['num_classes'],
                                             is_latin1=json_dict['is_latin1'],
-                                            torch_cfg=torch_cfg)
+                                            **kwargs)
 
     def _convert_latin1_to_unicode_and_cache(self):
         dest_path = self.cache.cache_dir / self.file_name
@@ -85,7 +88,7 @@ class TorchImageClassifier(Classifier):
             logging.info('Converting legacy latin1 encoded model to unicode...', )
             with self.cache.open(self.file_name, self.url, legacy_path.name, 'rb') as legacy_tar_file:
                 model = torch.load(legacy_tar_file,
-                                   map_location=self.torch_cfg.device,
+                                   map_location=self.device,
                                    encoding='latin1')
             torch.save(model, dest_path)
             legacy_path.unlink()
@@ -94,9 +97,6 @@ class TorchImageClassifier(Classifier):
     @property
     def torch_model(self):
         with mock.patch.object(torchvision.models.resnet, 'BasicBlock', AdjustedBasicBlock):
-            if self.torch_cfg is None:
-                raise RuntimeError('Attribute torch_cfg must be set before the model can be accessed.')
-
             if self._model is not None:
                 return self._model
 
@@ -107,7 +107,7 @@ class TorchImageClassifier(Classifier):
                     self._convert_latin1_to_unicode_and_cache()
 
                 with self.cache.open(self.file_name, self.url, None, 'rb') as param_file:
-                    checkpoint = torch.load(param_file, map_location=self.torch_cfg.device)
+                    checkpoint = torch.load(param_file, map_location=self.device)
 
                 if type(checkpoint).__name__ == 'OrderedDict' or type(checkpoint).__name__ == 'dict':
                     self._model = torchvision.models.__dict__[self.name](num_classes=self.num_classes)
@@ -139,8 +139,8 @@ class TorchImageClassifier(Classifier):
         if not preprocessed:
             inputs = np.asarray([self.preprocess(img) for img in inputs])
 
-        self.torch_model.to(self.torch_cfg.device)
-        image_tensors = torch.from_numpy(inputs).float().to(self.torch_cfg.device)
+        self.torch_model.to(self.device)
+        image_tensors = torch.from_numpy(inputs).float().to(self.device)
         logits = self.torch_model(image_tensors)
         probs = softmax(logits, dim=1)
         return probs.detach().cpu().numpy()
