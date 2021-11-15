@@ -36,5 +36,5 @@ class Type1Explainer(abc.ABC, Generic[T]):
 
     @staticmethod
     @abc.abstractmethod
-    def plot(experiment_name: str, exp_no: int, **kwargs):
+    def plot(experiment_name: str, exp_no: int, rep_no: int, **kwargs):
         pass
