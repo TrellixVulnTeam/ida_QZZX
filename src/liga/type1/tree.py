@@ -8,13 +8,12 @@ import numpy as np
 import pickle
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel
+from sklearn.metrics import top_k_accuracy_score, make_scorer
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 from liga.experiments.experiment import get_experiment_df
-from liga.interpret.common import Interpreter
-from liga.torch_extensions.classifier import TorchImageClassifier
 from liga.type1.common import Type1Explainer
 
 
@@ -30,9 +29,12 @@ class TreeType1Explainer(Type1Explainer[GridSearchCV]):
                  top_k_acc: int = 5,
                  n_jobs: int = 10,
                  pre_dispatch: Union[int, str] = 'n_jobs',
-                 scoring: str = 'neg_log_loss',
+                 scoring: Optional[str] = None,
                  select_top_k_influential_concepts: int = 30,
                  **fit_params) -> GridSearchCV:
+        if scoring is None:
+            scoring = make_scorer(top_k_accuracy_score, k=top_k_acc)
+
         selector = SelectFromModel(ExtraTreesClassifier(random_state=random_state))
         tree = DecisionTreeClassifier(random_state=random_state)
         pipeline = Pipeline([
@@ -100,13 +102,13 @@ class TreeType1Explainer(Type1Explainer[GridSearchCV]):
                 'encoded_tree': base64.b64encode(pickle.dumps(clf))}
 
     @staticmethod
-    def plot(experiment_name: str, exp_no: int, **kwargs):
+    def plot(experiment_name: str, exp_no: int, rep_no: int, **kwargs):
         assert 'concepts' in kwargs and 'all_classes' in kwargs
         concepts = kwargs.pop('concepts')
         all_classes = kwargs.pop('all_classes')
 
         df = get_experiment_df(experiment_name)
-        row = df.loc[df['exp_no'] == exp_no].iloc[0]
+        row = df.loc[df['exp_no'] == exp_no and df['rep_no'] == rep_no].iloc[0]
 
         encoded_tree = ast.literal_eval(row['encoded_tree'])
         selected_concepts = ast.literal_eval(row['selected_concepts'])
