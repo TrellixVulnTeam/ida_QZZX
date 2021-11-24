@@ -1,6 +1,5 @@
 import abc
-import itertools as it
-from typing import Optional, Type, Mapping, Any, Tuple, Iterable
+from typing import Optional, Any, Tuple, Iterable, Dict, Type, Mapping
 
 import numpy as np
 import torch
@@ -18,8 +17,14 @@ class Type2Explainer(abc.ABC):
         self.classifier = classifier
         self.interpreter = interpreter
 
+    def stats(self) -> Dict[str, Any]:
+        return {}
+
+    def calibrate(self, images_iter: Iterable[Tuple[str, np.ndarray]]):
+        pass
+
     @abc.abstractmethod
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None) \
             -> Iterable[Tuple[int, np.ndarray, float]]:
         """
         Takes an input *image* of the classifier and returns the location and influence of each instance of

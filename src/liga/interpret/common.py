@@ -1,10 +1,8 @@
 import abc
+from functools import reduce
 from typing import Optional, Tuple, Iterable, List
 
 import numpy as np
-import itertools as it
-
-from liga.util.itertools import random_sublists
 
 
 class Interpreter(abc.ABC):
@@ -40,44 +38,60 @@ class Interpreter(abc.ABC):
         Alternatively, an interpreter can also require an *image_id* that identifies an image within some dataset.
         """
 
+    @staticmethod
+    def get_overlapping_concepts(mask: np.ndarray,
+                                 all_ids_and_masks: Iterable[Tuple[int, np.ndarray]],
+                                 is_overlap_at: float) -> Iterable[Tuple[int, np.ndarray]]:
+        overlap_ids = []
+        overlap_masks = []
+        overlap_masks_union = mask
+
+        while True:
+            for concept_id, other_mask in all_ids_and_masks:
+                if concept_id in overlap_ids:
+                    continue
+
+                common_area = np.count_nonzero(np.bitwise_and(other_mask, overlap_masks_union))
+                other_mask_area = np.count_nonzero(other_mask)
+                if float(common_area) / float(other_mask_area) > is_overlap_at:
+                    overlap_ids.append(concept_id)
+                    overlap_masks.append(other_mask)
+
+            new_dropped_masks_union = reduce(np.bitwise_or, overlap_masks)
+            if np.all(new_dropped_masks_union == overlap_masks_union):
+                break
+            overlap_masks_union = new_dropped_masks_union
+
+        return zip(overlap_ids, overlap_masks)
+
     def get_counterfactuals(self,
-                            rng: np.random.Generator,
+                            max_perturbed_area: float,
+                            max_concept_overlap: float,
                             image: Optional[np.ndarray] = None,
-                            image_id: Optional[str] = None,
-                            max_counterfactuals: Optional[int] = None,
-                            max_perturbed_concepts: Optional[int] = None,
-                            max_perturbed_area: float = 0.2) -> Iterable[Tuple[List[int], np.ndarray]]:
+                            image_id: Optional[str] = None) -> Iterable[Tuple[List[int], np.ndarray]]:
         ids_and_masks = list(self(image=image, image_id=image_id))
         if len(ids_and_masks) > 0:
             ids, masks = list(zip(*ids_and_masks))
             counts = self.concept_ids_to_counts(ids)
-            num_pixels = float(image.shape[0] * image.shape[1])
+            image_area = image.shape[0] * image.shape[1]
 
-            for dropped_ids_and_masks in it.islice(random_sublists(rng=rng,
-                                                                   the_list=ids_and_masks,
-                                                                   max_size=max_perturbed_concepts,
-                                                                   include_empty=False),
-                                                   max_counterfactuals):
-                dropped_ids_and_masks = [(i, m) for i, m in dropped_ids_and_masks
-                                         if float(np.count_nonzero(m)) / num_pixels <= max_perturbed_area]
-                if len(dropped_ids_and_masks) == 0:
+            for dropped_id, dropped_mask in ids_and_masks:
+                # the following zip cannot be empty, because dropped_mask is at least overlapping with itself
+                overlapping = self.get_overlapping_concepts(mask=dropped_mask,
+                                                            all_ids_and_masks=ids_and_masks,
+                                                            is_overlap_at=max_concept_overlap)
+                dropped_ids, dropped_masks = list(zip(*overlapping))
+                dropped_area = np.count_nonzero(reduce(np.bitwise_or, dropped_masks))
+                if float(dropped_area) / float(image_area) > max_perturbed_area:
                     continue
 
-                dropped_ids, dropped_masks = list(zip(*dropped_ids_and_masks))
                 perturbed_image = image.copy()
                 dropped_counts = self.concept_ids_to_counts(dropped_ids)
                 perturbed_counts = np.asarray(counts) - np.asarray(dropped_counts)
                 assert np.all(perturbed_counts >= 0)
                 for mask in dropped_masks:
-                    # replace concept from image with black area
-                    perturbed_image[mask] = (0, 0, 0)
-                    # rng.uniform(0., 255., size=(np.count_nonzero(mask), 3))
-                #
-                # from matplotlib import pyplot as plt
-                # plt.imshow(perturbed_image, interpolation='nearest')
-                # print('image had original concepts {}.\n{} were dropped.'
-                #       .format([self.concepts[i] for i in ids],
-                #               [self.concepts[i] for i in dropped_ids]))
+                    # replace concept from image with grey area
+                    perturbed_image[mask] = (127., 127., 127.)
 
                 yield perturbed_counts, perturbed_image
 

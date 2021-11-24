@@ -76,7 +76,7 @@ class Classifier(abc.ABC):
     def __init__(self,
                  name: str,
                  num_classes: int,
-                 memoize_predictions: int = 0):
+                 memoize_predictions: bool = False):
         """
         :param name: name of this model
         :param num_classes: how many classes this classifier discriminates
@@ -85,14 +85,7 @@ class Classifier(abc.ABC):
         self.name = name
         self.num_classes = num_classes
         self.memoize_predictions = memoize_predictions
-
-        if self.memoize_predictions > 0:
-            wrapped = functools.lru_cache(maxsize=self.memoize_predictions)(lambda img_id: self._predict_current())
-            self._predict_from_image_id = wrapped
-        else:
-            self._predict_from_image_id = lambda img_id: self._predict_current()
-
-        self._current_image = None
+        self.prediction_cache = {}
 
     @abc.abstractmethod
     def predict_proba(self, inputs: np.ndarray) -> np.ndarray:
@@ -101,16 +94,13 @@ class Classifier(abc.ABC):
         The distributions are encoded as a float array.
         """
 
-    def _predict_current(self):
-        return np.argmax(self.predict_proba(np.expand_dims(self._current_image, 0))[0]).item()
-
     def predict_single(self, image: np.ndarray, image_id: Optional[str] = None) -> int:
-        self._current_image = image
-        if image_id is not None:
-            pred = self._predict_from_image_id(image_id)
-        else:
-            pred = self._predict_current()
-        self._current_image = None
+        if image_id in self.prediction_cache.items():
+            return self.prediction_cache[image_id]
+
+        pred = np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]).item()
+        if self.memoize_predictions:
+            self.prediction_cache[image_id] = pred
         return pred
 
 

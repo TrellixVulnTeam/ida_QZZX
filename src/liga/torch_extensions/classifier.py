@@ -28,11 +28,12 @@ class TorchImageClassifier(Classifier):
                  num_classes: int,
                  param_url: Optional[str],
                  is_parallel: bool,
-                 memoize: int = 0,
+                 memoize: bool = False,
                  use_cuda: bool = True,
                  input_size: Tuple[int, int] = (224, 224),
                  cache: WebCache = WebCache(),
-                 is_latin1: bool = False):
+                 is_latin1: bool = False,
+                 json_path: Optional[str] = None):
         """
 
         :param name: name of this model
@@ -40,10 +41,11 @@ class TorchImageClassifier(Classifier):
         :param param_url: an optional file to load this model from.
             if None, the model will be loaded from the torchvision collection.
         :param is_parallel: whether this model uses `DataParallel`
-        :param memoize: how many predictions to cache
+        :param memoize: whether to cache predictions
         :param input_size: required input size of the model
         :param cache: WebCache = WebCache()
-        :param is_latin1: whether this model was encoded with latin1 (a frequent "bug" with models exported from older torch versions)
+        :param is_latin1: whether this model was encoded with latin1 --
+            a frequent "bug" with models exported from older torch versions
         """
         super().__init__(name=name,
                          num_classes=num_classes,
@@ -51,11 +53,11 @@ class TorchImageClassifier(Classifier):
 
         self.param_url = param_url
         self.is_parallel = is_parallel
-        self.use_cuda = use_cuda and torch.cuda.is_available()
-        self.device: torch.device = torch.device('cuda') if self.use_cuda else torch.device('cpu')
+        self.use_cuda = use_cuda
         self.input_size = input_size
         self.cache = cache
         self.is_latin1 = is_latin1
+        self.json_path = json_path
 
         if self.param_url:
             self.url, self.file_name = self.param_url.rsplit('/', 1)
@@ -68,9 +70,13 @@ class TorchImageClassifier(Classifier):
         self._means_nested = means[None, None, :]
         self._sds_nested = sds[None, None, :]
 
+    @property
+    def device(self) -> torch.device:
+        return torch.device('cuda') if self.use_cuda and torch.cuda.is_available() else torch.device('cpu')
+
     @staticmethod
-    def from_json_file(path: str, **kwargs):
-        with resources.path(_COLLECTION_PACKAGE, path) as path:
+    def from_json_file(path_str: str, **kwargs):
+        with resources.path(_COLLECTION_PACKAGE, path_str) as path:
             with path.open('r') as f:
                 json_dict = json.load(f)
                 return TorchImageClassifier(name=json_dict['name'],
@@ -78,7 +84,13 @@ class TorchImageClassifier(Classifier):
                                             is_parallel=json_dict['is_parallel'],
                                             num_classes=json_dict['num_classes'],
                                             is_latin1=json_dict['is_latin1'],
+                                            json_path=path_str,
                                             **kwargs)
+
+    def __getstate__(self):
+        d = self.__dict__
+        d['_model'] = None
+        return d
 
     def _convert_latin1_to_unicode_and_cache(self):
         dest_path = self.cache.cache_dir / self.file_name
@@ -125,6 +137,12 @@ class TorchImageClassifier(Classifier):
         if self.is_parallel and torch.cuda.device_count() > 1:
             self._model = DataParallel(self._model)
         return self._model
+
+    @property
+    def torch_module(self):
+        if isinstance(self.torch_model, DataParallel):
+            return self.torch_model.module
+        return self.torch_model
 
     def preprocess(self, image: np.ndarray) -> np.ndarray:
         """
