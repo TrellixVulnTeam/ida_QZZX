@@ -3,8 +3,8 @@ from unittest import mock
 import numpy as np
 import pytest
 
+from liga.interpret.common import Interpreter
 from liga.torch_extensions.classifier import TorchImageClassifier
-from simexp.describe.torch_based.common import TorchConfig
 
 
 @pytest.fixture
@@ -19,7 +19,6 @@ def image():
 
 @pytest.fixture()
 def classifier():
-    torch_cfg = TorchConfig()
     yield TorchImageClassifier.from_json_file('places365_alexnet.json')
 
 
@@ -37,4 +36,5 @@ def interpreter(image, classifier):
         interpreter.return_value = [(1, banana_mask),
                                     (1, banana_mask),
                                     (0, teacup_mask)]
+        interpreter.concept_ids_to_counts = lambda x: Interpreter.concept_ids_to_counts(interpreter, x)
         yield interpreter

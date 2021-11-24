@@ -1,16 +1,16 @@
 import numpy as np
 import torch
 
-from liga.type2.attribution import SaliencyType2Explainer, IntegratedGradientsType2Explainer, \
+from liga.type2.gradient import SaliencyType2Explainer, IntegratedGradientsType2Explainer, \
     DeepLiftType2Explainer
-from liga.type2.common import DummyType2Explainer
+from liga.liga import DummyResampler
 from liga.type2.lime import LimeType2Explainer
 
 
-def test_dummy(image, interpreter, classifier):
-    dummy = DummyType2Explainer(classifier=classifier,
-                                interpreter=interpreter)
-    assert list(dummy(image)) == [(1, 1.), (1, 1.), (0, 1.)]
+def test_dummy(rng, image, interpreter, classifier):
+    dummy = DummyResampler(classifier=classifier,
+                           interpreter=interpreter)
+    assert list(dummy(rng=rng, image=image)) == [([1, 2], 10)]
 
 
 class TestLime:
@@ -83,18 +83,21 @@ class TestGradient:
 
     def test_that_saliency_runs(self, image, interpreter, classifier):
         saliency = SaliencyType2Explainer(classifier=classifier,
-                                          interpreter=interpreter)
+                                          interpreter=interpreter,
+                                          quantile_level=.1)
         saliency(image=image,
                  image_id='test_img')
 
     def test_that_igrad_runs(self, image, interpreter, classifier):
         saliency = IntegratedGradientsType2Explainer(classifier=classifier,
-                                                     interpreter=interpreter)
+                                                     interpreter=interpreter,
+                                                     quantile_level=.1)
         saliency(image=image,
                  image_id='test_img')
 
     def test_that_deeplift_runs(self, image, interpreter, classifier):
         saliency = DeepLiftType2Explainer(classifier=classifier,
-                                          interpreter=interpreter)
+                                          interpreter=interpreter,
+                                          quantile_level=.1)
         saliency(image=image,
                  image_id='test_img')
