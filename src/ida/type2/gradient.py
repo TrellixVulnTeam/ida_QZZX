@@ -4,9 +4,9 @@ import numpy as np
 import torch
 from captum.attr import Attribution, Saliency, IntegratedGradients, DeepLift, GuidedGradCam
 
-from liga.interpret.common import Interpreter
-from liga.type2.common import Type2Explainer, CaptumAttributionWrapper
-from liga.torch_extensions.classifier import TorchImageClassifier
+from ida.interpret.common import Interpreter
+from ida.type2.common import Type2Explainer, CaptumAttributionWrapper
+from ida.torch_extensions.classifier import TorchImageClassifier
 
 
 class GradientAttributionType2Explainer(Type2Explainer):

@@ -1,4 +1,4 @@
-from liga.oiv4.metadata import OIV4MetadataProvider
+from ida.oiv4.metadata import OIV4MetadataProvider
 
 
 def test_that_implied_objects_are_correct():

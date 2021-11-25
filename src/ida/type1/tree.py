@@ -9,8 +9,8 @@ from sklearn.feature_selection import SelectFromModel
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 
-from liga.experiments.experiment import get_experiment_df
-from liga.type1.common import CrossValidatedType1Explainer
+from ida.experiments.experiment import get_experiment_df
+from ida.type1.common import CrossValidatedType1Explainer
 
 
 class TreeType1Explainer(CrossValidatedType1Explainer):

@@ -1,19 +1,19 @@
 import abc
 import time
-from typing import Iterable, Tuple, TypeVar, Dict, Any, Optional, List
+from typing import Iterable, Tuple, Dict, Any, Optional, List
 
 import numpy as np
 from sklearn.pipeline import Pipeline
 
-from liga.interpret.common import Interpreter
-from liga.torch_extensions.classifier import TorchImageClassifier
-from liga.type1.common import Type1Explainer
-from liga.type2.common import Type2Explainer
-from liga.common import NestedLogger
-from liga.util.itertools import random_sublists
+from ida.interpret.common import Interpreter
+from ida.torch_extensions.classifier import TorchImageClassifier
+from ida.type1.common import Type1Explainer
+from ida.type2.common import Type2Explainer
+from ida.common import NestedLogger
+from ida.util.itertools import random_sublists
 
 
-class Resampler(abc.ABC):
+class Decorrelator(abc.ABC):
 
     def __init__(self,
                  classifier: TorchImageClassifier,
@@ -36,7 +36,7 @@ class Resampler(abc.ABC):
         pass
 
 
-class DummyResampler(Resampler):
+class NoDecorrelator(Decorrelator):
 
     def __call__(self,
                  rng: np.random.Generator,
@@ -50,10 +50,10 @@ class DummyResampler(Resampler):
         yield counts, predicted_class
 
     def __str__(self):
-        return 'none'
+        return 'NoDecorrelator'
 
 
-class Type2Resampler(Resampler):
+class Type2Decorrelator(Decorrelator):
 
     def __init__(self,
                  type2: Type2Explainer,
@@ -110,10 +110,10 @@ class Type2Resampler(Resampler):
                 yield (counts - dropped_counts).tolist(), predicted_class
 
     def __str__(self):
-        return 'Type2Resampler(type2={}, max_concept_area={})'.format(str(self.type2), self.max_concept_area)
+        return 'Type2Decorrelator(type2={}, max_concept_area={})'.format(str(self.type2), self.max_concept_area)
 
 
-class CounterfactualResampler(Resampler):
+class CounterfactualDecorrelator(Decorrelator):
 
     def __init__(self,
                  classifier: TorchImageClassifier,
@@ -148,17 +148,17 @@ class CounterfactualResampler(Resampler):
                 yield cf_counts, perturbed_true_class
 
     def __str__(self):
-        return ('CounterfactualResampler(max_perturbed_area={}, max_concept_overlap={})'
+        return ('CounterfactualDecorrelator(max_perturbed_area={}, max_concept_overlap={})'
                 .format(self.max_perturbed_area, self.max_concept_overlap))
 
 
-def liga(rng: np.random.Generator,
-         type1: Type1Explainer,
-         image_iter: Iterable[Tuple[str, np.ndarray]],
-         resampler: Resampler,
-         log_nesting: int = 0,
-         log_frequency_s: int = 20,
-         **kwargs) -> Tuple[Pipeline, Dict[str, Any]]:
+def ida(rng: np.random.Generator,
+        type1: Type1Explainer,
+        image_iter: Iterable[Tuple[str, np.ndarray]],
+        decorrelator: Decorrelator,
+        log_nesting: int = 0,
+        log_frequency_s: int = 20,
+        **kwargs) -> Tuple[Pipeline, Dict[str, Any]]:
 
     logger = NestedLogger()
     logger.log_nesting = log_nesting
@@ -170,7 +170,7 @@ def liga(rng: np.random.Generator,
 
         for obs_no, (image_id, image) in enumerate(image_iter):
             augmentation_count -= 1  # do not count the original image
-            for counts, predicted_class in resampler(rng, image, image_id):
+            for counts, predicted_class in decorrelator(rng, image, image_id):
                 concept_counts.append(counts)
                 predicted_classes.append(predicted_class)
                 augmentation_count += 1
@@ -185,11 +185,11 @@ def liga(rng: np.random.Generator,
                 last_log_time = current_time
 
         stats = {'augmentation_count': augmentation_count}
-        stats.update(resampler.stats)
+        stats.update(decorrelator.stats)
 
         with logger.log_task('Fitting surrogate model...'):
             surrogate = type1(concept_counts=concept_counts,
                               predicted_classes=predicted_classes,
-                              all_classes=list(range(resampler.classifier.num_classes)),
+                              all_classes=list(range(decorrelator.classifier.num_classes)),
                               **kwargs)
         return surrogate, stats

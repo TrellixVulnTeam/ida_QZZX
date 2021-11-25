@@ -13,12 +13,12 @@ from skimage.transform import resize
 from torch.nn import DataParallel
 from torch.nn.functional import softmax
 
-from liga.common import Classifier
-from liga.util.webcache import WebCache
-from liga.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
+from ida.common import Classifier
+from ida.util.webcache import WebCache
+from ida.torch_extensions.adjusted_resnet_basic_block import AdjustedBasicBlock
 
 
-_COLLECTION_PACKAGE = 'liga.classifier_collection.torch'
+_COLLECTION_PACKAGE = 'ida.classifier_collection.torch'
 
 
 class TorchImageClassifier(Classifier):

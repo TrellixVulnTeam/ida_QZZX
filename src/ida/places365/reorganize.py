@@ -5,8 +5,8 @@ from typing import Union, Optional
 
 from simple_parsing import ArgumentParser
 
-from liga.common import LoggingConfig
-from liga.places365.metadata import Places365MetadataProvider, Places365Task
+from ida.common import LoggingConfig
+from ida.places365.metadata import Places365MetadataProvider, Places365Task
 
 
 @dataclass

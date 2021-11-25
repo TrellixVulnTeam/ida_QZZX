@@ -7,9 +7,9 @@ from typing import Mapping, Optional, Union, Iterable, Tuple
 
 import numpy as np
 
-from liga.common import ImageIdProvider, ImageObjectProvider
-from liga.util.functools import cached_property
-from liga.util.webcache import WebCache
+from ida.common import ImageIdProvider, ImageObjectProvider
+from ida.util.functools import cached_property
+from ida.util.webcache import WebCache
 
 _RE_IMAGE_ID = re.compile(r'^(.*)\.jpg$')
 

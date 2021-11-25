@@ -1,4 +1,4 @@
-from liga.liga import random_subsets
+from ida.ida import random_subsets
 
 
 def test_that_random_subsets_runs(rng, interpreter):

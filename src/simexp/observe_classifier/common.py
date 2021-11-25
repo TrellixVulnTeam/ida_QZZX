@@ -7,7 +7,7 @@ from petastorm.codecs import ScalarCodec
 from petastorm.unischema import Unischema, UnischemaField, dict_to_spark_row
 from pyspark.sql import DataFrame
 
-from liga.common import Classifier
+from ida.common import Classifier
 from simexp.spark import Field, ConceptMasksUnion, SparkSessionConfig, DataGenerator
 
 

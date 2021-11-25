@@ -8,9 +8,9 @@ from captum.attr import LimeBase
 from captum.attr._core.lime import get_exp_kernel_similarity_function, default_perturb_func
 from torch import Tensor
 
-from liga.interpret.common import Interpreter
-from liga.type2.common import Type2Explainer, CaptumAttributionWrapper
-from liga.torch_extensions.classifier import TorchImageClassifier
+from ida.interpret.common import Interpreter
+from ida.type2.common import Type2Explainer, CaptumAttributionWrapper
+from ida.torch_extensions.classifier import TorchImageClassifier
 
 
 class LimeType2Explainer(Type2Explainer):

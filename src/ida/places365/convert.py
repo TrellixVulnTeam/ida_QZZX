@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
-from liga.common import ImageIdProvider
-from liga.convert import main, ConvertTask
-from liga.places365.metadata import Places365MetadataProvider
+from ida.common import ImageIdProvider
+from ida.convert import main, ConvertTask
+from ida.places365.metadata import Places365MetadataProvider
 
 
 @dataclass

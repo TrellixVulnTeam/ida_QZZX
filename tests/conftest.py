@@ -3,8 +3,8 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from liga.interpret.common import Interpreter
-from liga.torch_extensions.classifier import TorchImageClassifier
+from ida.interpret.common import Interpreter
+from ida.torch_extensions.classifier import TorchImageClassifier
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def classifier():
 
 @pytest.fixture()
 def interpreter(image, classifier):
-    with mock.patch('liga.interpret.common.Interpreter') as interpreter:
+    with mock.patch('ida.interpret.common.Interpreter') as interpreter:
         interpreter.concepts = ['teacup', 'banana']
         interpreter.num_concepts = 2
         teacup_mask = np.zeros(image.shape[:2], dtype=np.bool_)

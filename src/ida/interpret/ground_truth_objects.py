@@ -2,8 +2,8 @@ from typing import Optional, Tuple, Iterable
 
 import numpy as np
 
-from liga.interpret.common import Interpreter
-from liga.common import ImageObjectProvider
+from ida.interpret.common import Interpreter
+from ida.common import ImageObjectProvider
 
 
 class GroundTruthObjectsInterpreter(Interpreter):

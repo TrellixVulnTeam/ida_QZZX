@@ -3,7 +3,7 @@ from typing import Optional, Tuple, Iterable
 import numpy as np
 import skimage
 
-from liga.interpret.common import Interpreter
+from ida.interpret.common import Interpreter
 
 
 class PerceivableColorsInterpreter(Interpreter):

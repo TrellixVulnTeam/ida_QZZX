@@ -3,9 +3,9 @@ import re
 from dataclasses import field, dataclass
 from typing import Mapping
 
-from liga.common import ImageIdProvider, ImageClassProvider, ClassificationTask
-from liga.util.functools import cached_property
-from liga.util.webcache import WebCache
+from ida.common import ImageIdProvider, ImageClassProvider, ClassificationTask
+from ida.util.functools import cached_property
+from ida.util.webcache import WebCache
 
 
 @dataclass

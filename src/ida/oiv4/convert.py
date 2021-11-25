@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
-from liga.common import ImageIdProvider
-from liga.convert import main, ConvertTask
-from liga.oiv4.metadata import OIV4MetadataProvider
+from ida.common import ImageIdProvider
+from ida.convert import main, ConvertTask
+from ida.oiv4.metadata import OIV4MetadataProvider
 
 
 @dataclass

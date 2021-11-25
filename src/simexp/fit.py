@@ -21,7 +21,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.tree._tree import Tree
 
-from liga.common import NestedLogger, ComposableDataclass
+from ida.common import NestedLogger, ComposableDataclass
 from simexp.spark import Field, SparkSessionConfig
 
 

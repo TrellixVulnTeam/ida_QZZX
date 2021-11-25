@@ -16,11 +16,11 @@ import pandas as pd
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
-from liga.interpret.common import Interpreter
-from liga.liga import liga, Resampler
-from liga.torch_extensions.classifier import TorchImageClassifier
-from liga.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_score
-from liga.common import NestedLogger
+from ida.interpret.common import Interpreter
+from ida.ida import ida, Decorrelator
+from ida.torch_extensions.classifier import TorchImageClassifier
+from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_score
+from ida.common import NestedLogger
 
 
 # See https://stackoverflow.com/questions/15063936
@@ -89,7 +89,7 @@ class Experiment(NestedLogger):
     max_concept_overlap: float
     all_classes: [str]
     type1: Type1Explainer
-    resampler: Resampler
+    decorrelator: Decorrelator
     top_k_acc: int = 5
 
     def __post_init__(self):
@@ -100,11 +100,11 @@ class Experiment(NestedLogger):
 
     @property
     def classifier(self) -> TorchImageClassifier:
-        return self.resampler.classifier
+        return self.decorrelator.classifier
 
     @property
     def interpreter(self) -> Interpreter:
-        return self.resampler.interpreter
+        return self.decorrelator.interpreter
 
     @property
     def params(self) -> Mapping[str, Any]:
@@ -113,8 +113,8 @@ class Experiment(NestedLogger):
                 'num_train_obs': self.num_train_obs,
                 'num_calibration_obs': self.num_calibration_obs,
                 'interpreter': str(self.interpreter),
+                'decorrelator': str(self.decorrelator),
                 'type1': str(self.type1),
-                'resampler': str(self.resampler),
                 'num_test_obs': self.num_test_obs,
                 'num_test_obs_for_counterfactuals': self.num_test_obs_for_counterfactuals,
                 'max_perturbed_area': self.max_perturbed_area,
@@ -150,17 +150,17 @@ class Experiment(NestedLogger):
                 for rep_no in range(1, self.repetitions + 1):
                     calibration_images_iter = it.islice(train_images_iter, self.num_calibration_obs)
                     with self.log_task('Calibrating the resampler...'):
-                        self.resampler.calibrate(calibration_images_iter)
+                        self.decorrelator.calibrate(calibration_images_iter)
 
                     # we draw new train observations for each repetition by continuing the iterator
                     start = timeit.default_timer()
-                    surrogate, stats = liga(rng=self.rng,
-                                            type1=self.type1,
-                                            resampler=self.resampler,
-                                            image_iter=it.islice(train_images_iter,
-                                                                 self.num_train_obs),
-                                            log_nesting=self.log_nesting,
-                                            **kwargs)
+                    surrogate, stats = ida(rng=self.rng,
+                                           type1=self.type1,
+                                           decorrelator=self.decorrelator,
+                                           image_iter=it.islice(train_images_iter,
+                                                                self.num_train_obs),
+                                           log_nesting=self.log_nesting,
+                                           **kwargs)
                     stop = timeit.default_timer()
 
                     with self.log_task('Scoring surrogate model...'):
@@ -235,7 +235,7 @@ class Experiment(NestedLogger):
 
 
 def get_results_dir() -> ContextManager[Path]:
-    return resources.path('liga.experiments', 'results')
+    return resources.path('ida.experiments', 'results')
 
 
 def run_experiments(name: str,
@@ -258,8 +258,6 @@ def run_experiments(name: str,
         packed_writer = csv.DictWriter(packed_csv_file, fieldnames=fields)
         packed_writer.writeheader()
 
-        # first_run = True
-
         for exp_no, e in enumerate(experiments, start=1):
             for rep_no, (surrogate, stats, fit_params, metrics, plot_repr) in enumerate(e.run(**kwargs)):
                 packed_writer.writerow({'exp_no': exp_no,
@@ -273,7 +271,7 @@ def run_experiments(name: str,
 
 
 def get_experiment_df(experiment_name: str) -> pd.DataFrame:
-    with resources.path('liga.experiments.results', experiment_name) as path:
+    with resources.path('ida.experiments.results', experiment_name) as path:
         with (path / 'results_packed.csv').open('r') as results_csv_file:
             unpacked_column_names = set()
 

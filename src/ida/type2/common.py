@@ -5,8 +5,8 @@ import numpy as np
 import torch
 from captum.attr import Attribution
 
-from liga.interpret.common import Interpreter
-from liga.torch_extensions.classifier import TorchImageClassifier
+from ida.interpret.common import Interpreter
+from ida.torch_extensions.classifier import TorchImageClassifier
 
 
 class Type2Explainer(abc.ABC):

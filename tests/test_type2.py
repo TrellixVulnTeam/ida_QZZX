@@ -1,14 +1,14 @@
 import numpy as np
 import torch
 
-from liga.type2.gradient import SaliencyType2Explainer, IntegratedGradientsType2Explainer, \
+from ida.type2.gradient import SaliencyType2Explainer, IntegratedGradientsType2Explainer, \
     DeepLiftType2Explainer
-from liga.liga import DummyResampler
-from liga.type2.lime import LimeType2Explainer
+from ida.ida import NoDecorrelator
+from ida.type2.lime import LimeType2Explainer
 
 
 def test_dummy(rng, image, interpreter, classifier):
-    dummy = DummyResampler(classifier=classifier,
+    dummy = NoDecorrelator(classifier=classifier,
                            interpreter=interpreter)
     assert list(dummy(rng=rng, image=image)) == [([1, 2], 10)]
 

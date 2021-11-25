@@ -8,9 +8,9 @@ import numpy as np
 from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 
-from liga.common import NestedLogger
-from liga.interpret.common import Interpreter
-from liga.torch_extensions.classifier import TorchImageClassifier
+from ida.common import NestedLogger
+from ida.interpret.common import Interpreter
+from ida.torch_extensions.classifier import TorchImageClassifier
 
 
 class Type1Explainer(abc.ABC):

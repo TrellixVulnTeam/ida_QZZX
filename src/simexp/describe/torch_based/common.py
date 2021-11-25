@@ -4,7 +4,7 @@ from typing import Iterable
 
 import torch
 
-from liga.common import RowDict
+from ida.common import RowDict
 from simexp.describe.common import DictBasedImageDescriber
 
 

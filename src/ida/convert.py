@@ -9,7 +9,7 @@ from petastorm.unischema import Unischema, dict_to_spark_row
 from simple_parsing import ArgumentParser
 import pyspark.sql.functions as sf
 
-from liga.common import LoggingConfig, ImageIdProvider
+from ida.common import LoggingConfig, ImageIdProvider
 from simexp.spark import Field, Schema, PetastormWriteConfig, SparkSessionConfig
 
 
