@@ -1,0 +1,1 @@
+**Interpret-Decorrelate-Approximate**, in short: IDA, is a framework for approximating complex image classifiers with simple, interpretable surrogate models that capture some of the causal dependencies within the classifiers.
