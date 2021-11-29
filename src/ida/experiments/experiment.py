@@ -19,7 +19,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 from ida.interpret.common import Interpreter
 from ida.ida import ida, Decorrelator
 from ida.torch_extensions.classifier import TorchImageClassifier
-from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_score
+from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_metrics
 from ida.common import NestedLogger
 
 
@@ -196,13 +196,19 @@ class Experiment(NestedLogger):
         metrics = self.type1.get_complexity_metrics(surrogate)
         metrics.update({'cross_entropy': log_loss(self.y_test, y_test_pred, labels=self.all_class_ids),
                         'auc': self._auc_score(self.y_test, y_test_pred),
-                        'acc': top_k_accuracy_score(estimator=surrogate,
-                                                    inputs=self.counts_test,
-                                                    target_outputs=self.y_test,
-                                                    k=self.top_k_acc,
-                                                    all_classes=self.all_classes,
-                                                    logger=self),
-                        'counterfactual_acc': self._score_counterfactual_accuracy(surrogate)})
+                        'acc': top_k_accuracy_score(surrogate=surrogate,
+                                                    counts=self.counts_test,
+                                                    target_classes=self.y_test,
+                                                    k=self.top_k_acc)})
+        metrics.update(counterfactual_top_k_accuracy_metrics(surrogate=surrogate,
+                                                             images=self.images_test,
+                                                             counts=self.counts_test,
+                                                             target_classes=self.y_test,
+                                                             classifier=self.classifier,
+                                                             interpreter=self.interpreter,
+                                                             max_perturbed_area=self.max_perturbed_area,
+                                                             max_concept_overlap=self.max_concept_overlap,
+                                                             k=self.top_k_acc))
         return fit_params, metrics
 
     def _auc_score(self, y_true, y_pred):
@@ -213,25 +219,6 @@ class Experiment(NestedLogger):
                             multi_class=multi_class,
                             labels=self.all_class_ids)
         return auc
-
-    def _score_counterfactual_accuracy(self, surrogate):
-        """
-        This score is different from "normal" accuracy, because it requires that predictions
-        are correct for a pair of an input and its "counterfactual twin" where a concept has been removed.
-        """
-        logger = NestedLogger()
-        logger.log_nesting = self.log_nesting
-        return counterfactual_top_k_accuracy_score(surrogate=surrogate,
-                                                   images=self.images_test,
-                                                   counts=self.counts_test,
-                                                   target_classes=self.y_test,
-                                                   classifier=self.classifier,
-                                                   interpreter=self.interpreter,
-                                                   max_perturbed_area=self.max_perturbed_area,
-                                                   max_concept_overlap=self.max_concept_overlap,
-                                                   k=self.top_k_acc,
-                                                   logger=logger,
-                                                   all_classes=self.all_classes)
 
 
 def get_results_dir() -> ContextManager[Path]:
@@ -278,7 +265,13 @@ def get_experiment_df(experiment_name: str) -> pd.DataFrame:
             # first pass: find out all column names
             unpacked_rows = []
             for row in csv.DictReader(results_csv_file):
-                packed = {k: ast.literal_eval(v) for k, v in row.items()}
+                packed = {}
+                for k, v in row.items():
+                    try:
+                        packed[k] = ast.literal_eval(v)
+                    except ValueError:
+                        pass
+
                 unpacked = {}
                 for k, v in packed.items():
                     if isinstance(v, dict):
