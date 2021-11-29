@@ -60,4 +60,4 @@ class TreeType1Explainer(CrossValidatedType1Explainer):
                   **kwargs)
 
     def __str__(self):
-        return 'TreeType2Explainer'
+        return 'TreeType1Explainer'
