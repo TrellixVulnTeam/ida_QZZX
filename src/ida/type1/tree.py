@@ -29,6 +29,12 @@ class TreeType1Explainer(CrossValidatedType1Explainer):
                 'tree_depth': tree.get_depth()}
 
     @staticmethod
+    def get_fitted_params(pipeline: Pipeline) -> Dict[str, Any]:
+        return {k: v for (k, v) in pipeline.get_params().items()
+                if k != 'sel' and k.startswith('sel')
+                or k != 'tree' and k.startswith('tree')}
+
+    @staticmethod
     def get_plot_representation(pipeline: Pipeline) -> Dict[str, Any]:
         sel = pipeline['sel']
         tree = pipeline['tree']

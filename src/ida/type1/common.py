@@ -60,15 +60,9 @@ class CrossValidatedType1Explainer(Type1Explainer, abc.ABC):
                  pre_dispatch: Union[int, str] = 'n_jobs',
                  select_top_k_influential_concepts: int = 30,
                  scoring: Optional[str] = None,
-                 log_nesting: int = 0,
                  **fit_params) -> Pipeline:
         if scoring is None:
-            logger = NestedLogger()
-            logger.log_nesting = log_nesting
-            scoring = partial(top_k_accuracy_score,
-                              k=top_k_acc,
-                              logger=logger,
-                              all_classes=all_classes)
+            scoring = partial(top_k_accuracy_score, k=top_k_acc)
 
         concept_counts = np.asarray(concept_counts)
         predicted_classes = np.asarray(predicted_classes)
@@ -98,10 +92,6 @@ class CrossValidatedType1Explainer(Type1Explainer, abc.ABC):
         pass
 
     @staticmethod
-    def get_fitted_params(pipeline: Pipeline) -> Dict[str, Any]:
-        return {**pipeline.get_params()}
-
-    @staticmethod
     def class_counts(predicted_classes, all_classes) -> [Tuple[str, int]]:
         """
         Returns tuples of class ids and corresponding counts of observations in the training data.
@@ -125,78 +115,89 @@ class CrossValidatedType1Explainer(Type1Explainer, abc.ABC):
         return min(max_k_folds, Counter(predicted_classes).most_common()[-1][1])
 
 
-def _get_indices_with_top_k_match(surrogate: Pipeline,
-                                  counts: List[List[int]],
-                                  target_classes: List[int],
-                                  k: int,
-                                  logger=None,
-                                  all_classes=None):
-    class_id_mapping = {cls: cls_id for cls_id, cls in enumerate(surrogate.classes_)}
+def _get_top_k_classes(surrogate: Pipeline,
+                       counts: List[List[int]],
+                       k: int):
     predicted = surrogate.predict_proba(counts)
     top_k_class_ids = np.argsort(predicted)[:, -k:]
 
-    target_outputs_translated = np.asarray([class_id_mapping.get(y_true, np.nan) for y_true in target_classes])
-    warnings = np.asarray(target_classes)[np.isnan(target_outputs_translated)]
-    if len(warnings) > 0 and logger is not None:
-        logger.log_item('Classes {} of the test data were not in the training data of this classifier.'
-                        .format(sorted([all_classes[c] for c in warnings])))
+    def translate(class_idx: int):
+        return surrogate.classes_[class_idx]
 
-    return np.isin(target_outputs_translated, top_k_class_ids)
+    return translate(top_k_class_ids)
 
 
-def top_k_accuracy_score(estimator,
-                         inputs,
-                         target_outputs,
-                         k=5,
-                         logger=None,
-                         all_classes=None):
-    idx = _get_indices_with_top_k_match(surrogate=estimator,
-                                        counts=inputs,
-                                        target_classes=target_outputs,
-                                        k=k,
-                                        logger=logger,
-                                        all_classes=all_classes)
+def _get_indices_with_match(target_classes: np.ndarray,
+                            top_k_predicted_classes: np.ndarray):
+    return np.any(target_classes[..., None] == top_k_predicted_classes, axis=1)
 
+
+def top_k_accuracy_score(surrogate: Pipeline,
+                         counts: List[List[int]],
+                         target_classes: List[int],
+                         k=5):
+    top_k_class_ids = _get_top_k_classes(surrogate=surrogate,
+                                         counts=counts,
+                                         k=k)
+    idx = _get_indices_with_match(target_classes=np.asarray(target_classes, dtype=int),
+                                  top_k_predicted_classes=top_k_class_ids)
     return float(np.count_nonzero(idx)) / float(idx.shape[0])
 
 
-def counterfactual_top_k_accuracy_score(surrogate: Pipeline,
-                                        images: List[Tuple[str, np.ndarray]],
-                                        counts: List[List[int]],
-                                        target_classes: List[int],
-                                        classifier: TorchImageClassifier,
-                                        interpreter: Interpreter,
-                                        max_perturbed_area: float,
-                                        max_concept_overlap: float,
-                                        k=5,
-                                        logger=None,
-                                        all_classes=None):
+def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
+                                          images: List[Tuple[str, np.ndarray]],
+                                          counts: List[List[int]],
+                                          target_classes: List[int],
+                                          classifier: TorchImageClassifier,
+                                          interpreter: Interpreter,
+                                          max_perturbed_area: float,
+                                          max_concept_overlap: float,
+                                          k=5) -> Dict[str, Any]:
     """
     This score is different from "normal" top-k accuracy, because it requires that predictions
     are correct for a pair of an input and its "counterfactual twin" where a concept has been removed.
     """
-    idx = _get_indices_with_top_k_match(surrogate=surrogate,
-                                        counts=counts,
-                                        target_classes=target_classes,
-                                        k=k,
-                                        logger=logger,
-                                        all_classes=all_classes)
-    pair_count = 0.
-    faithful_count = 0.
-    for has_top_k_match, (image_id, image) in zip(idx, images):
+    top_k_predicted_class_ids = _get_top_k_classes(surrogate=surrogate,
+                                                   counts=counts,
+                                                   k=k)
+    num_inputs = 0.
+    num_cfs = 0.
+    num_sensitive_inputs = 0.
+    num_influential_cfs = 0.
+    num_covered_influential_cfs = 0.
+    num_correctly_predicted_influential_cfs = 0.
+
+    for predicted_class_ids, true_class, (image_id, image) in zip(top_k_predicted_class_ids,
+                                                                  target_classes,
+                                                                  images):
+        num_inputs += 1.
         cf_iter = interpreter.get_counterfactuals(image=image,
                                                   image_id=image_id,
                                                   max_perturbed_area=max_perturbed_area,
                                                   max_concept_overlap=max_concept_overlap)
-        for cf_counts, cf_image in cf_iter:
-            pair_count += 1
-            if has_top_k_match:
-                cf_true_class = classifier.predict_single(image=cf_image)
-                cf_idx = _get_indices_with_top_k_match(surrogate=surrogate,
-                                                       counts=[cf_counts],
-                                                       target_classes=[cf_true_class],
-                                                       k=k)
-                if cf_idx[0]:
-                    faithful_count += 1.
 
-    return float(faithful_count) / float(pair_count)
+        found_change = False
+
+        for cf_counts, cf_image in cf_iter:
+            num_cfs += 1.
+            cf_true_class = classifier.predict_single(image=cf_image)
+            if cf_true_class != true_class:
+                found_change = True
+                num_influential_cfs += 1.
+                cf_predicted_class_ids = _get_top_k_classes(surrogate=surrogate,
+                                                            counts=[cf_counts],
+                                                            k=k)[0]
+
+                if np.any(predicted_class_ids != cf_predicted_class_ids):
+                    num_covered_influential_cfs += 1.
+
+                if true_class == predicted_class_ids[0] and cf_true_class == cf_predicted_class_ids[0]:
+                    num_correctly_predicted_influential_cfs += 1.
+
+        if found_change:
+            num_sensitive_inputs += 1.
+
+    return {'fraction_of_sensitive_inputs': num_sensitive_inputs / num_inputs,
+            'fraction_of_influential_concepts': num_influential_cfs / num_cfs,
+            'coverage_of_top_{}_influence'.format(k): num_covered_influential_cfs / num_influential_cfs,
+            'coverage_of_counterfactuals'.format(k): num_correctly_predicted_influential_cfs / num_influential_cfs}
