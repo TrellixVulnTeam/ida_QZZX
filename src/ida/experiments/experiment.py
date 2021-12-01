@@ -13,6 +13,7 @@ import numpy as np
 from importlib import resources
 
 import pandas as pd
+from joblib import Memory
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
@@ -47,9 +48,12 @@ def _prepare_image_iter(images_url, skip: int = 0) -> Iterable[Tuple[str, np.nda
         reader.join()
 
 
-_TEST_CACHE = {}
+_CACHE_DIR = Path('~/.cache/ida')
+_CACHE_DIR.expanduser().mkdir(exist_ok=True)
+memory = Memory(str(_CACHE_DIR), verbose=0)
 
 
+@memory.cache
 def _prepare_test_observations(test_images_url: str,
                                interpreter: Interpreter,
                                classifier: TorchImageClassifier,
@@ -58,30 +62,26 @@ def _prepare_test_observations(test_images_url: str,
                                max_perturbed_area: float,
                                max_concept_overlap: float) -> Tuple[List[List[int]], List[int],
                                                                     List[List[int]], List[int]]:
-    key = (test_images_url, interpreter, classifier.name, num_test_obs)
-    if key not in _TEST_CACHE:
-        concept_counts = []
-        predicted_classes = []
-        cf_concept_counts = []
-        cf_predicted_classes = []
-        with _prepare_image_iter(test_images_url) as test_iter:
-            for image_id, image in it.islice(test_iter, num_test_obs):
-                concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
-                predicted_classes.append(classifier.predict_single(image=image))
+    concept_counts = []
+    predicted_classes = []
+    cf_concept_counts = []
+    cf_predicted_classes = []
+    with _prepare_image_iter(test_images_url) as test_iter:
+        for image_id, image in it.islice(test_iter, num_test_obs):
+            concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
+            predicted_classes.append(classifier.predict_single(image=image))
 
-            for image_id, image in it.islice(test_iter, num_cf_test_obs):
-                cf_concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
+        for image_id, image in it.islice(test_iter, num_cf_test_obs):
+            cf_concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
+            cf_predicted_classes.append(classifier.predict_single(image=image))
+            for cf_counts, cf_image in interpreter.get_counterfactuals(max_perturbed_area=max_perturbed_area,
+                                                                       max_concept_overlap=max_concept_overlap,
+                                                                       image_id=image_id,
+                                                                       image=image):
+                cf_concept_counts.append(cf_counts)
                 cf_predicted_classes.append(classifier.predict_single(image=image))
-                for cf_counts, cf_image in interpreter.get_counterfactuals(max_perturbed_area=max_perturbed_area,
-                                                                           max_concept_overlap=max_concept_overlap,
-                                                                           image_id=image_id,
-                                                                           image=image):
-                    cf_concept_counts.append(cf_counts)
-                    cf_predicted_classes.append(classifier.predict_single(image=image))
 
-            _TEST_CACHE[key] = concept_counts, predicted_classes, cf_concept_counts, cf_predicted_classes
-
-    return _TEST_CACHE[key]
+    return concept_counts, predicted_classes, cf_concept_counts, cf_predicted_classes
 
 
 @dataclass
