@@ -42,7 +42,7 @@ class TreeType1Explainer(CrossValidatedType1Explainer):
         if isinstance(sel, SelectFromModel):
             selected_concepts = np.asarray(sel.get_support(), dtype=bool).tobytes()
         else:  # this happens if one sets sel = 'passthrough' in the pipeline
-            selected_concepts = np.ones(pipeline.n_features_in_, dtype=bool).tobytes()
+            selected_concepts = np.ones(tree.n_features_in_, dtype=bool).tobytes()
 
         return {'selected_concepts': selected_concepts,
                 'encoded_tree': base64.b64encode(pickle.dumps(tree)),
