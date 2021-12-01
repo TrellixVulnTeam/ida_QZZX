@@ -19,7 +19,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 from ida.interpret.common import Interpreter
 from ida.ida import ida, Decorrelator
 from ida.torch_extensions.classifier import TorchImageClassifier
-from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_metrics
+from ida.type1.common import Type1Explainer, top_k_accuracy_score
 from ida.common import NestedLogger
 
 
