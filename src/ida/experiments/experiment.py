@@ -176,9 +176,10 @@ class Experiment(NestedLogger):
                     stop = timeit.default_timer()
 
                     with self.log_task('Scoring surrogate model...'):
-                        fit_params, metrics = self.score(surrogate)
+                        metrics = self.score(surrogate)
 
                     metrics['runtime_s'] = stop - start
+                    fit_params = self.type1.get_fitted_params(surrogate)
                     yield surrogate, stats, fit_params, metrics, self.type1.get_plot_representation(surrogate)
 
     def _spread_probs_to_all_classes(self, probs, classes_) -> np.ndarray:
@@ -204,8 +205,7 @@ class Experiment(NestedLogger):
             pred = pred[:, 1]
         return pred
 
-    def score(self, surrogate) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        fit_params = self.type1.get_fitted_params(surrogate)
+    def score(self, surrogate) -> Dict[str, Any]:
         metrics = self.type1.get_complexity_metrics(surrogate)
 
         y_test_pred = self._get_predictions(surrogate, self.counts_test)
@@ -219,11 +219,11 @@ class Experiment(NestedLogger):
                                                                  counts=self.counts_test,
                                                                  target_classes=self.y_test,
                                                                  k=k),
-                            f'top_{k}_cf_acc': top_k_accuracy_score(surrogate=surrogate,
+                            f'cf_top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
                                                                     counts=self.cf_counts_test,
                                                                     target_classes=self.cf_y_test,
                                                                     k=k)})
-        return fit_params, metrics
+        return metrics
 
     def _auc_score(self, y_true, y_pred):
         multi_class = 'ovo' if self.multi_class else 'raise'
