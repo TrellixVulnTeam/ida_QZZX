@@ -133,6 +133,7 @@ class TorchImageClassifier(Classifier):
                 else:
                     self._model = checkpoint
 
+        self._model.to(self.device)
         self._model.eval()
         if self.is_parallel and torch.cuda.device_count() > 1:
             self._model = DataParallel(self._model)
