@@ -38,6 +38,14 @@ class Interpreter(abc.ABC):
         Alternatively, an interpreter can also require an *image_id* that identifies an image within some dataset.
         """
 
+    def count_concepts(self, image: Optional[np.ndarray], image_id: Optional[str]) -> List[int]:
+        ids_and_masks = list(self(image, image_id))
+        if len(ids_and_masks) > 0:
+            concept_ids, _ = list(zip(*ids_and_masks))
+            return self.concept_ids_to_counts(concept_ids)
+        else:
+            return [0] * len(self.concepts)
+
     @staticmethod
     def get_overlapping_concepts(mask: np.ndarray,
                                  all_ids_and_masks: Iterable[Tuple[int, np.ndarray]],

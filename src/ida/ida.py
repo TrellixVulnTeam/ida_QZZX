@@ -130,12 +130,8 @@ class CounterfactualDecorrelator(Decorrelator):
                  image: Optional[np.ndarray] = None,
                  image_id: Optional[str] = None,
                  **kwargs) -> Iterable[Tuple[List[int], int]]:
-        ids_and_masks = list(self.interpreter(image=image,
-                                              image_id=image_id,
-                                              **kwargs))
-        if len(ids_and_masks) > 0:
-            ids, masks = list(zip(*ids_and_masks))
-            counts = self.interpreter.concept_ids_to_counts(ids)
+        counts = self.interpreter.count_concepts(image=image, image_id=image_id)
+        if any(c > 0 for c in counts):
             predicted_class = self.classifier.predict_single(image=image, image_id=image_id)
             yield counts, predicted_class
 
@@ -144,8 +140,8 @@ class CounterfactualDecorrelator(Decorrelator):
                                                            max_perturbed_area=self.max_perturbed_area,
                                                            max_concept_overlap=self.max_concept_overlap)
             for cf_counts, cf_image in cf_iter:
-                perturbed_true_class = self.classifier.predict_single(image=cf_image)
-                yield cf_counts, perturbed_true_class
+                cf_true_class = self.classifier.predict_single(image=cf_image)
+                yield cf_counts, cf_true_class
 
     def __str__(self):
         return ('CounterfactualDecorrelator(max_perturbed_area={}, max_concept_overlap={})'
@@ -162,7 +158,7 @@ def ida(rng: np.random.Generator,
 
     logger = NestedLogger()
     logger.log_nesting = log_nesting
-    with logger.log_task('Running LIGA...'):
+    with logger.log_task('Running IDA...'):
         concept_counts = []
         predicted_classes = []
         augmentation_count = 0
@@ -180,7 +176,7 @@ def ida(rng: np.random.Generator,
                 with logger.log_task('Status update'):
                     logger.log_item('Processed {} observations'
                                     .format(obs_no + 1))
-                    logger.log_item('LIGA\'s augmentation produced {} additional observations.'
+                    logger.log_item('IDA\'s decorrelation produced {} additional observations.'
                                     .format(augmentation_count))
                 last_log_time = current_time
 
