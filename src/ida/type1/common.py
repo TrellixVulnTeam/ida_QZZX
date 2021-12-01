@@ -1,6 +1,5 @@
 import abc
 from collections import Counter
-from functools import partial
 from typing import List, Dict, Any, Optional, Union, Tuple
 
 import itertools as it
@@ -8,7 +7,6 @@ import numpy as np
 from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 
-from ida.common import NestedLogger
 from ida.interpret.common import Interpreter
 from ida.torch_extensions.classifier import TorchImageClassifier
 
@@ -55,14 +53,13 @@ class CrossValidatedType1Explainer(Type1Explainer, abc.ABC):
                  random_state: int = 42,
                  min_k_folds: int = 5,
                  max_k_folds: int = 5,
-                 top_k_acc: int = 5,
                  n_jobs: int = 10,
                  pre_dispatch: Union[int, str] = 'n_jobs',
                  select_top_k_influential_concepts: int = 30,
                  scoring: Optional[str] = None,
                  **fit_params) -> Pipeline:
         if scoring is None:
-            scoring = partial(top_k_accuracy_score, k=top_k_acc)
+            scoring = 'roc_auc_ovo'
 
         concept_counts = np.asarray(concept_counts)
         predicted_classes = np.asarray(predicted_classes)
