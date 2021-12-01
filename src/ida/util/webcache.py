@@ -8,7 +8,7 @@ from urllib.request import urlretrieve
 
 @dataclass
 class WebCache:
-    cache_dir: Union[str, Path] = Path('~/.cache/simadv/').expanduser()  # where to cache downloaded files
+    cache_dir: Union[str, Path] = Path('~/.cache/ida/').expanduser()  # where to cache downloaded files
 
     def __post_init__(self):
         if isinstance(self.cache_dir, str):
