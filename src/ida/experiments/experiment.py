@@ -53,25 +53,33 @@ _TEST_CACHE = {}
 def _prepare_test_observations(test_images_url: str,
                                interpreter: Interpreter,
                                classifier: TorchImageClassifier,
-                               num_test_obs: int) -> Tuple[List[Tuple[str, np.ndarray]],
-                                                           List[List[int]],
-                                                           List[int]]:
+                               num_test_obs: int,
+                               num_cf_test_obs: int,
+                               max_perturbed_area: float,
+                               max_concept_overlap: float) -> Tuple[List[List[int]], List[int],
+                                                                    List[List[int]], List[int]]:
     key = (test_images_url, interpreter, classifier.name, num_test_obs)
     if key not in _TEST_CACHE:
-        images = []
         concept_counts = []
         predicted_classes = []
+        cf_concept_counts = []
+        cf_predicted_classes = []
         with _prepare_image_iter(test_images_url) as test_iter:
             for image_id, image in it.islice(test_iter, num_test_obs):
-                images.append((image_id, image))
-                ids_and_masks = list(interpreter(image, image_id))
-                if len(ids_and_masks) > 0:
-                    concept_ids, _ = list(zip(*interpreter(image, image_id)))
-                    concept_counts.append(interpreter.concept_ids_to_counts(concept_ids))
-                else:
-                    concept_counts.append(np.zeros(len(interpreter.concepts), dtype=np.int))
-                predicted_classes.append(classifier.predict_single(image))
-            _TEST_CACHE[key] = images, concept_counts, predicted_classes
+                concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
+                predicted_classes.append(classifier.predict_single(image=image))
+
+            for image_id, image in it.islice(test_iter, num_cf_test_obs):
+                cf_concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
+                cf_predicted_classes.append(classifier.predict_single(image=image))
+                for cf_counts, cf_image in interpreter.get_counterfactuals(max_perturbed_area=max_perturbed_area,
+                                                                           max_concept_overlap=max_concept_overlap,
+                                                                           image_id=image_id,
+                                                                           image=image):
+                    cf_concept_counts.append(cf_counts)
+                    cf_predicted_classes.append(classifier.predict_single(image=image))
+
+            _TEST_CACHE[key] = concept_counts, predicted_classes, cf_concept_counts, cf_predicted_classes
 
     return _TEST_CACHE[key]
 
@@ -90,7 +98,7 @@ class Experiment(NestedLogger):
     all_classes: [str]
     type1: Type1Explainer
     decorrelator: Decorrelator
-    top_k_acc: int = 5
+    top_k_acc: Iterable[int]
 
     def __post_init__(self):
         assert len(self.all_classes) == self.classifier.num_classes, \
@@ -141,10 +149,14 @@ class Experiment(NestedLogger):
             self.log_item('Parameters: {}'.format(self.params))
 
             with self.log_task('Caching test observations...'):
-                self.images_test, self.counts_test, self.y_test = _prepare_test_observations(self.images_url,
-                                                                                             self.interpreter,
-                                                                                             self.classifier,
-                                                                                             self.num_test_obs)
+                test_obs = _prepare_test_observations(test_images_url=self.images_url,
+                                                      interpreter=self.interpreter,
+                                                      classifier=self.classifier,
+                                                      num_test_obs=self.num_test_obs,
+                                                      num_cf_test_obs=self.num_test_obs_for_counterfactuals,
+                                                      max_perturbed_area=self.max_perturbed_area,
+                                                      max_concept_overlap=self.max_concept_overlap)
+                self.counts_test, self.y_test, self.cf_counts_test, self.cf_y_test = test_obs
 
             with _prepare_image_iter(self.images_url, skip=self.num_test_obs) as train_images_iter:
                 for rep_no in range(1, self.repetitions + 1):
@@ -184,31 +196,33 @@ class Experiment(NestedLogger):
         proba_ordered[:, idx] = probs
         return proba_ordered
 
-    def score(self, surrogate) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        y_test_pred = surrogate.predict_proba(self.counts_test)
-        y_test_pred = self._spread_probs_to_all_classes(y_test_pred, surrogate.classes_)
-
-        if y_test_pred.shape[1] == 2:
+    def _get_predictions(self, surrogate, counts: List[List[int]]):
+        pred = surrogate.predict_proba(counts)
+        pred = self._spread_probs_to_all_classes(pred, surrogate.classes_)
+        if pred.shape[1] == 2:
             # binary case
-            y_test_pred = y_test_pred[:, 1]
+            pred = pred[:, 1]
+        return pred
 
+    def score(self, surrogate) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         fit_params = self.type1.get_fitted_params(surrogate)
         metrics = self.type1.get_complexity_metrics(surrogate)
+
+        y_test_pred = self._get_predictions(surrogate, self.counts_test)
+        cf_y_test_pred = self._get_predictions(surrogate, self.cf_counts_test)
         metrics.update({'cross_entropy': log_loss(self.y_test, y_test_pred, labels=self.all_class_ids),
                         'auc': self._auc_score(self.y_test, y_test_pred),
-                        'acc': top_k_accuracy_score(surrogate=surrogate,
-                                                    counts=self.counts_test,
-                                                    target_classes=self.y_test,
-                                                    k=self.top_k_acc)})
-        metrics.update(counterfactual_top_k_accuracy_metrics(surrogate=surrogate,
-                                                             images=self.images_test,
-                                                             counts=self.counts_test,
-                                                             target_classes=self.y_test,
-                                                             classifier=self.classifier,
-                                                             interpreter=self.interpreter,
-                                                             max_perturbed_area=self.max_perturbed_area,
-                                                             max_concept_overlap=self.max_concept_overlap,
-                                                             k=self.top_k_acc))
+                        'cf_cross_entropy': log_loss(self.cf_y_test, cf_y_test_pred, labels=self.all_class_ids),
+                        'cf_auc': self._auc_score(self.cf_y_test, cf_y_test_pred)})
+        for k in self.top_k_acc:
+            metrics.update({f'top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
+                                                                 counts=self.counts_test,
+                                                                 target_classes=self.y_test,
+                                                                 k=k),
+                            f'top_{k}_cf_acc': top_k_accuracy_score(surrogate=surrogate,
+                                                                    counts=self.cf_counts_test,
+                                                                    target_classes=self.cf_y_test,
+                                                                    k=k)})
         return fit_params, metrics
 
     def _auc_score(self, y_true, y_pred):
