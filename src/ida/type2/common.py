@@ -38,16 +38,15 @@ class Type2Explainer(abc.ABC):
 
 class NoType2Explainer(Type2Explainer):
 
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
+            -> Iterable[Tuple[int, np.ndarray, bool]]:
         """
         Assigns positive influence of 1. to each interpretable concept on *image* / the image represented by *image_id*.
         """
-        yield from zip(map(lambda p: p[0],  # only return concept_id from pair (concept_id, mask)
-                           self.interpreter(image, image_id)),
-                       it.repeat(1.))
+        yield from zip(self.interpreter(image, image_id), it.repeat(True))
 
     def __str__(self):
-        return 'none'
+        return 'NoType2Explainer'
 
 
 class CaptumAttributionWrapper:
