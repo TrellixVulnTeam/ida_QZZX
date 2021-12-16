@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Optional, Callable, Tuple, List
+from typing import Optional, Callable, Tuple, List, Iterable
 
 import numpy as np
 import torch
@@ -64,7 +64,8 @@ class LimeType2Explainer(Type2Explainer):
     def _complement_mask(masks: [np.ndarray]):
         return np.bitwise_not(reduce(np.bitwise_or, masks)).astype(np.bool)
 
-    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> List[Tuple[int, float]]:
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
+            -> Iterable[Tuple[int, np.ndarray, bool]]:
         ids_and_masks = list(self.interpreter(image=image,
                                               image_id=image_id,
                                               **kwargs))
@@ -76,7 +77,7 @@ class LimeType2Explainer(Type2Explainer):
             influences = self.captum_wrapper(image=image,
                                              additional_attribution_args=kwargs)
             # the following zip removes the complement mask automagically
-            yield from zip(ids, masks, influences)
+            yield from zip(ids, masks, influences > 0.)
 
     def __str__(self):
         return 'lime'

@@ -1,10 +1,7 @@
 import abc
-from collections import Counter
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Tuple
 
-import itertools as it
 import numpy as np
-from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 
 from ida.interpret.common import Interpreter
@@ -13,15 +10,10 @@ from ida.torch_extensions.classifier import TorchImageClassifier
 
 class Type1Explainer(abc.ABC):
 
+    @staticmethod
     @abc.abstractmethod
-    def __call__(self,
-                 concept_counts: List[List[int]],
-                 predicted_classes: List[int],
-                 all_classes: Optional[List[int]],
-                 **kwargs) -> Pipeline:
-        """
-        Trains a scikit-learn model to predict *predicted_classes* based on *concept_counts*.
-        """
+    def create_pipeline(random_state: int) -> Pipeline:
+        pass
 
     @staticmethod
     @abc.abstractmethod
@@ -35,81 +27,13 @@ class Type1Explainer(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def get_plot_representation(pipeline: Pipeline) -> Dict[str, str]:
+    def serialize(pipeline: Pipeline) -> Dict[str, Any]:
         pass
 
     @staticmethod
     @abc.abstractmethod
-    def plot(experiment_name: str, exp_no: int, rep_no: int, **kwargs):
+    def plot(pipeline: Pipeline, **kwargs):
         pass
-
-
-class CrossValidatedType1Explainer(Type1Explainer, abc.ABC):
-
-    def __call__(self,
-                 concept_counts: List[List[int]],
-                 predicted_classes: List[int],
-                 all_classes: Optional[List[int]],
-                 random_state: int = 42,
-                 min_k_folds: int = 5,
-                 max_k_folds: int = 5,
-                 n_jobs: int = 10,
-                 pre_dispatch: Union[int, str] = 'n_jobs',
-                 select_top_k_influential_concepts: int = 30,
-                 scoring: Optional[str] = None,
-                 **fit_params) -> Pipeline:
-        if scoring is None:
-            scoring = 'roc_auc_ovo'
-
-        concept_counts = np.asarray(concept_counts)
-        predicted_classes = np.asarray(predicted_classes)
-
-        assert min_k_folds <= max_k_folds
-        indices = self.filter_for_split(predicted_classes=predicted_classes,
-                                        min_k_folds=min_k_folds,
-                                        all_classes=all_classes)
-        if not np.any(indices):
-            indices = np.ones_like(indices, dtype=bool)
-            cv = KFold(n_splits=min_k_folds)
-        else:
-            k_folds = self.determine_k_folds(predicted_classes[indices], max_k_folds)
-            cv = StratifiedKFold(n_splits=k_folds)
-
-        search = GridSearchCV(estimator=self.get_pipeline(random_state=random_state),
-                              param_grid=fit_params,
-                              cv=cv,
-                              n_jobs=n_jobs,
-                              pre_dispatch=pre_dispatch,
-                              scoring=scoring)
-        search.fit(concept_counts[indices], predicted_classes[indices])
-        return search.best_estimator_
-
-    @abc.abstractmethod
-    def get_pipeline(self, random_state: int) -> Pipeline:
-        pass
-
-    @staticmethod
-    def class_counts(predicted_classes, all_classes) -> [Tuple[str, int]]:
-        """
-        Returns tuples of class ids and corresponding counts of observations in the training data.
-        """
-        counts = Counter(it.chain(predicted_classes, all_classes))
-        m = 0 if all_classes is None else 1
-        return sorted(((s, c - m) for s, c in counts.items()),
-                      key=lambda x: (1.0 / (x[1] + 1), x[0]))
-
-    def filter_for_split(self, predicted_classes, min_k_folds, all_classes):
-        """
-        Filters the training data so that all predicted classes appear at least
-        `ceil(security_factor * num_splits)` times.
-        Use this to keep only classes where at least one prediction for each CV split is available.
-        """
-        enough_samples = list(s for s, c in self.class_counts(predicted_classes, all_classes) if c >= min_k_folds)
-        return np.isin(predicted_classes, enough_samples)
-
-    @staticmethod
-    def determine_k_folds(predicted_classes: [int], max_k_folds: int):
-        return min(max_k_folds, Counter(predicted_classes).most_common()[-1][1])
 
 
 def _get_top_k_classes(surrogate: Pipeline,

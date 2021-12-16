@@ -1,4 +1,5 @@
 import abc
+import itertools as it
 from typing import Optional, Any, Tuple, Iterable, Dict, Type, Mapping
 
 import numpy as np
@@ -17,6 +18,7 @@ class Type2Explainer(abc.ABC):
         self.classifier = classifier
         self.interpreter = interpreter
 
+    @property
     def stats(self) -> Dict[str, Any]:
         return {}
 
@@ -25,13 +27,27 @@ class Type2Explainer(abc.ABC):
 
     @abc.abstractmethod
     def __call__(self, image: np.ndarray, image_id: Optional[str] = None) \
-            -> Iterable[Tuple[int, np.ndarray, float]]:
+            -> Iterable[Tuple[int, np.ndarray, bool]]:
         """
         Takes an input *image* of the classifier and returns the location and influence of each instance of
         an interpretable concept on *image* on the output of the classifier.
         The influence estimator can use an additional *image_id* to lookup interpretable concepts of *image*.
         """
         pass
+
+
+class NoType2Explainer(Type2Explainer):
+
+    def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) -> Iterable[Tuple[int, float]]:
+        """
+        Assigns positive influence of 1. to each interpretable concept on *image* / the image represented by *image_id*.
+        """
+        yield from zip(map(lambda p: p[0],  # only return concept_id from pair (concept_id, mask)
+                           self.interpreter(image, image_id)),
+                       it.repeat(1.))
+
+    def __str__(self):
+        return 'none'
 
 
 class CaptumAttributionWrapper:

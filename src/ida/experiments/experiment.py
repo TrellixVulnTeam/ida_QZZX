@@ -13,18 +13,18 @@ import numpy as np
 from importlib import resources
 
 import pandas as pd
-from joblib import Memory
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
+from ida.ida import ipa
 from ida.interpret.common import Interpreter
-from ida.ida import ida, Decorrelator
 from ida.torch_extensions.classifier import TorchImageClassifier
 from ida.type1.common import Type1Explainer, top_k_accuracy_score
-from ida.common import NestedLogger
-
+from ida.common import NestedLogger, memory
 
 # See https://stackoverflow.com/questions/15063936
+from ida.type2.common import Type2Explainer
+
 max_field_size = sys.maxsize
 while True:
     try:
@@ -36,7 +36,9 @@ while True:
 
 @contextmanager
 def _prepare_image_iter(images_url, skip: int = 0) -> Iterable[Tuple[str, np.ndarray]]:
-    reader = make_reader(images_url, workers_count=1)  # only 1 worker to ensure determinism of results
+    reader = make_reader(images_url,
+                         workers_count=1,  # only 1 worker to ensure determinism of results
+                         shuffle_row_groups=False)
     try:
         def image_iter() -> Iterable[Tuple[str, np.ndarray]]:
             for row in it.islice(reader, skip, None):
@@ -46,11 +48,6 @@ def _prepare_image_iter(images_url, skip: int = 0) -> Iterable[Tuple[str, np.nda
     finally:
         reader.stop()
         reader.join()
-
-
-_CACHE_DIR = Path('~/.cache/ida')
-_CACHE_DIR.expanduser().mkdir(exist_ok=True)
-memory = Memory(str(_CACHE_DIR), verbose=0)
 
 
 @memory.cache
@@ -86,7 +83,7 @@ def _prepare_test_observations(test_images_url: str,
 
 @dataclass
 class Experiment(NestedLogger):
-    rng: np.random.Generator
+    random_state: int
     repetitions: int
     images_url: str
     num_train_obs: int
@@ -97,22 +94,20 @@ class Experiment(NestedLogger):
     max_concept_overlap: float
     all_classes: [str]
     type1: Type1Explainer
-    decorrelator: Decorrelator
+    type2: Type2Explainer
     top_k_acc: Iterable[int]
 
     def __post_init__(self):
         assert len(self.all_classes) == self.classifier.num_classes, \
             'Provided number of class names differs from the output dimensionality of the classifier.'
-        assert self.num_test_obs_for_counterfactuals <= self.num_test_obs, \
-            'Number of counterfactual test observations cannot exceed the number of regular test observations.'
 
     @property
     def classifier(self) -> TorchImageClassifier:
-        return self.decorrelator.classifier
+        return self.type2.classifier
 
     @property
     def interpreter(self) -> Interpreter:
-        return self.decorrelator.interpreter
+        return self.type2.interpreter
 
     @property
     def params(self) -> Mapping[str, Any]:
@@ -121,7 +116,7 @@ class Experiment(NestedLogger):
                 'num_train_obs': self.num_train_obs,
                 'num_calibration_obs': self.num_calibration_obs,
                 'interpreter': str(self.interpreter),
-                'decorrelator': str(self.decorrelator),
+                'type2': str(self.type2),
                 'type1': str(self.type1),
                 'num_test_obs': self.num_test_obs,
                 'num_test_obs_for_counterfactuals': self.num_test_obs_for_counterfactuals,
@@ -142,8 +137,8 @@ class Experiment(NestedLogger):
         For each repetition, yields a tuple *(surrogate, stats, fit_params, metrics)*.
         *surrogate* is the fitted surrogate model.
         *stats*, *fit_params*, and *metrics* are dicts that contain the augmentation statistics
-        from the LIGA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
-        Passes *kwargs* to the LIGA algorithm.
+        from the IDA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
+        Passes *kwargs* to the IPA algorithm.
         """
         with self.log_task('Running experiment...'):
             self.log_item('Parameters: {}'.format(self.params))
@@ -161,26 +156,30 @@ class Experiment(NestedLogger):
             with _prepare_image_iter(self.images_url, skip=self.num_test_obs) as train_images_iter:
                 for rep_no in range(1, self.repetitions + 1):
                     calibration_images_iter = it.islice(train_images_iter, self.num_calibration_obs)
-                    with self.log_task('Calibrating the resampler...'):
-                        self.decorrelator.calibrate(calibration_images_iter)
+                    with self.log_task('Calibrating the Type 2 explainer...'):
+                        self.type2.calibrate(calibration_images_iter)
 
                     # we draw new train observations for each repetition by continuing the iterator
                     start = timeit.default_timer()
-                    surrogate, stats = ida(rng=self.rng,
-                                           type1=self.type1,
-                                           decorrelator=self.decorrelator,
-                                           image_iter=it.islice(train_images_iter,
-                                                                self.num_train_obs),
-                                           log_nesting=self.log_nesting,
-                                           **kwargs)
+                    cv = ipa(type1=self.type1,
+                             type2=self.type2,
+                             image_iter=it.islice(train_images_iter,
+                                                  self.num_train_obs),
+                             log_nesting=self.log_nesting,
+                             random_state=self.random_state,
+                             **kwargs)
                     stop = timeit.default_timer()
 
+                    surrogate = cv.best_estimator_['approximate']
+                    picker = cv.best_estimator_['interpret-pick']
+                    picked_concepts = picker.picked_concepts_
                     with self.log_task('Scoring surrogate model...'):
-                        metrics = self.score(surrogate)
+                        metrics = self.score(surrogate, picked_concepts)
 
                     metrics['runtime_s'] = stop - start
                     fit_params = self.type1.get_fitted_params(surrogate)
-                    yield surrogate, stats, fit_params, metrics, self.type1.get_plot_representation(surrogate)
+                    stats = picker.stats_
+                    yield surrogate, stats, fit_params, metrics, self.type1.serialize(surrogate)
 
     def _spread_probs_to_all_classes(self, probs, classes_) -> np.ndarray:
         """
@@ -205,22 +204,24 @@ class Experiment(NestedLogger):
             pred = pred[:, 1]
         return pred
 
-    def score(self, surrogate) -> Dict[str, Any]:
+    def score(self, surrogate, picked_concepts: [int]) -> Dict[str, Any]:
         metrics = self.type1.get_complexity_metrics(surrogate)
 
-        y_test_pred = self._get_predictions(surrogate, self.counts_test)
-        cf_y_test_pred = self._get_predictions(surrogate, self.cf_counts_test)
+        picked_counts_test = np.asarray(self.counts_test)[:, picked_concepts]
+        y_test_pred = self._get_predictions(surrogate, picked_counts_test)
+        picked_cf_counts_test = np.asarray(self.cf_counts_test)[:, picked_concepts]
+        cf_y_test_pred = self._get_predictions(surrogate, picked_cf_counts_test)
         metrics.update({'cross_entropy': log_loss(self.y_test, y_test_pred, labels=self.all_class_ids),
                         'auc': self._auc_score(self.y_test, y_test_pred),
                         'cf_cross_entropy': log_loss(self.cf_y_test, cf_y_test_pred, labels=self.all_class_ids),
                         'cf_auc': self._auc_score(self.cf_y_test, cf_y_test_pred)})
         for k in self.top_k_acc:
             metrics.update({f'top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
-                                                                 counts=self.counts_test,
+                                                                 counts=picked_counts_test,
                                                                  target_classes=self.y_test,
                                                                  k=k),
                             f'cf_top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
-                                                                    counts=self.cf_counts_test,
+                                                                    counts=picked_cf_counts_test,
                                                                     target_classes=self.cf_y_test,
                                                                     k=k)})
         return metrics
@@ -255,19 +256,19 @@ def run_experiments(name: str,
             description_file.write(description)
 
     with (exp_dir / 'results_packed.csv').open('w') as packed_csv_file:
-        fields = ['exp_no', 'params', 'rep_no', 'stats', 'fit_params', 'metrics', 'plot_repr']
+        fields = ['exp_no', 'params', 'rep_no', 'stats', 'fit_params', 'metrics', 'surrogate_serial']
         packed_writer = csv.DictWriter(packed_csv_file, fieldnames=fields)
         packed_writer.writeheader()
 
         for exp_no, e in enumerate(experiments, start=1):
-            for rep_no, (surrogate, stats, fit_params, metrics, plot_repr) in enumerate(e.run(**kwargs)):
+            for rep_no, (surrogate, stats, fit_params, metrics, serial) in enumerate(e.run(**kwargs), start=1):
                 packed_writer.writerow({'exp_no': exp_no,
                                         'params': e.params,
                                         'rep_no': rep_no,
                                         'stats': stats,
                                         'fit_params': fit_params,
                                         'metrics': metrics,
-                                        'plot_repr': plot_repr})
+                                        'surrogate_serial': serial})
                 packed_csv_file.flush()  # make sure intermediate results are written
 
 

@@ -1,69 +1,57 @@
 import base64
 from typing import Dict, Any
 
-import numpy as np
 import pickle
 
-from sklearn.ensemble import ExtraTreesClassifier
-from sklearn.feature_selection import SelectFromModel
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.utils.validation import check_is_fitted
 
 from ida.experiments.experiment import get_experiment_df
-from ida.type1.common import CrossValidatedType1Explainer
+from ida.type1.common import Type1Explainer
 
 
-class TreeType1Explainer(CrossValidatedType1Explainer):
-
-    def get_pipeline(self, random_state: int) -> Pipeline:
-        pipeline = Pipeline([
-            ('sel', SelectFromModel(ExtraTreesClassifier(random_state=random_state))),
-            ('tree', DecisionTreeClassifier(random_state=random_state))
-        ])
-        return pipeline
+class TreeType1Explainer(Type1Explainer):
 
     @staticmethod
-    def get_complexity_metrics(pipeline: Pipeline, **kwargs) -> Dict[str, Any]:
+    def _create_pipeline(tree: DecisionTreeClassifier):
+        return Pipeline([
+            ('tree', tree)
+        ])
+
+    @staticmethod
+    def create_pipeline(random_state: int) -> Pipeline:
+        return TreeType1Explainer._create_pipeline(DecisionTreeClassifier(random_state=random_state))
+
+    @staticmethod
+    def get_complexity_metrics(pipeline: Pipeline) -> Dict[str, Any]:
         tree = pipeline['tree']
         return {'tree_n_leaves': tree.get_n_leaves(),
                 'tree_depth': tree.get_depth()}
 
     @staticmethod
     def get_fitted_params(pipeline: Pipeline) -> Dict[str, Any]:
-        return {k: v for (k, v) in pipeline.get_params().items()
-                if k != 'sel' and k.startswith('sel')
-                or k != 'tree' and k.startswith('tree')}
-
-    @staticmethod
-    def get_plot_representation(pipeline: Pipeline) -> Dict[str, Any]:
-        sel = pipeline['sel']
         tree = pipeline['tree']
-
-        if isinstance(sel, SelectFromModel):
-            selected_concepts = np.asarray(sel.get_support(), dtype=bool).tobytes()
-        else:  # this happens if one sets sel = 'passthrough' in the pipeline
-            selected_concepts = np.ones(tree.n_features_in_, dtype=bool).tobytes()
-
-        return {'selected_concepts': selected_concepts,
-                'encoded_tree': base64.b64encode(pickle.dumps(tree)),
-                'seen_classes': np.asarray(tree.classes_, dtype=int).tobytes()}
+        check_is_fitted(tree)
+        return tree.get_params()
 
     @staticmethod
-    def plot(experiment_name: str, exp_no: int, rep_no: int, **kwargs):
-        assert 'concepts' in kwargs and 'all_classes' in kwargs
-        concepts = kwargs.pop('concepts')
-        all_classes = kwargs.pop('all_classes')
+    def serialize(pipeline: Pipeline) -> Dict[str, Any]:
+        tree = pipeline['tree']
+        return {'encoded_tree': base64.b64encode(pickle.dumps(tree))}
 
+    @staticmethod
+    def load(experiment_name: str, exp_no: int, rep_no: int) -> Pipeline:
         df = get_experiment_df(experiment_name)
         row = df.loc[df['exp_no'] == exp_no].loc[df['rep_no'] == rep_no].iloc[0]
+        assert 'encoded_tree' in row, 'The given experiment did not use a TreeType1Explainer.'
+        tree: DecisionTreeClassifier = pickle.loads(base64.b64decode(row['encoded_tree']))
+        return TreeType1Explainer._create_pipeline(tree=tree)
 
-        seen_classes = np.fromstring(row['seen_classes'], dtype=int)
-        clf = pickle.loads(base64.b64decode(row['encoded_tree']))
-        support = np.fromstring(row['selected_concepts'], dtype=bool)
-        plot_tree(decision_tree=clf,
-                  feature_names=np.asarray(concepts)[support],
-                  class_names=np.asarray(all_classes)[seen_classes],
-                  **kwargs)
+    @staticmethod
+    def plot(pipeline: Pipeline, **kwargs):
+        tree = pipeline['tree']
+        plot_tree(decision_tree=tree, **kwargs)
 
     def __str__(self):
         return 'TreeType1Explainer'

@@ -1,5 +1,4 @@
 import abc
-import functools
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -7,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Iterable, Tuple
 
 import numpy as np
+from joblib import Memory
 
 RowDict = Dict[str, Any]
 
@@ -95,13 +95,20 @@ class Classifier(abc.ABC):
         """
 
     def predict_single(self, image: np.ndarray, image_id: Optional[str] = None) -> int:
-        if image_id in self.prediction_cache.items():
-            return self.prediction_cache[image_id]
-
-        pred = np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]).item()
         if self.memoize_predictions:
-            self.prediction_cache[image_id] = pred
-        return pred
+            return _predict_single(classifier=self, image=image, image_id=image_id)
+        else:
+            return np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]).item()
+
+
+_CACHE_DIR = Path('~/.cache/ida')
+_CACHE_DIR.expanduser().mkdir(exist_ok=True)
+memory = Memory(str(_CACHE_DIR), verbose=0)
+
+
+@memory.cache(ignore=['image'])  # image id is sufficient
+def _predict_single(classifier: Classifier, image: np.ndarray, image_id: Optional[str] = None) -> int:
+    return np.argmax(classifier.predict_proba(np.expand_dims(image, 0))[0]).item()
 
 
 class ImageIdProvider(abc.ABC):

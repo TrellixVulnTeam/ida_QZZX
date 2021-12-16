@@ -2,7 +2,11 @@ from typing import Type, Optional, Tuple, Iterable, List
 
 import numpy as np
 import torch
-from captum.attr import Attribution, Saliency, IntegratedGradients, DeepLift, GuidedGradCam
+import warnings
+
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=UserWarning)
+    from captum.attr import Attribution, Saliency, IntegratedGradients, DeepLift, GuidedGradCam
 
 from ida.interpret.common import Interpreter
 from ida.type2.common import Type2Explainer, CaptumAttributionWrapper
@@ -39,12 +43,16 @@ class GradientAttributionType2Explainer(Type2Explainer):
         for image_id, image in images_iter:
             for _, _, raw_influences in self._get_raw_influences(image=image,
                                                                  image_id=image_id,
+                                                                 compute_stats=False,
                                                                  **kwargs):
-                calibration_influences.extend(raw_influences)
-        self.quantile = np.quantile(np.abs([i for i in calibration_influences if i > 0]),
-                                    self.quantile_level)
+                calibration_influences.append(np.mean(np.abs(raw_influences)))
+        self.quantile = np.quantile(calibration_influences, self.quantile_level)
 
-    def _get_raw_influences(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
+    def _get_raw_influences(self,
+                            image: np.ndarray,
+                            image_id: Optional[str] = None,
+                            compute_stats: bool = True,
+                            **kwargs) \
             -> Iterable[Tuple[int, np.ndarray, List[float]]]:
         feature_influences = None
 
@@ -59,23 +67,20 @@ class GradientAttributionType2Explainer(Type2Explainer):
                                                           additional_attribution_args=kwargs)
                                       .transpose(1, 2, 0))  # CxHxW -> HxWxC
 
-            self._pixel_count += np.count_nonzero(mask)
-            self._pixel_influence_sum += np.sum(feature_influences)
+            if compute_stats:
+                self._pixel_count += np.count_nonzero(mask)
+                self._pixel_influence_sum += np.sum(feature_influences)
 
             influences_at_concept = feature_influences[mask].flatten().tolist()
             yield concept_id, mask, influences_at_concept
 
     def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
-            -> Iterable[Tuple[int, np.ndarray, float]]:
+            -> Iterable[Tuple[int, np.ndarray, bool]]:
         assert self.quantile is not None, 'The explainer must be calibrated before use.'
         for concept_id, mask, influences_at_concept in self._get_raw_influences(image=image,
                                                                                 image_id=image_id,
                                                                                 **kwargs):
-            if np.mean(np.abs(influences_at_concept)) < self.quantile:
-                influential = 0.
-            else:
-                influential = 1.
-
+            influential = np.mean(np.abs(influences_at_concept)) >= self.quantile
             yield concept_id, mask, influential
 
     def __str__(self):
