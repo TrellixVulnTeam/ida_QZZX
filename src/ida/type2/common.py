@@ -43,7 +43,8 @@ class NoType2Explainer(Type2Explainer):
         """
         Assigns positive influence of 1. to each interpretable concept on *image* / the image represented by *image_id*.
         """
-        yield from zip(self.interpreter(image, image_id), it.repeat(True))
+        for concept_id, mask in self.interpreter(image, image_id):
+            yield concept_id, mask, True
 
     def __str__(self):
         return 'NoType2Explainer'
