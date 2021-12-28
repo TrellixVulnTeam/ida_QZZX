@@ -7,6 +7,9 @@ import numpy as np
 
 class Interpreter(abc.ABC):
 
+    def __init__(self, random_state: int = 42):
+        self.rng = np.random.default_rng(random_state)
+
     @property
     @abc.abstractmethod
     def concepts(self) -> [str]:
@@ -76,9 +79,14 @@ class Interpreter(abc.ABC):
                             max_perturbed_area: float,
                             max_concept_overlap: float,
                             image: Optional[np.ndarray] = None,
-                            image_id: Optional[str] = None) -> Iterable[Tuple[List[int], np.ndarray]]:
+                            image_id: Optional[str] = None,
+                            shuffle: bool = True) -> Iterable[Tuple[List[int], np.ndarray]]:
         ids_and_masks = list(self(image=image, image_id=image_id))
         if len(ids_and_masks) > 0:
+            if shuffle:
+                ids_and_masks = np.asarray(ids_and_masks, dtype=object)
+                self.rng.shuffle(ids_and_masks, 0)
+
             ids, masks = list(zip(*ids_and_masks))
             counts = self.concept_ids_to_counts(ids)
             image_area = image.shape[0] * image.shape[1]

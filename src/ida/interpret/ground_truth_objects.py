@@ -15,14 +15,16 @@ class GroundTruthObjectsInterpreter(Interpreter):
     def __init__(self,
                  gt_object_provider: ImageObjectProvider,
                  subset: Optional[str] = None,
-                 ignore_images_without_objects: bool = True):
+                 ignore_images_without_objects: bool = True,
+                 random_state: int = 42):
         """
         :param gt_object_provider: provider of object bounding boxes for given image ids
         :param subset: optional subset of the dataset for which the image ids are unique
         :param ignore_images_without_objects: whether to ignore or fail when an image
             has no assigned object bounding boxes
+        :param random_state to use
         """
-        super().__init__()
+        super().__init__(random_state=random_state)
         self.gt_object_provider = gt_object_provider
         self.subset = subset
         self.ignore_images_without_objects = ignore_images_without_objects
