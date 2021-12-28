@@ -94,11 +94,17 @@ class Classifier(abc.ABC):
         The distributions are encoded as a float array.
         """
 
+    def _predict_single(self, image: np.ndarray) -> int:
+        return np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]).item()
+
     def predict_single(self, image: np.ndarray, image_id: Optional[str] = None) -> int:
         if self.memoize_predictions:
-            return _predict_single(classifier=self, image=image, image_id=image_id)
+            return _predict_single_with_cache(classifier_fingerprint=[self.name, self.num_classes],
+                                              predict_func=self._predict_single,
+                                              image=image,
+                                              image_id=image_id)
         else:
-            return np.argmax(self.predict_proba(np.expand_dims(image, 0))[0]).item()
+            return self._predict_single(image=image)
 
 
 _CACHE_DIR = Path('~/.cache/ida')
@@ -106,9 +112,12 @@ _CACHE_DIR.expanduser().mkdir(exist_ok=True)
 memory = Memory(str(_CACHE_DIR), verbose=0)
 
 
-@memory.cache(ignore=['image'])  # image id is sufficient
-def _predict_single(classifier: Classifier, image: np.ndarray, image_id: Optional[str] = None) -> int:
-    return np.argmax(classifier.predict_proba(np.expand_dims(image, 0))[0]).item()
+@memory.cache(ignore=['predict_func'])
+def _predict_single_with_cache(classifier_fingerprint,
+                               predict_func,
+                               image: np.ndarray,
+                               image_id: Optional[str] = None) -> int:
+    return predict_func(image=image)
 
 
 class ImageIdProvider(abc.ABC):
