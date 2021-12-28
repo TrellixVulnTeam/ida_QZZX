@@ -33,7 +33,8 @@ class TreeType1Explainer(Type1Explainer):
     def get_fitted_params(pipeline: Pipeline) -> Dict[str, Any]:
         tree = pipeline['tree']
         check_is_fitted(tree)
-        return tree.get_params()
+        attrs = [v for v in vars(tree) if v.endswith("_") and not v.startswith("__")]
+        return {attr: getattr(tree, attr) for attr in attrs}
 
     @staticmethod
     def serialize(pipeline: Pipeline) -> Dict[str, Any]:
