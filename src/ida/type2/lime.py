@@ -44,7 +44,7 @@ class LimeType2Explainer(Type2Explainer):
 
     @staticmethod
     def from_interp_rep_transform(concept_bits: Tensor, _: Tensor, image: np.ndarray, concept_masks: [np.ndarray],
-                                  baseline_rgb: Tuple[float, float, float] = (0., 0., 0.), **kwargs):
+                                  baseline_rgb: Tuple[float, float, float] = (127., 127., 127.), **kwargs):
         device = concept_bits.device
         concept_bits = (concept_bits
                         .squeeze()
@@ -80,4 +80,4 @@ class LimeType2Explainer(Type2Explainer):
             yield from zip(ids, masks, influences > 0.)
 
     def __str__(self):
-        return 'lime'
+        return 'LIMEType2Explainer'
