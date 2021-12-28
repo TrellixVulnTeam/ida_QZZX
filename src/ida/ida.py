@@ -77,50 +77,61 @@ class InterpretPickTransformer(abc.ABC, BaseEstimator, TransformerMixin, NestedL
     def __init__(self,
                  type2: Type2Explainer,
                  threshold: float = .5,
-                 quantile: bool = False):
+                 quantile: bool = False,
+                 random_state: int = 42,
+                 max_num_type2_calls: Optional[int] = None):
         self.type2 = type2
         self.threshold = threshold
         self.quantile = quantile
         self.log_frequency_s = 5.
+        self.random_state = random_state
+        self.max_num_type2_calls = max_num_type2_calls
 
     @property
     def interpreter(self) -> Interpreter:
         return self.type2.interpreter
 
+    def _sample(self, rng, X):
+        if self.max_num_type2_calls is None:
+            return X
+        if len(X) <= self.max_num_type2_calls:
+            return X
+        return rng.choice(X, self.max_num_type2_calls, replace=False)
+
     def _get_counts(self, X):
         concept_counts = []
-        concept_counter = Counter()
-        influence_counter = Counter()
+        influential_concept_counts = []
+
+        rng = np.random.default_rng(self.random_state)
         last_log_time = time.time()
-        for obs_no, (image_id, image) in enumerate(X):
+        for obs_no, (image_id, image) in enumerate(self._sample(rng, X)):
             concept_ids, _, influences = list(zip(*self.type2(image=image, image_id=image_id)))
-            concept_counter.update(concept_ids)
             counts = self.interpreter.concept_ids_to_counts(concept_ids)
             concept_counts.append(counts)
             influential_concept_ids = set(c for c, i in zip(concept_ids, influences) if i)
-            influence_counter.update(influential_concept_ids)
+            influential_counts = self.interpreter.concept_ids_to_counts(influential_concept_ids)
+            influential_concept_counts.append(influential_counts)
 
             current_time = time.time()
             if current_time - last_log_time > self.log_frequency_s:
                 with self.log_task('Status update'):
                     total_count = obs_no + 1
                     self.log_item(f'Processed {total_count} observations')
-                    self.log_item(f'5 most influential concepts: {influence_counter.most_common(5)}')
-                    mean_inf = np.mean([influential_count / float(total_count)
-                                        for influential_count in influence_counter.values()])
-                    self.log_item(f'Mean fraction of images influenced by a concept: {mean_inf}')
                 last_log_time = current_time
-        return concept_counts, concept_counter, influence_counter
+        return concept_counts, influential_concept_counts
 
-    def _evaluate_counters(self, concept_counter: Counter, influence_counter: Counter):
-        self.num_influential_concept_instances_ = sum(influence_counter.values())
+    def _evaluate_counters(self, counts: [[int]], influential_counts: [[int]]):
+        counts = np.sum(np.asarray(counts), axis=1)
+        influential_counts = np.sum(np.asarray(influential_counts), axis=1)
+
+        self.num_influential_concept_instances_ = np.sum(influential_counts)
         self.stats_ = self.type2.stats
 
         concept_influences = []
         for concept_id in range(len(self.interpreter.concepts)):
-            influential_count = float(influence_counter.get(concept_id, 0.))
-            total_count = float(concept_counter.get(concept_id, 0.))
-            if total_count == 0:
+            influential_count = float(influential_counts[concept_id])
+            total_count = float(counts[concept_id])
+            if total_count == 0.:
                 concept_influences.append(0.)
             else:
                 concept_influences.append(influential_count / total_count)
@@ -134,24 +145,28 @@ class InterpretPickTransformer(abc.ABC, BaseEstimator, TransformerMixin, NestedL
         self.picked_concept_names_ = np.asarray(self.interpreter.concepts)[self.picked_concepts_]
         self.log_item(f'Picked concepts: {self.picked_concept_names_}')
 
-    def fit(self, X, y=None, **fit_params):
+    def fit(self, X, y=None):
         with self.log_task('Observing concept influences...'):
-            _, concept_counter, influence_counter = self._get_counts(X)
-            self._evaluate_counters(concept_counter, influence_counter)
+            counts, influential_counts = self._get_counts(X)
+            self._evaluate_counters(counts, influential_counts)
 
     def transform(self, X):
         with self.log_task('Interpreting inputs...'):
-            concept_counts, _, _ = self._get_counts(X)
-            return np.asarray(concept_counts)[:, self.get_influential_concepts()]
+            counts, influential_counts = self._get_counts(X)
+            return np.asarray(counts)[:, self.get_influential_concepts()]
 
     def fit_transform(self, X, y=None, **fit_params):
         with self.log_task('Observing concept influences...'):
-            concept_counts, concept_counter, influence_counter = self._get_counts(X)
-            self._evaluate_counters(concept_counter, influence_counter)
-        return np.asarray(concept_counts)[:, self.get_influential_concepts()]
+            counts, influential_counts = self._get_counts(X)
+            self._evaluate_counters(counts, influential_counts)
+        return np.asarray(counts)[:, self.get_influential_concepts()]
 
     def get_influential_concepts(self) -> [int]:
         if self.quantile:
+            if len(np.unique(self.concept_influences_)) == 1:
+                # treat all concepts as influential
+                return list(range(len(self.concept_influences_)))
+
             threshold = np.quantile(self.concept_influences_, self.threshold)
         else:
             threshold = self.threshold
@@ -177,7 +192,7 @@ def ipa(image_iter: Iterable[Tuple[str, np.ndarray]],
 
     with logger.log_task('Running IPA...'):
         pipeline = Pipeline([
-            ('interpret-pick', InterpretPickTransformer(type2)),
+            ('interpret-pick', InterpretPickTransformer(type2, random_state=random_state)),
             ('approximate', type1.create_pipeline(random_state=random_state))
         ])
         cv = run_cv(inputs=inputs,
