@@ -2,7 +2,7 @@ import ast
 import csv
 import itertools as it
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 import timeit
 from datetime import datetime
@@ -19,12 +19,12 @@ from sklearn.metrics import log_loss, roc_auc_score
 from ida.ida import ipa
 from ida.interpret.common import Interpreter
 from ida.torch_extensions.classifier import TorchImageClassifier
-from ida.type1.common import Type1Explainer, top_k_accuracy_score
+from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_metrics
 from ida.common import NestedLogger, memory
-
-# See https://stackoverflow.com/questions/15063936
 from ida.type2.common import Type2Explainer
 
+
+# See https://stackoverflow.com/questions/15063936
 max_field_size = sys.maxsize
 while True:
     try:
@@ -55,30 +55,28 @@ def _prepare_test_observations(test_images_url: str,
                                interpreter: Interpreter,
                                classifier: TorchImageClassifier,
                                num_test_obs: int,
-                               num_cf_test_obs: int,
                                max_perturbed_area: float,
                                max_concept_overlap: float) -> Tuple[List[List[int]], List[int],
                                                                     List[List[int]], List[int]]:
     concept_counts = []
     predicted_classes = []
-    cf_concept_counts = []
-    cf_predicted_classes = []
+    iv_concept_counts = []
+    iv_predicted_classes = []
     with _prepare_image_iter(test_images_url) as test_iter:
         for image_id, image in it.islice(test_iter, num_test_obs):
             concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
             predicted_classes.append(classifier.predict_single(image=image))
 
-        for image_id, image in it.islice(test_iter, num_cf_test_obs):
-            cf_concept_counts.append(interpreter.count_concepts(image=image, image_id=image_id))
-            cf_predicted_classes.append(classifier.predict_single(image=image))
-            for cf_counts, cf_image in interpreter.get_counterfactuals(max_perturbed_area=max_perturbed_area,
-                                                                       max_concept_overlap=max_concept_overlap,
-                                                                       image_id=image_id,
-                                                                       image=image):
-                cf_concept_counts.append(cf_counts)
-                cf_predicted_classes.append(classifier.predict_single(image=image))
+            with suppress(StopIteration):
+                iv_counts, iv_image = next(iter(interpreter.get_counterfactuals(max_perturbed_area=max_perturbed_area,
+                                                                                max_concept_overlap=max_concept_overlap,
+                                                                                image_id=image_id,
+                                                                                image=image,
+                                                                                shuffle=True)))
+                iv_concept_counts.append(iv_counts)
+                iv_predicted_classes.append(classifier.predict_single(image=iv_image))
 
-    return concept_counts, predicted_classes, cf_concept_counts, cf_predicted_classes
+    return concept_counts, predicted_classes, iv_concept_counts, iv_predicted_classes
 
 
 @dataclass
@@ -89,16 +87,17 @@ class Experiment(NestedLogger):
     num_train_obs: int
     num_calibration_obs: int
     num_test_obs: int
-    num_test_obs_for_counterfactuals: int
     max_perturbed_area: float
     max_concept_overlap: float
-    all_classes: [str]
+    class_names: [str]
     type1: Type1Explainer
     type2: Type2Explainer
+    param_grid: Dict[str, Any]
+    cv_params: Dict[str, Any]
     top_k_acc: Iterable[int]
 
     def __post_init__(self):
-        assert len(self.all_classes) == self.classifier.num_classes, \
+        assert len(self.class_names) == self.classifier.num_classes, \
             'Provided number of class names differs from the output dimensionality of the classifier.'
 
     @property
@@ -112,33 +111,33 @@ class Experiment(NestedLogger):
     @property
     def params(self) -> Mapping[str, Any]:
         return {'classifier': self.classifier.name,
+                'class_names': self.class_names,
                 'images_url': self.images_url,
                 'num_train_obs': self.num_train_obs,
                 'num_calibration_obs': self.num_calibration_obs,
                 'interpreter': str(self.interpreter),
+                'concept_names': self.interpreter.concepts,
                 'type2': str(self.type2),
                 'type1': str(self.type1),
                 'num_test_obs': self.num_test_obs,
-                'num_test_obs_for_counterfactuals': self.num_test_obs_for_counterfactuals,
                 'max_perturbed_area': self.max_perturbed_area,
                 'min_overlap_for_concept_merge': self.max_concept_overlap}
 
     @property
-    def multi_class(self) -> bool:
+    def is_multi_class(self) -> bool:
         return self.classifier.num_classes > 2
 
     @property
     def all_class_ids(self) -> [int]:
         return list(range(self.classifier.num_classes))
 
-    def run(self, **kwargs):
+    def run(self):
         """
         Runs the configured number of repetitions of the experiment.
         For each repetition, yields a tuple *(surrogate, stats, fit_params, metrics)*.
         *surrogate* is the fitted surrogate model.
         *stats*, *fit_params*, and *metrics* are dicts that contain the augmentation statistics
-        from the IDA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
-        Passes *kwargs* to the IPA algorithm.
+        from the IPA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
         """
         with self.log_task('Running experiment...'):
             self.log_item('Parameters: {}'.format(self.params))
@@ -148,10 +147,9 @@ class Experiment(NestedLogger):
                                                       interpreter=self.interpreter,
                                                       classifier=self.classifier,
                                                       num_test_obs=self.num_test_obs,
-                                                      num_cf_test_obs=self.num_test_obs_for_counterfactuals,
                                                       max_perturbed_area=self.max_perturbed_area,
                                                       max_concept_overlap=self.max_concept_overlap)
-                self.counts_test, self.y_test, self.cf_counts_test, self.cf_y_test = test_obs
+                self.counts_test, self.y_test, self.iv_counts_test, self.iv_y_test = test_obs
 
             with _prepare_image_iter(self.images_url, skip=self.num_test_obs) as train_images_iter:
                 for rep_no in range(1, self.repetitions + 1):
@@ -167,19 +165,25 @@ class Experiment(NestedLogger):
                                                   self.num_train_obs),
                              log_nesting=self.log_nesting,
                              random_state=self.random_state,
-                             **kwargs)
+                             param_grid=self.param_grid,
+                             cv_params=self.cv_params)
                     stop = timeit.default_timer()
 
-                    surrogate = cv.best_estimator_['approximate']
-                    picker = cv.best_estimator_['interpret-pick']
-                    picked_concepts = picker.picked_concepts_
+                    best_pipeline = cv.best_estimator_
+                    picker = best_pipeline['interpret-pick']
+                    surrogate = best_pipeline['approximate']
                     with self.log_task('Scoring surrogate model...'):
-                        metrics = self.score(surrogate, picked_concepts)
+                        metrics = self.score(surrogate, picker.picked_concepts_)
 
                     metrics['runtime_s'] = stop - start
-                    fit_params = cv.best_params_
+                    fit_params = self._get_fitted_attributes(picker)
                     stats = picker.stats_
-                    yield surrogate, stats, fit_params, metrics, self.type1.serialize(surrogate)
+                    yield surrogate, stats, cv.best_params_, fit_params, metrics, self.type1.serialize(surrogate)
+
+    @staticmethod
+    def _get_fitted_attributes(fitted_estimator):
+        attrs = [v for v in vars(fitted_estimator) if v.endswith("_") and not v.startswith("__")]
+        return {attr: getattr(fitted_estimator, attr) for attr in attrs}
 
     def _spread_probs_to_all_classes(self, probs, classes_) -> np.ndarray:
         """
@@ -190,8 +194,8 @@ class Experiment(NestedLogger):
         not only those that the classifier has seen during training.
         See https://stackoverflow.com/questions/30036473/
         """
-        proba_ordered = np.zeros((probs.shape[0], len(self.all_classes),), dtype=np.float)
-        sorter = np.argsort(self.all_classes)  # http://stackoverflow.com/a/32191125/395857
+        proba_ordered = np.zeros((probs.shape[0], len(self.class_names),), dtype=np.float)
+        sorter = np.argsort(self.class_names)  # http://stackoverflow.com/a/32191125/395857
         idx = sorter[np.searchsorted(self.all_class_ids, classes_, sorter=sorter)]
         proba_ordered[:, idx] = probs
         return proba_ordered
@@ -209,25 +213,38 @@ class Experiment(NestedLogger):
 
         picked_counts_test = np.asarray(self.counts_test)[:, picked_concepts]
         y_test_pred = self._get_predictions(surrogate, picked_counts_test)
-        picked_cf_counts_test = np.asarray(self.cf_counts_test)[:, picked_concepts]
-        cf_y_test_pred = self._get_predictions(surrogate, picked_cf_counts_test)
+        picked_iv_counts_test = np.asarray(self.iv_counts_test)[:, picked_concepts]
+        iv_y_test_pred = self._get_predictions(surrogate, picked_iv_counts_test)
         metrics.update({'cross_entropy': log_loss(self.y_test, y_test_pred, labels=self.all_class_ids),
                         'auc': self._auc_score(self.y_test, y_test_pred),
-                        'cf_cross_entropy': log_loss(self.cf_y_test, cf_y_test_pred, labels=self.all_class_ids),
-                        'cf_auc': self._auc_score(self.cf_y_test, cf_y_test_pred)})
+                        'iv_cross_entropy': log_loss(self.iv_y_test, iv_y_test_pred, labels=self.all_class_ids),
+                        'iv_auc': self._auc_score(self.iv_y_test, iv_y_test_pred)})
         for k in self.top_k_acc:
             metrics.update({f'top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
                                                                  counts=picked_counts_test,
                                                                  target_classes=self.y_test,
                                                                  k=k),
-                            f'cf_top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
-                                                                    counts=picked_cf_counts_test,
-                                                                    target_classes=self.cf_y_test,
+                            f'iv_top_{k}_acc': top_k_accuracy_score(surrogate=surrogate,
+                                                                    counts=picked_iv_counts_test,
+                                                                    target_classes=self.iv_y_test,
                                                                     k=k)})
+        with _prepare_image_iter(self.images_url) as test_iter:
+            images = list(it.islice(test_iter, self.num_test_obs))
+
+        metrics.update(counterfactual_top_k_accuracy_metrics(surrogate=surrogate,
+                                                             images=images,
+                                                             counts=self.counts_test,
+                                                             picked_concepts=picked_concepts,
+                                                             target_classes=self.y_test,
+                                                             classifier=self.classifier,
+                                                             interpreter=self.interpreter,
+                                                             max_perturbed_area=self.max_perturbed_area,
+                                                             max_concept_overlap=self.max_concept_overlap,
+                                                             k=1))
         return metrics
 
     def _auc_score(self, y_true, y_pred):
-        multi_class = 'ovo' if self.multi_class else 'raise'
+        multi_class = 'ovo' if self.is_multi_class else 'raise'
         auc = roc_auc_score(y_true,
                             y_pred,
                             average='macro',
@@ -243,8 +260,7 @@ def get_results_dir() -> ContextManager[Path]:
 def run_experiments(name: str,
                     description: str,
                     experiments: Iterable[Experiment],
-                    prepend_timestamp: bool = True,
-                    **kwargs):
+                    prepend_timestamp: bool = True):
     if prepend_timestamp:
         timestamp = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
         name = timestamp + ' ' + name
@@ -256,16 +272,18 @@ def run_experiments(name: str,
             description_file.write(description)
 
     with (exp_dir / 'results_packed.csv').open('w') as packed_csv_file:
-        fields = ['exp_no', 'params', 'rep_no', 'stats', 'fit_params', 'metrics', 'surrogate_serial']
+        fields = ['exp_no', 'params', 'rep_no', 'stats', 'cv_params', 'fit_params', 'metrics', 'surrogate_serial']
         packed_writer = csv.DictWriter(packed_csv_file, fieldnames=fields)
         packed_writer.writeheader()
 
         for exp_no, e in enumerate(experiments, start=1):
-            for rep_no, (surrogate, stats, fit_params, metrics, serial) in enumerate(e.run(**kwargs), start=1):
+            for rep_no, result in enumerate(e.run(), start=1):
+                surrogate, stats, cv_params, fit_params, metrics, serial = result
                 packed_writer.writerow({'exp_no': exp_no,
                                         'params': e.params,
                                         'rep_no': rep_no,
                                         'stats': stats,
+                                        'cv_params': cv_params,
                                         'fit_params': fit_params,
                                         'metrics': metrics,
                                         'surrogate_serial': serial})
