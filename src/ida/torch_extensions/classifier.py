@@ -23,6 +23,8 @@ _COLLECTION_PACKAGE = 'ida.classifier_collection.torch'
 
 class TorchImageClassifier(Classifier):
 
+    _HASH_ATTRS = ['name', 'num_classes', 'param_url']
+
     def __init__(self,
                  name: str,
                  num_classes: int,
@@ -88,9 +90,20 @@ class TorchImageClassifier(Classifier):
                                             **kwargs)
 
     def __getstate__(self):
-        d = self.__dict__
+        d = self.__dict__.copy()
         d['_model'] = None
         return d
+
+    def get_fingerprint(self):
+        return [getattr(self, attr) for attr in self._HASH_ATTRS]
+
+    def __hash__(self):
+        return hash(self.get_fingerprint())
+
+    def __eq__(self, other):
+        if not isinstance(other, TorchImageClassifier):
+            return False
+        return self.get_fingerprint() == [getattr(other, attr) for attr in self._HASH_ATTRS]
 
     def _convert_latin1_to_unicode_and_cache(self):
         dest_path = self.cache.cache_dir / self.file_name
