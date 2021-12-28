@@ -68,6 +68,7 @@ def top_k_accuracy_score(surrogate: Pipeline,
 def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
                                           images: List[Tuple[str, np.ndarray]],
                                           counts: List[List[int]],
+                                          picked_concepts: [int],
                                           target_classes: List[int],
                                           classifier: TorchImageClassifier,
                                           interpreter: Interpreter,
@@ -78,6 +79,7 @@ def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
     This score is different from "normal" top-k accuracy, because it requires that predictions
     are correct for a pair of an input and its "counterfactual twin" where a concept has been removed.
     """
+    counts = np.asarray(counts)[:, picked_concepts]
     top_k_predicted_class_ids = _get_top_k_classes(surrogate=surrogate,
                                                    counts=counts,
                                                    k=k)
@@ -100,6 +102,7 @@ def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
         found_change = False
 
         for cf_counts, cf_image in cf_iter:
+            cf_counts = np.asarray(cf_counts)[picked_concepts]
             num_cfs += 1.
             cf_true_class = classifier.predict_single(image=cf_image)
             if cf_true_class != true_class:
@@ -120,5 +123,5 @@ def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
 
     return {'fraction_of_sensitive_inputs': num_sensitive_inputs / num_inputs,
             'fraction_of_influential_concepts': num_influential_cfs / num_cfs,
-            'coverage_of_top_{}_influence'.format(k): num_covered_influential_cfs / num_influential_cfs,
-            'coverage_of_counterfactuals'.format(k): num_correctly_predicted_influential_cfs / num_influential_cfs}
+            f'coverage_of_top_{k}_influence': num_covered_influential_cfs / num_influential_cfs,
+            'coverage_of_counterfactuals': num_correctly_predicted_influential_cfs / num_influential_cfs}
