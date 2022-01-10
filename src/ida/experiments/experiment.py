@@ -16,12 +16,11 @@ import pandas as pd
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
-from ida.ida import ipa
+from ida.ida import run_cv, Observer
 from ida.interpret.common import Interpreter
 from ida.torch_extensions.classifier import TorchImageClassifier
 from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_metrics
 from ida.common import NestedLogger, memory
-from ida.type2.common import Type2Explainer
 
 
 # See https://stackoverflow.com/questions/15063936
@@ -54,10 +53,8 @@ def _prepare_image_iter(images_url, skip: int = 0) -> Iterable[Tuple[str, np.nda
 def _prepare_test_observations(test_images_url: str,
                                interpreter: Interpreter,
                                classifier: TorchImageClassifier,
-                               num_test_obs: int,
-                               max_perturbed_area: float,
-                               max_concept_overlap: float) -> Tuple[List[List[int]], List[int],
-                                                                    List[List[int]], List[int]]:
+                               num_test_obs: int) -> Tuple[List[List[int]], List[int],
+                                                           List[List[int]], List[int]]:
     concept_counts = []
     predicted_classes = []
     iv_concept_counts = []
@@ -68,9 +65,7 @@ def _prepare_test_observations(test_images_url: str,
             predicted_classes.append(classifier.predict_single(image=image))
 
             with suppress(StopIteration):
-                iv_counts, iv_image = next(iter(interpreter.get_counterfactuals(max_perturbed_area=max_perturbed_area,
-                                                                                max_concept_overlap=max_concept_overlap,
-                                                                                image_id=image_id,
+                iv_counts, iv_image = next(iter(interpreter.get_counterfactuals(image_id=image_id,
                                                                                 image=image,
                                                                                 shuffle=True)))
                 iv_concept_counts.append(iv_counts)
@@ -85,13 +80,10 @@ class Experiment(NestedLogger):
     repetitions: int
     images_url: str
     num_train_obs: int
-    num_calibration_obs: int
     num_test_obs: int
-    max_perturbed_area: float
-    max_concept_overlap: float
     class_names: [str]
     type1: Type1Explainer
-    type2: Type2Explainer
+    observer: Observer
     param_grid: Dict[str, Any]
     cv_params: Dict[str, Any]
     top_k_acc: Iterable[int]
@@ -102,11 +94,11 @@ class Experiment(NestedLogger):
 
     @property
     def classifier(self) -> TorchImageClassifier:
-        return self.type2.classifier
+        return self.observer.classifier
 
     @property
     def interpreter(self) -> Interpreter:
-        return self.type2.interpreter
+        return self.observer.interpreter
 
     @property
     def params(self) -> Mapping[str, Any]:
@@ -114,14 +106,13 @@ class Experiment(NestedLogger):
                 'class_names': self.class_names,
                 'images_url': self.images_url,
                 'num_train_obs': self.num_train_obs,
-                'num_calibration_obs': self.num_calibration_obs,
                 'interpreter': str(self.interpreter),
                 'concept_names': self.interpreter.concepts,
-                'type2': str(self.type2),
+                'observer': str(self.observer),
                 'type1': str(self.type1),
                 'num_test_obs': self.num_test_obs,
-                'max_perturbed_area': self.max_perturbed_area,
-                'min_overlap_for_concept_merge': self.max_concept_overlap}
+                'max_perturbed_area': self.interpreter.max_perturbed_area,
+                'min_overlap_for_concept_merge': self.interpreter.max_concept_overlap}
 
     @property
     def is_multi_class(self) -> bool:
@@ -146,27 +137,24 @@ class Experiment(NestedLogger):
                 test_obs = _prepare_test_observations(test_images_url=self.images_url,
                                                       interpreter=self.interpreter,
                                                       classifier=self.classifier,
-                                                      num_test_obs=self.num_test_obs,
-                                                      max_perturbed_area=self.max_perturbed_area,
-                                                      max_concept_overlap=self.max_concept_overlap)
+                                                      num_test_obs=self.num_test_obs)
                 self.counts_test, self.y_test, self.iv_counts_test, self.iv_y_test = test_obs
 
             with _prepare_image_iter(self.images_url, skip=self.num_test_obs) as train_images_iter:
                 for rep_no in range(1, self.repetitions + 1):
-                    calibration_images_iter = it.islice(train_images_iter, self.num_calibration_obs)
-                    with self.log_task('Calibrating the Type 2 explainer...'):
-                        self.type2.calibrate(calibration_images_iter)
-
-                    # we draw new train observations for each repetition by continuing the iterator
                     start = timeit.default_timer()
-                    cv = ipa(type1=self.type1,
-                             type2=self.type2,
-                             image_iter=it.islice(train_images_iter,
-                                                  self.num_train_obs),
-                             log_nesting=self.log_nesting,
-                             random_state=self.random_state,
-                             param_grid=self.param_grid,
-                             cv_params=self.cv_params)
+                    with self.log_task('Observing classifier...'):
+                        # we draw new train observations for each repetition by continuing the iterator
+                        train_images = it.islice(train_images_iter, self.num_train_obs)
+                        train_counts, train_classes = list(zip(*self.observer(image_iter=train_images)))
+
+                    with self.log_task('Approximating classifier...'):
+                        cv = run_cv(inputs=train_counts,
+                                    predicted_classes=train_classes,
+                                    all_classes=list(range(self.classifier.num_classes)),
+                                    pipeline=self.type1.create_pipeline(random_state=self.random_state),
+                                    param_grid=self.param_grid,
+                                    **self.cv_params)
                     stop = timeit.default_timer()
 
                     best_pipeline = cv.best_estimator_
@@ -238,8 +226,6 @@ class Experiment(NestedLogger):
                                                              target_classes=self.y_test,
                                                              classifier=self.classifier,
                                                              interpreter=self.interpreter,
-                                                             max_perturbed_area=self.max_perturbed_area,
-                                                             max_concept_overlap=self.max_concept_overlap,
                                                              k=1))
         return metrics
 

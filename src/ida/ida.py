@@ -2,6 +2,7 @@ import abc
 import itertools as it
 import time
 from collections import Counter
+from contextlib import suppress
 from typing import Iterable, Tuple, Dict, Any, Optional, List, Union
 
 import numpy as np
@@ -10,6 +11,7 @@ from sklearn.model_selection import KFold, StratifiedKFold, GridSearchCV
 from sklearn.pipeline import Pipeline
 
 from ida.interpret.common import Interpreter
+from ida.torch_extensions.classifier import TorchImageClassifier
 from ida.type1.common import Type1Explainer
 from ida.type2.common import Type2Explainer
 from ida.common import NestedLogger
@@ -108,7 +110,7 @@ class InterpretPickTransformer(abc.ABC, BaseEstimator, TransformerMixin, NestedL
             concept_ids, _, influences = list(zip(*self.type2(image=image, image_id=image_id)))
             counts = self.interpreter.concept_ids_to_counts(concept_ids)
             concept_counts.append(counts)
-            influential_concept_ids = set(c for c, i in zip(concept_ids, influences) if i)
+            influential_concept_ids = [c for c, i in zip(concept_ids, influences) if i]
             influential_counts = self.interpreter.concept_ids_to_counts(influential_concept_ids)
             influential_concept_counts.append(influential_counts)
 
@@ -203,3 +205,45 @@ def ipa(image_iter: Iterable[Tuple[str, np.ndarray]],
                     **cv_params)
 
         return cv
+
+
+class Observer(abc.ABC):
+
+    def __init__(self,
+                 classifier: TorchImageClassifier,
+                 interpreter: Interpreter):
+        self.classifier = classifier
+        self.interpreter = interpreter
+
+    @abc.abstractmethod
+    def __call__(self, image_iter: Iterable[Tuple[str, np.ndarray]]) -> Iterable[List[int], int]:
+        pass
+
+
+class PassiveObserver(Observer):
+
+    def __call__(self, image_iter: Iterable[Tuple[str, np.ndarray]]) -> Iterable[List[int], int]:
+        for obs_no, (image_id, image) in enumerate(image_iter):
+            counts = self.interpreter.count_concepts(image=image, image_id=image_id)
+            predicted_class = self.classifier.predict_single(image=image, image_id=image_id)
+            yield counts, predicted_class
+
+
+class CounterfactualObserver(Observer):
+
+    def __call__(self, image_iter: Iterable[Tuple[str, np.ndarray]]) -> Iterable[List[int], int]:
+        for obs_no, (image_id, image) in enumerate(image_iter):
+            counts = self.interpreter.count_concepts(image=image, image_id=image_id)
+
+            with suppress(StopIteration):
+                cfs = list(self.interpreter.get_counterfactuals(image_id=image_id,
+                                                                image=image,
+                                                                shuffle=True))
+                cfs.append((counts, image))
+
+                for (counts_1, image_1), (counts_2, image_2) in it.combinations(cfs, 2):
+                    predicted_class_1 = self.classifier.predict_single(image=image_1)
+                    predicted_class_2 = self.classifier.predict_single(image=image_2)
+                    if predicted_class_1 != predicted_class_2:
+                        yield counts_1, predicted_class_1
+                        yield counts_2, predicted_class_2

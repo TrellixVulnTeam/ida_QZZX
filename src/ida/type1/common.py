@@ -72,8 +72,6 @@ def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
                                           target_classes: List[int],
                                           classifier: TorchImageClassifier,
                                           interpreter: Interpreter,
-                                          max_perturbed_area: float,
-                                          max_concept_overlap: float,
                                           k=5) -> Dict[str, Any]:
     """
     This score is different from "normal" top-k accuracy, because it requires that predictions
@@ -95,9 +93,7 @@ def counterfactual_top_k_accuracy_metrics(surrogate: Pipeline,
                                                                   images):
         num_inputs += 1.
         cf_iter = interpreter.get_counterfactuals(image=image,
-                                                  image_id=image_id,
-                                                  max_perturbed_area=max_perturbed_area,
-                                                  max_concept_overlap=max_concept_overlap)
+                                                  image_id=image_id)
 
         found_change = False
 

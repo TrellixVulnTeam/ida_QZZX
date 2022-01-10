@@ -30,8 +30,13 @@ class PerceivableColorsInterpreter(Interpreter):
                320.: 'magenta',
                360.: 'red'}
 
-    def __init__(self, random_state: int = 42):
-        super().__init__(random_state=random_state)
+    def __init__(self,
+                 random_state: int = 42,
+                 max_concept_overlap: float = .4,
+                 max_perturbed_area: float = .6):
+        super().__init__(random_state=random_state,
+                         max_concept_overlap=max_concept_overlap,
+                         max_perturbed_area=max_perturbed_area)
         self._hue_bin_names = np.asarray(list(self.HUE_MAP.values()))
         self._hue_bins = np.array([0.] + list(self.HUE_MAP.keys())) / 360.
         self._pool = None

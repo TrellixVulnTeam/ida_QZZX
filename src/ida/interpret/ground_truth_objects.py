@@ -16,7 +16,9 @@ class GroundTruthObjectsInterpreter(Interpreter):
                  gt_object_provider: ImageObjectProvider,
                  subset: Optional[str] = None,
                  ignore_images_without_objects: bool = True,
-                 random_state: int = 42):
+                 random_state: int = 42,
+                 max_concept_overlap: float = .4,
+                 max_perturbed_area: float = .6):
         """
         :param gt_object_provider: provider of object bounding boxes for given image ids
         :param subset: optional subset of the dataset for which the image ids are unique
@@ -24,7 +26,9 @@ class GroundTruthObjectsInterpreter(Interpreter):
             has no assigned object bounding boxes
         :param random_state to use
         """
-        super().__init__(random_state=random_state)
+        super().__init__(random_state=random_state,
+                         max_concept_overlap=max_concept_overlap,
+                         max_perturbed_area=max_perturbed_area)
         self.gt_object_provider = gt_object_provider
         self.subset = subset
         self.ignore_images_without_objects = ignore_images_without_objects

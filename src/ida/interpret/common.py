@@ -7,8 +7,13 @@ import numpy as np
 
 class Interpreter(abc.ABC):
 
-    def __init__(self, random_state: int = 42):
+    def __init__(self,
+                 random_state: int = 42,
+                 max_perturbed_area: float = .6,
+                 max_concept_overlap: float = .4):
         self.rng = np.random.default_rng(random_state)
+        self.max_perturbed_area = max_perturbed_area
+        self.max_concept_overlap = max_concept_overlap
 
     @property
     @abc.abstractmethod
@@ -76,8 +81,6 @@ class Interpreter(abc.ABC):
         return zip(overlap_ids, overlap_masks)
 
     def get_counterfactuals(self,
-                            max_perturbed_area: float,
-                            max_concept_overlap: float,
                             image: Optional[np.ndarray] = None,
                             image_id: Optional[str] = None,
                             shuffle: bool = True) -> Iterable[Tuple[List[int], np.ndarray]]:
@@ -92,13 +95,13 @@ class Interpreter(abc.ABC):
             image_area = image.shape[0] * image.shape[1]
 
             for dropped_id, dropped_mask in ids_and_masks:
-                # the following zip cannot be empty, because dropped_mask is at least overlapping with itself
                 overlapping = self.get_overlapping_concepts(mask=dropped_mask,
                                                             all_ids_and_masks=ids_and_masks,
-                                                            is_overlap_at=max_concept_overlap)
+                                                            is_overlap_at=self.max_concept_overlap)
+                # the following zip cannot be empty, because dropped_mask is at least overlapping with itself
                 dropped_ids, dropped_masks = list(zip(*overlapping))
                 dropped_area = np.count_nonzero(reduce(np.bitwise_or, dropped_masks))
-                if float(dropped_area) / float(image_area) > max_perturbed_area:
+                if float(dropped_area) / float(image_area) > self.max_perturbed_area:
                     continue
 
                 perturbed_image = image.copy()
