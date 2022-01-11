@@ -16,11 +16,12 @@ import pandas as pd
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
-from ida.ida import run_cv, Observer
+from ida.ida import ipa
 from ida.interpret.common import Interpreter
 from ida.torch_extensions.classifier import TorchImageClassifier
 from ida.type1.common import Type1Explainer, top_k_accuracy_score, counterfactual_top_k_accuracy_metrics
 from ida.common import NestedLogger, memory
+from ida.type2.common import Type2Explainer
 
 
 # See https://stackoverflow.com/questions/15063936
@@ -80,10 +81,11 @@ class Experiment(NestedLogger):
     repetitions: int
     images_url: str
     num_train_obs: int
+    num_calibration_obs: int
     num_test_obs: int
     class_names: [str]
     type1: Type1Explainer
-    observer: Observer
+    type2: Type2Explainer
     param_grid: Dict[str, Any]
     cv_params: Dict[str, Any]
     top_k_acc: Iterable[int]
@@ -94,11 +96,11 @@ class Experiment(NestedLogger):
 
     @property
     def classifier(self) -> TorchImageClassifier:
-        return self.observer.classifier
+        return self.type2.classifier
 
     @property
     def interpreter(self) -> Interpreter:
-        return self.observer.interpreter
+        return self.type2.interpreter
 
     @property
     def params(self) -> Mapping[str, Any]:
@@ -106,9 +108,10 @@ class Experiment(NestedLogger):
                 'class_names': self.class_names,
                 'images_url': self.images_url,
                 'num_train_obs': self.num_train_obs,
+                'num_calibration_obs': self.num_calibration_obs,
                 'interpreter': str(self.interpreter),
                 'concept_names': self.interpreter.concepts,
-                'observer': str(self.observer),
+                'type2': str(self.type2),
                 'type1': str(self.type1),
                 'num_test_obs': self.num_test_obs,
                 'max_perturbed_area': self.interpreter.max_perturbed_area,
@@ -142,19 +145,20 @@ class Experiment(NestedLogger):
 
             with _prepare_image_iter(self.images_url, skip=self.num_test_obs) as train_images_iter:
                 for rep_no in range(1, self.repetitions + 1):
-                    start = timeit.default_timer()
-                    with self.log_task('Observing classifier...'):
-                        # we draw new train observations for each repetition by continuing the iterator
-                        train_images = it.islice(train_images_iter, self.num_train_obs)
-                        train_counts, train_classes = list(zip(*self.observer(image_iter=train_images)))
+                    calibration_images_iter = it.islice(train_images_iter, self.num_calibration_obs)
+                    with self.log_task('Calibrating the Type 2 explainer...'):
+                        self.type2.calibrate(calibration_images_iter)
 
-                    with self.log_task('Approximating classifier...'):
-                        cv = run_cv(inputs=train_counts,
-                                    predicted_classes=train_classes,
-                                    all_classes=list(range(self.classifier.num_classes)),
-                                    pipeline=self.type1.create_pipeline(random_state=self.random_state),
-                                    param_grid=self.param_grid,
-                                    **self.cv_params)
+                    # we draw new train observations for each repetition by continuing the iterator
+                    start = timeit.default_timer()
+                    cv = ipa(type1=self.type1,
+                             type2=self.type2,
+                             image_iter=it.islice(train_images_iter,
+                                                  self.num_train_obs),
+                             log_nesting=self.log_nesting,
+                             random_state=self.random_state,
+                             param_grid=self.param_grid,
+                             cv_params=self.cv_params)
                     stop = timeit.default_timer()
 
                     best_pipeline = cv.best_estimator_
