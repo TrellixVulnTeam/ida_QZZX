@@ -169,7 +169,7 @@ class Experiment(NestedLogger):
 
                     metrics['runtime_s'] = stop - start
                     fit_params = self._get_fitted_attributes(picker)
-                    stats = picker.stats_
+                    stats = fit_params.pop('stats_')
                     yield surrogate, stats, cv.best_params_, fit_params, metrics, self.type1.serialize(surrogate)
 
     @staticmethod
