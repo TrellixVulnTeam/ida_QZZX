@@ -120,8 +120,13 @@ class JoinedInterpreter(Interpreter):
     def __init__(self,
                  *interpreters: Interpreter,
                  prefix_interpreter_name: bool = True,
-                 clean_concept_names: bool = True):
-        super().__init__()
+                 clean_concept_names: bool = True,
+                 random_state: int = 42,
+                 max_perturbed_area: float = 1.,
+                 max_concept_overlap: float = 1.):
+        super().__init__(random_state=random_state,
+                         max_perturbed_area=max_perturbed_area,
+                         max_concept_overlap=max_concept_overlap)
         self.interpreters = interpreters
         self.prefix = prefix_interpreter_name
         self.clean = clean_concept_names
