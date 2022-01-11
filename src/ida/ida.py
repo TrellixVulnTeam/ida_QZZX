@@ -121,8 +121,8 @@ class InterpretPickTransformer(abc.ABC, BaseEstimator, TransformerMixin, NestedL
         return concept_counts, influential_concept_counts
 
     def _evaluate_counters(self, counts: [[int]], influential_counts: [[int]]):
-        counts = np.sum(np.asarray(counts), axis=1)
-        influential_counts = np.sum(np.asarray(influential_counts), axis=1)
+        counts = np.sum(np.asarray(counts), axis=0)
+        influential_counts = np.sum(np.asarray(influential_counts), axis=0)
 
         self.num_influential_concept_instances_ = np.sum(influential_counts)
         self.stats_ = self.type2.stats
