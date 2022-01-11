@@ -1,5 +1,4 @@
 import abc
-import itertools as it
 from typing import Optional, Any, Tuple, Iterable, Dict, Type, Mapping
 
 import numpy as np
