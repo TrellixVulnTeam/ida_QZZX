@@ -3,11 +3,12 @@ from typing import Dict, Any
 
 import pickle
 
+import numpy as np
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.utils.validation import check_is_fitted
 
-from ida.experiments.experiment import get_experiment_df
+from ida.experiments.experiment import get_experiment_row
 from ida.type1.common import Type1Explainer
 
 
@@ -42,17 +43,23 @@ class TreeType1Explainer(Type1Explainer):
         return {'encoded_tree': base64.b64encode(pickle.dumps(tree))}
 
     @staticmethod
-    def load(experiment_name: str, exp_no: int, rep_no: int) -> Pipeline:
-        df = get_experiment_df(experiment_name)
-        row = df.loc[df['exp_no'] == exp_no].loc[df['rep_no'] == rep_no].iloc[0]
+    def _load_tree(experiment_name: str, exp_no: int, rep_no: int):
+        row = get_experiment_row(experiment_name=experiment_name, exp_no=exp_no, rep_no=rep_no)
         assert 'encoded_tree' in row, 'The given experiment did not use a TreeType1Explainer.'
         tree: DecisionTreeClassifier = pickle.loads(base64.b64decode(row['encoded_tree']))
+        return row, tree
+
+    @staticmethod
+    def load(experiment_name: str, exp_no: int, rep_no: int) -> Pipeline:
+        _, tree = TreeType1Explainer._load_tree(experiment_name=experiment_name, exp_no=exp_no, rep_no=rep_no)
         return TreeType1Explainer._create_pipeline(tree=tree)
 
     @staticmethod
-    def plot(pipeline: Pipeline, **kwargs):
-        tree = pipeline['tree']
-        plot_tree(decision_tree=tree, **kwargs)
+    def plot(experiment_name: str, exp_no: int, rep_no: int):
+        row, tree = TreeType1Explainer._load_tree(experiment_name=experiment_name, exp_no=exp_no, rep_no=rep_no)
+        plot_tree(decision_tree=tree,
+                  class_names=np.asarray(row['class_names'])[tree.classes_],
+                  feature_names=np.asarray(row['concept_names'])[row['picked_concepts_']])
 
     def __str__(self):
         return 'TreeType1Explainer'

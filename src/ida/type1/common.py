@@ -30,11 +30,6 @@ class Type1Explainer(abc.ABC):
     def serialize(pipeline: Pipeline) -> Dict[str, Any]:
         pass
 
-    @staticmethod
-    @abc.abstractmethod
-    def plot(pipeline: Pipeline, **kwargs):
-        pass
-
 
 def _get_top_k_classes(surrogate: Pipeline,
                        counts: List[List[int]],
