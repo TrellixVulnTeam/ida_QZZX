@@ -2,17 +2,18 @@ import ast
 import csv
 import itertools as it
 import sys
+from collections import Counter
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 import timeit
 from datetime import datetime
-from pathlib import Path
-from typing import Mapping, Any, Dict, Tuple, Iterable, List, ContextManager
+from typing import Mapping, Any, Dict, Tuple, Iterable, List, Union
 
 import numpy as np
 from importlib import resources
 
 import pandas as pd
+import re
 from petastorm import make_reader
 from sklearn.metrics import log_loss, roc_auc_score
 
@@ -86,6 +87,7 @@ class Experiment(NestedLogger):
     class_names: [str]
     type1: Type1Explainer
     type2: Type2Explainer
+    model_agnostic_picker: Union[str, Any]
     param_grid: Dict[str, Any]
     cv_params: Dict[str, Any]
     top_k_acc: Iterable[int]
@@ -113,6 +115,7 @@ class Experiment(NestedLogger):
                 'concept_names': self.interpreter.concepts,
                 'type2': str(self.type2),
                 'type1': str(self.type1),
+                'model_agnostic_picker': str(self.model_agnostic_picker),
                 'num_test_obs': self.num_test_obs,
                 'max_perturbed_area': self.interpreter.max_perturbed_area,
                 'min_overlap_for_concept_merge': self.interpreter.max_concept_overlap}
@@ -125,7 +128,7 @@ class Experiment(NestedLogger):
     def all_class_ids(self) -> [int]:
         return list(range(self.classifier.num_classes))
 
-    def run(self):
+    def run(self, resume_at: int = 1):
         """
         Runs the configured number of repetitions of the experiment.
         For each repetition, yields a tuple *(surrogate, stats, fit_params, metrics)*.
@@ -133,6 +136,8 @@ class Experiment(NestedLogger):
         *stats*, *fit_params*, and *metrics* are dicts that contain the augmentation statistics
         from the IPA algorithm, the hyperparameters of the fitted surrogate model and the experimental results.
         """
+        assert resume_at >= 1
+
         with self.log_task('Running experiment...'):
             self.log_item('Parameters: {}'.format(self.params))
 
@@ -143,34 +148,37 @@ class Experiment(NestedLogger):
                                                       num_test_obs=self.num_test_obs)
                 self.counts_test, self.y_test, self.iv_counts_test, self.iv_y_test = test_obs
 
-            with _prepare_image_iter(self.images_url, skip=self.num_test_obs) as train_images_iter:
-                for rep_no in range(1, self.repetitions + 1):
-                    calibration_images_iter = it.islice(train_images_iter, self.num_calibration_obs)
-                    with self.log_task('Calibrating the Type 2 explainer...'):
-                        self.type2.calibrate(calibration_images_iter)
+            skip_count = self.num_test_obs + (resume_at - 1) * self.num_train_obs
+            with _prepare_image_iter(self.images_url, skip=skip_count) as train_images_iter:
+                for rep_no in range(resume_at, self.repetitions + 1):
+                    with self.log_task(f'Running repetition {rep_no}...'):
+                        calibration_images_iter = it.islice(train_images_iter, self.num_calibration_obs)
+                        with self.log_task('Calibrating the Type 2 explainer...'):
+                            self.type2.calibrate(calibration_images_iter)
 
-                    # we draw new train observations for each repetition by continuing the iterator
-                    start = timeit.default_timer()
-                    cv = ipa(type1=self.type1,
-                             type2=self.type2,
-                             image_iter=it.islice(train_images_iter,
-                                                  self.num_train_obs),
-                             log_nesting=self.log_nesting,
-                             random_state=self.random_state,
-                             param_grid=self.param_grid,
-                             cv_params=self.cv_params)
-                    stop = timeit.default_timer()
+                        # we draw new train observations for each repetition by continuing the iterator
+                        start = timeit.default_timer()
+                        cv = ipa(type1=self.type1,
+                                 type2=self.type2,
+                                 model_agnostic_picker=self.model_agnostic_picker,
+                                 image_iter=it.islice(train_images_iter,
+                                                      self.num_train_obs),
+                                 log_nesting=self.log_nesting,
+                                 random_state=self.random_state,
+                                 param_grid=self.param_grid,
+                                 cv_params=self.cv_params)
+                        stop = timeit.default_timer()
 
-                    best_pipeline = cv.best_estimator_
-                    picker = best_pipeline['interpret-pick']
-                    surrogate = best_pipeline['approximate']
-                    with self.log_task('Scoring surrogate model...'):
-                        metrics = self.score(surrogate, picker.picked_concepts_)
+                        best_pipeline = cv.best_estimator_
+                        picker = best_pipeline['interpret-pick']
+                        surrogate = best_pipeline['approximate']
+                        with self.log_task('Scoring surrogate model...'):
+                            metrics = self.score(surrogate, picker.picked_concepts_)
 
-                    metrics['runtime_s'] = stop - start
-                    fit_params = self._get_fitted_attributes(picker)
-                    stats = fit_params.pop('stats_')
-                    yield surrogate, stats, cv.best_params_, fit_params, metrics, self.type1.serialize(surrogate)
+                        metrics['runtime_s'] = stop - start
+                        fit_params = self._get_fitted_attributes(picker)
+                        stats = fit_params.pop('stats_')
+                        yield surrogate, stats, cv.best_params_, fit_params, metrics, self.type1.serialize(surrogate)
 
     @staticmethod
     def _get_fitted_attributes(fitted_estimator):
@@ -243,31 +251,77 @@ class Experiment(NestedLogger):
         return auc
 
 
-def get_results_dir() -> ContextManager[Path]:
-    return resources.path('ida.experiments', 'results')
+def _freeze(obj):
+    if isinstance(obj, list):
+        return tuple(obj)
+    elif isinstance(obj, dict):
+        if 'model_agnostic_picker' not in obj:  # this field is not present in older results
+            obj['model_agnostic_picker'] = 'passthrough'
+        return frozenset((k, _freeze(v)) for k, v in obj.items())
+    else:
+        return obj
 
 
 def run_experiments(name: str,
                     description: str,
                     experiments: Iterable[Experiment],
-                    prepend_timestamp: bool = True):
+                    prepend_timestamp: bool = True,
+                    continue_previous_run: bool = False):
     if prepend_timestamp:
         timestamp = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
         name = timestamp + ' ' + name
 
-    with get_results_dir() as results_dir:
+    done_counter = Counter()
+    next_exp_no = 1
+    with resources.path('ida.experiments', 'results') as results_dir:
         exp_dir = results_dir / name
-        exp_dir.mkdir(exist_ok=False)
-        with (exp_dir / 'description').open('w') as description_file:
-            description_file.write(description)
+        if continue_previous_run:
+            assert exp_dir.exists()
+            exp_no_by_params = {}
+            for e in get_experiment_dicts(name):
+                params = _freeze(e['params'])
+                # each parameter set must be identified by exactly one experiment number
+                if params in exp_no_by_params:
+                    assert exp_no_by_params[params] == e['exp_no']
+                else:
+                    next_exp_no = max(e['exp_no'] + 1, next_exp_no)
+                    exp_no_by_params[params] = e['exp_no']
+                done_counter.update([params])
+        else:
+            exp_dir.mkdir(exist_ok=False)  # fail if directory exists already
+            with (exp_dir / 'description').open('w') as description_file:
+                description_file.write(description)
 
-    with (exp_dir / 'results_packed.csv').open('w') as packed_csv_file:
-        fields = ['exp_no', 'params', 'rep_no', 'stats', 'cv_params', 'fit_params', 'metrics', 'surrogate_serial']
+    fields = ['exp_no', 'params', 'rep_no', 'stats', 'cv_params', 'fit_params', 'metrics', 'surrogate_serial']
+    if continue_previous_run:
+        with (exp_dir / 'results_packed.csv').open('r') as packed_csv_file:
+            # check that csv has all required fields
+            packed_reader = csv.DictReader(packed_csv_file)
+            row = next(iter(packed_reader))
+            assert set(fields) == set(row.keys()), 'The csv-file you want to append to has an unexpected set of fields!'
+            fields = list(row.keys())  # use the field order from the existing csv file
+
+    with (exp_dir / 'results_packed.csv').open('a+') as packed_csv_file:
         packed_writer = csv.DictWriter(packed_csv_file, fieldnames=fields)
-        packed_writer.writeheader()
+        if not continue_previous_run:
+            packed_writer.writeheader()
 
-        for exp_no, e in enumerate(experiments, start=1):
-            for rep_no, result in enumerate(e.run(), start=1):
+        for e in experiments:
+            params = _freeze(e.params)
+
+            if done_counter[params] >= e.repetitions:
+                continue
+
+            try:
+                exp_no = exp_no_by_params[params]
+            except KeyError:
+                exp_no = next_exp_no
+                exp_no_by_params[params] = exp_no
+                next_exp_no += 1
+
+            done_counter[params] += 1
+            rep_no = done_counter[params]
+            for result in e.run(resume_at=rep_no):
                 surrogate, stats, cv_params, fit_params, metrics, serial = result
                 packed_writer.writerow({'exp_no': exp_no,
                                         'params': e.params,
@@ -280,34 +334,47 @@ def run_experiments(name: str,
                 packed_csv_file.flush()  # make sure intermediate results are written
 
 
-def get_experiment_df(experiment_name: str) -> pd.DataFrame:
+def get_experiment_dicts(experiment_name: str) -> Iterable[Dict[str, Any]]:
     with resources.path('ida.experiments.results', experiment_name) as path:
         with (path / 'results_packed.csv').open('r') as results_csv_file:
-            unpacked_column_names = set()
-
-            # first pass: find out all column names
-            unpacked_rows = []
             for row in csv.DictReader(results_csv_file):
                 packed = {}
                 for k, v in row.items():
+                    # fix a parsing error with some older results
+                    v = re.sub(r'(?:array)\((\[.*\])(?:,.*\))',
+                               repl=r'\1',
+                               string=v,
+                               flags=re.DOTALL)
+                    assert 'array' not in v
                     try:
                         packed[k] = ast.literal_eval(v)
                     except ValueError:
                         pass
+                yield packed
 
-                unpacked = {}
-                for k, v in packed.items():
-                    if isinstance(v, dict):
-                        unpacked_column_names.update(v.keys())
-                        unpacked.update(v)
-                    else:
-                        unpacked.update({k: v})
-                unpacked_rows.append(unpacked)
 
-        unified_rows = []
-        for row in unpacked_rows:
-            d = {c: None for c in unpacked_column_names}
-            d.update(row)
-            unified_rows.append(d)
+def get_experiment_df(experiment_name: str) -> pd.DataFrame:
+    unpacked_rows = []
+    unpacked_column_names = set()
+    for packed in get_experiment_dicts(experiment_name):
+        unpacked = {}
+        for k, v in packed.items():
+            if isinstance(v, dict):
+                unpacked_column_names.update(v.keys())
+                unpacked.update(v)
+            else:
+                unpacked.update({k: v})
+        unpacked_rows.append(unpacked)
 
-        return pd.DataFrame(unified_rows)
+    unified_rows = []
+    for row in unpacked_rows:
+        d = {c: None for c in unpacked_column_names}
+        d.update(row)
+        unified_rows.append(d)
+
+    return pd.DataFrame(unified_rows)
+
+
+def get_experiment_row(experiment_name: str, exp_no: int, rep_no: int):
+    df = get_experiment_df(experiment_name)
+    return df.loc[df['exp_no'] == exp_no].loc[df['rep_no'] == rep_no].iloc[0]
