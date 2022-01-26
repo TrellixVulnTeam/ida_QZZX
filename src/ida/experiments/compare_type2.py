@@ -127,24 +127,8 @@ def get_experiments(images_url: str):
     interpreter = get_interpreter()
     for num_train_obs in get_num_train_obs():
         for classifier, last_conv_layer in get_classifiers():
-            for type2 in get_type2_explainers(classifier, interpreter, layer=last_conv_layer):
-                yield get_experiment(images_url=images_url,
-                                     num_train_obs=num_train_obs,
-                                     type2=type2,
-                                     model_agnostic_picker='passthrough',
-                                     param_grid=[{**approximate_grid,
-                                                  **interpret_pick_grid}],
-                                     cv_params={'n_jobs': 4})
-
             no_type_2 = NoType2Explainer(classifier=classifier,
                                          interpreter=interpreter)
-            yield get_experiment(images_url=images_url,
-                                 num_train_obs=num_train_obs,
-                                 type2=no_type_2,
-                                 model_agnostic_picker='passthrough',
-                                 param_grid=[approximate_grid],
-                                 cv_params={'n_jobs': 62})
-
             rf_picker = SelectFromModel(estimator=ExtraTreesClassifier(random_state=SEED))
             rf_grid = {'pick_agnostic__threshold': ['mean'],  # was always better than median
                        'pick_agnostic__estimator__n_estimators': [250],
@@ -155,8 +139,25 @@ def get_experiments(images_url: str):
                                  num_train_obs=num_train_obs,
                                  type2=no_type_2,
                                  model_agnostic_picker=rf_picker,
-                                 param_grid=[rf_grid],
+                                 param_grid=[{**approximate_grid,
+                                              **rf_grid}],
                                  cv_params={'n_jobs': 62})
+
+            yield get_experiment(images_url=images_url,
+                                 num_train_obs=num_train_obs,
+                                 type2=no_type_2,
+                                 model_agnostic_picker='passthrough',
+                                 param_grid=[approximate_grid],
+                                 cv_params={'n_jobs': 62})
+
+            for type2 in get_type2_explainers(classifier, interpreter, layer=last_conv_layer):
+                yield get_experiment(images_url=images_url,
+                                     num_train_obs=num_train_obs,
+                                     type2=type2,
+                                     model_agnostic_picker='passthrough',
+                                     param_grid=[{**approximate_grid,
+                                                  **interpret_pick_grid}],
+                                     cv_params={'n_jobs': 4})
 
 
 if __name__ == '__main__':
@@ -166,8 +167,8 @@ if __name__ == '__main__':
     parser.add_argument('--images_url')
     args = parser.parse_args()
 
-    run_experiments(name='2021-12-22-00:36:54 type2_vs_baselines-varying_train_obs',
+    run_experiments(name='2022-01-25-22:10:00 type2_vs_baselines-varying_train_obs',
                     prepend_timestamp=False,
-                    continue_previous_run=True,
+                    # continue_previous_run=True,
                     description=description,
                     experiments=get_experiments(images_url=args.images_url))
