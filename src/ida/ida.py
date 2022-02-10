@@ -1,10 +1,15 @@
 import abc
 import itertools as it
-import time
-from collections import Counter
+import shutil
+import tempfile
+from collections import Counter, Sequence
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterable, Tuple, Dict, Any, Optional, List, Union
 
+import joblib
 import numpy as np
+from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import KFold, StratifiedKFold, GridSearchCV
 from sklearn.pipeline import Pipeline
@@ -40,7 +45,52 @@ def determine_k_folds(predicted_classes: [int], max_k_folds: int):
     return min(max_k_folds, Counter(predicted_classes).most_common()[-1][1])
 
 
-def run_cv(inputs: List[Any],
+class ImageList(Sequence):
+
+    def __init__(self, image_ids: np.ndarray, images: np.ndarray):
+        assert len(image_ids.shape) == 1
+        assert image_ids.shape[0] == images.shape[0]
+        assert len(images.shape) == 4
+
+        self.image_ids = image_ids
+        self.images = images
+
+    def __getitem__(self, idx):
+        if isinstance(idx, Iterable):
+            return ImageList(self.image_ids[idx], self.images[idx])
+        elif np.issubdtype(type(idx), np.integer):
+            return self.image_ids[idx], self.images[idx]
+        else:
+            raise ValueError(f'Cannot use {idx} of type {type(idx)} for indexing.')
+
+    def __len__(self):
+        return len(self.image_ids)
+
+
+@contextmanager
+def memory_mapped_image_list(image_iter: Iterable[Tuple[str, np.ndarray]]):
+    image_ids, images = list(zip(*image_iter))
+    image_ids = np.array(image_ids, dtype=str)
+    images = np.array(images, dtype=np.uint8)
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    ids_tmp_file = tmp_dir / 'ipa_image_ids.mmap'
+    images_tmp_file = tmp_dir / 'ipa_images.mmap'
+    for tmp_file in (ids_tmp_file, images_tmp_file):
+        if tmp_file.exists():
+            tmp_file.unlink()
+    joblib.dump(image_ids, ids_tmp_file)
+    joblib.dump(images, images_tmp_file)
+    image_ids = joblib.load(ids_tmp_file, 'r')
+    images = joblib.load(images_tmp_file, 'r')
+
+    try:
+        yield ImageList(image_ids, images)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def run_cv(images: ImageList,
            predicted_classes: List[int],
            all_classes: Optional[List[int]],
            pipeline: Pipeline,
@@ -50,7 +100,6 @@ def run_cv(inputs: List[Any],
            n_jobs: int = 62,
            pre_dispatch: Union[int, str] = 'n_jobs',
            scoring: str = 'roc_auc_ovo') -> GridSearchCV:
-    inputs = np.asarray(inputs, dtype=object)
     predicted_classes = np.asarray(predicted_classes)
 
     assert min_k_folds <= max_k_folds
@@ -70,7 +119,8 @@ def run_cv(inputs: List[Any],
                           n_jobs=n_jobs,
                           pre_dispatch=pre_dispatch,
                           scoring=scoring)
-    return search.fit(inputs[indices], predicted_classes[indices])
+
+    return search.fit(images[indices], predicted_classes[indices])
 
 
 class InterpretPickTransformer(abc.ABC, BaseEstimator, TransformerMixin, NestedLogger):
@@ -79,40 +129,27 @@ class InterpretPickTransformer(abc.ABC, BaseEstimator, TransformerMixin, NestedL
                  type2: Type2Explainer,
                  threshold: float = .5,
                  quantile: bool = False,
-                 max_num_type2_calls: Optional[int] = None):
+                 n_jobs: Optional[int] = None):
         self.type2 = type2
         self.threshold = threshold
         self.quantile = quantile
-        self.log_frequency_s = 5.
-        self.max_num_type2_calls = max_num_type2_calls
+        self.n_jobs = n_jobs
 
     @property
     def interpreter(self) -> Interpreter:
         return self.type2.interpreter
 
+    def _get_single_counts(self, image_id: str, image: np.ndarray) -> Iterable[Tuple[List[int], List[int]]]:
+        concept_ids, _, influences = list(zip(*self.type2(image=image, image_id=image_id)))
+        counts = self.interpreter.concept_ids_to_counts(concept_ids)
+        influential_concept_ids = (c for c, i in zip(concept_ids, influences) if i)
+        influential_counts = self.interpreter.concept_ids_to_counts(influential_concept_ids)
+        return counts, influential_counts
+
     def _get_counts(self, X):
-        concept_counts = []
-        influential_concept_counts = []
-
-        last_log_time = time.time()
-        for obs_no, (image_id, image) in enumerate(X):
-            if self.max_num_type2_calls is None or obs_no < self.max_num_type2_calls:
-                concept_ids, _, influences = list(zip(*self.type2(image=image, image_id=image_id)))
-                counts = self.interpreter.concept_ids_to_counts(concept_ids)
-                concept_counts.append(counts)
-                influential_concept_ids = [c for c, i in zip(concept_ids, influences) if i]
-                influential_counts = self.interpreter.concept_ids_to_counts(influential_concept_ids)
-                influential_concept_counts.append(influential_counts)
-            else:
-                concept_counts.append(self.interpreter.count_concepts(image=image, image_id=image_id))
-
-            current_time = time.time()
-            if current_time - last_log_time > self.log_frequency_s:
-                with self.log_task('Status update'):
-                    total_count = obs_no + 1
-                    self.log_item(f'Processed {total_count} observations')
-                last_log_time = current_time
-        return concept_counts, influential_concept_counts
+        zipped = Parallel(n_jobs=self.n_jobs)(delayed(self._get_single_counts)(image_id, image)
+                                              for image_id, image in X)
+        return list(zip(*zipped))
 
     def _evaluate_counters(self, counts: [[int]], influential_counts: [[int]]):
         counts = np.sum(np.asarray(counts), axis=0)
@@ -176,28 +213,30 @@ def ipa(image_iter: Iterable[Tuple[str, np.ndarray]],
         param_grid: Dict[str, Any],
         cv_params: Dict[str, Any],
         random_state: int,
+        observe_classifier_n_jobs: Optional[int] = None,
         log_nesting: int = 0) -> GridSearchCV:
 
     logger = NestedLogger()
     logger.log_nesting = log_nesting
-    with logger.log_task('Observing classifier...'):
-        inputs = []
-        predicted_classes = []
-        for obs_no, (image_id, image) in enumerate(image_iter):
-            inputs.append((image_id, image))
-            predicted_classes.append(type2.classifier.predict_single(image=image, image_id=image_id))
 
-    with logger.log_task('Running IPA...'):
-        pipeline = Pipeline([
-            ('interpret-pick', InterpretPickTransformer(type2)),
-            ('pick_agnostic', model_agnostic_picker),
-            ('approximate', type1.create_pipeline(random_state=random_state))
-        ])
-        cv = run_cv(inputs=inputs,
-                    predicted_classes=predicted_classes,
-                    all_classes=list(range(type2.classifier.num_classes)),
-                    pipeline=pipeline,
-                    param_grid=param_grid,
-                    **cv_params)
+    with memory_mapped_image_list(image_iter) as images:
+        with logger.log_task('Observing classifier...'):
+            predicted_classes = Parallel(n_jobs=observe_classifier_n_jobs)(
+                delayed(type2.classifier.predict_single)(image=image,
+                                                         image_id=image_id)
+                for image_id, image in images
+            )
 
-        return cv
+        with logger.log_task('Running IPA...'):
+            pipeline = Pipeline([
+                ('interpret-pick', InterpretPickTransformer(type2)),
+                ('pick_agnostic', model_agnostic_picker),
+                ('approximate', type1.create_pipeline(random_state=random_state))
+            ])
+            cv = run_cv(images=images,
+                        predicted_classes=predicted_classes,
+                        all_classes=list(range(type2.classifier.num_classes)),
+                        pipeline=pipeline,
+                        param_grid=param_grid,
+                        **cv_params)
+    return cv
