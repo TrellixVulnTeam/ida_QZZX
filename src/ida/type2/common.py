@@ -40,7 +40,7 @@ class NoType2Explainer(Type2Explainer):
     def __call__(self, image: np.ndarray, image_id: Optional[str] = None, **kwargs) \
             -> Iterable[Tuple[int, np.ndarray, bool]]:
         """
-        Assigns positive influence of 1. to each interpretable concept on *image* / the image represented by *image_id*.
+        Marks all interpretable concepts on *image* / the image represented by *image_id* as influential.
         """
         for concept_id, mask in self.interpreter(image, image_id):
             yield concept_id, mask, True
