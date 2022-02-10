@@ -1,4 +1,5 @@
 import base64
+from contextlib import suppress
 from typing import Dict, Any
 
 import pickle
@@ -57,9 +58,12 @@ class TreeType1Explainer(Type1Explainer):
     @staticmethod
     def plot(experiment_name: str, exp_no: int, rep_no: int):
         row, tree = TreeType1Explainer._load_tree(experiment_name=experiment_name, exp_no=exp_no, rep_no=rep_no)
+        concept_idx = row['picked_concepts_']
+        with suppress(KeyError):
+            concept_idx = np.asarray(concept_idx)[row['agnostic_picked_concepts_']].tolist()
         plot_tree(decision_tree=tree,
                   class_names=np.asarray(row['class_names'])[tree.classes_],
-                  feature_names=np.asarray(row['concept_names'])[row['picked_concepts_']])
+                  feature_names=np.asarray(row['concept_names'])[concept_idx])
 
     def __str__(self):
         return 'TreeType1Explainer'
