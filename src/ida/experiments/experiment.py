@@ -15,6 +15,7 @@ from importlib import resources
 import pandas as pd
 import re
 from petastorm import make_reader
+from sklearn.feature_selection import SelectorMixin
 from sklearn.metrics import log_loss, roc_auc_score
 
 from ida.ida import ipa
@@ -91,6 +92,7 @@ class Experiment(NestedLogger):
     param_grid: Dict[str, Any]
     cv_params: Dict[str, Any]
     top_k_acc: Iterable[int]
+    observe_classifier_n_jobs: int
 
     def __post_init__(self):
         assert len(self.class_names) == self.classifier.num_classes, \
@@ -166,24 +168,34 @@ class Experiment(NestedLogger):
                                  log_nesting=self.log_nesting,
                                  random_state=self.random_state,
                                  param_grid=self.param_grid,
-                                 cv_params=self.cv_params)
+                                 cv_params=self.cv_params,
+                                 observe_classifier_n_jobs=self.observe_classifier_n_jobs)
                         stop = timeit.default_timer()
 
                         best_pipeline = cv.best_estimator_
                         picker = best_pipeline['interpret-pick']
+                        agnostic_picker = best_pipeline['pick_agnostic']
                         surrogate = best_pipeline['approximate']
+
+                        picked_concepts = picker.picked_concepts_
+                        fit_params = {'picked_concepts_': picker.picked_concepts_,
+                                      'picked_concept_names_': picker.picked_concept_names_,
+                                      'concept_influences_': picker.concept_influences_}
+                        if isinstance(agnostic_picker, SelectorMixin):
+                            picked_concepts = np.asarray(picked_concepts)[agnostic_picker.get_support()].tolist()
+                            fit_params['agnostic_picked_concepts_'] = agnostic_picker.get_support(indices=True).tolist()
+
                         with self.log_task('Scoring surrogate model...'):
-                            metrics = self.score(surrogate, picker.picked_concepts_)
+                            metrics = self.score(surrogate, picked_concepts)
 
                         metrics['runtime_s'] = stop - start
-                        fit_params = self._get_fitted_attributes(picker)
-                        stats = fit_params.pop('stats_')
-                        yield surrogate, stats, cv.best_params_, fit_params, metrics, self.type1.serialize(surrogate)
-
-    @staticmethod
-    def _get_fitted_attributes(fitted_estimator):
-        attrs = [v for v in vars(fitted_estimator) if v.endswith("_") and not v.startswith("__")]
-        return {attr: getattr(fitted_estimator, attr) for attr in attrs}
+                        yield (rep_no,
+                               surrogate,
+                               picker.stats_,
+                               cv.best_params_,
+                               fit_params,
+                               metrics,
+                               self.type1.serialize(surrogate))
 
     def _spread_probs_to_all_classes(self, probs, classes_) -> np.ndarray:
         """
@@ -251,13 +263,26 @@ class Experiment(NestedLogger):
         return auc
 
 
+KEY_PARAMS = ('classifier',
+              'images_url',
+              'num_train_obs',
+              'num_calibration_obs',
+              'interpreter',
+              'type2',
+              'type1',
+              'model_agnostic_picker',
+              'max_perturbed_area',
+              'min_overlap_for_concept_merge')
+
+
 def _freeze(obj):
     if isinstance(obj, list):
         return tuple(obj)
     elif isinstance(obj, dict):
         if 'model_agnostic_picker' not in obj:  # this field is not present in older results
             obj['model_agnostic_picker'] = 'passthrough'
-        return frozenset((k, _freeze(v)) for k, v in obj.items())
+        return frozenset((k, _freeze(v)) for k, v in obj.items()
+                         if k in KEY_PARAMS)
     else:
         return obj
 
@@ -272,12 +297,12 @@ def run_experiments(name: str,
         name = timestamp + ' ' + name
 
     done_counter = Counter()
+    exp_no_by_params = {}
     next_exp_no = 1
     with resources.path('ida.experiments', 'results') as results_dir:
         exp_dir = results_dir / name
         if continue_previous_run:
             assert exp_dir.exists()
-            exp_no_by_params = {}
             for e in get_experiment_dicts(name):
                 params = _freeze(e['params'])
                 # each parameter set must be identified by exactly one experiment number
@@ -320,9 +345,8 @@ def run_experiments(name: str,
                 next_exp_no += 1
 
             done_counter[params] += 1
-            rep_no = done_counter[params]
-            for result in e.run(resume_at=rep_no):
-                surrogate, stats, cv_params, fit_params, metrics, serial = result
+            for result in e.run(resume_at=done_counter[params]):
+                rep_no, surrogate, stats, cv_params, fit_params, metrics, serial = result
                 packed_writer.writerow({'exp_no': exp_no,
                                         'params': e.params,
                                         'rep_no': rep_no,

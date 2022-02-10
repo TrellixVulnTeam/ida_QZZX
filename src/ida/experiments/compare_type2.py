@@ -77,7 +77,7 @@ def get_classifiers() -> Iterable[Tuple[TorchImageClassifier, Optional[torch.nn.
 
 
 def get_num_train_obs() -> Iterable[int]:
-    yield from [500, 1000, 5000]  # , 10000, 20000]
+    yield from [5000]  # [500, 1000, 5000]  # , 10000, 20000]
 
 
 def get_num_calibration_obs() -> int:
@@ -93,7 +93,7 @@ def get_num_test_obs() -> int:
 
 
 def get_repetitions() -> int:
-    return 10
+    return 1
 
 
 def get_experiment(images_url: str,
@@ -114,21 +114,41 @@ def get_experiment(images_url: str,
                       type2=type2,
                       model_agnostic_picker=model_agnostic_picker,
                       param_grid=param_grid,
-                      cv_params=cv_params)
+                      cv_params=cv_params,
+                      observe_classifier_n_jobs=4)
 
 
 def get_experiments(images_url: str):
     approximate_grid = {'approximate__tree__max_depth': [30],
                         'approximate__tree__ccp_alpha': (.0025, .005, 0.01)}
-    interpret_pick_grid = {'interpret-pick__max_num_type2_calls': [5000],
-                           'interpret-pick__quantile': [False],
+    interpret_pick_grid = {'interpret-pick__quantile': [False],
                            'interpret-pick__threshold': [.2, .6, .8]}
 
     interpreter = get_interpreter()
     for num_train_obs in get_num_train_obs():
         for classifier, last_conv_layer in get_classifiers():
+            # FA-based concept selection
+            for type2 in get_type2_explainers(classifier, interpreter, layer=last_conv_layer):
+                yield get_experiment(images_url=images_url,
+                                     num_train_obs=num_train_obs,
+                                     type2=type2,
+                                     model_agnostic_picker='passthrough',
+                                     param_grid=[{**approximate_grid,
+                                                  **interpret_pick_grid}],
+                                     cv_params={'n_jobs': 4})
+
             no_type_2 = NoType2Explainer(classifier=classifier,
                                          interpreter=interpreter)
+
+            # No concept selection
+            yield get_experiment(images_url=images_url,
+                                 num_train_obs=num_train_obs,
+                                 type2=no_type_2,
+                                 model_agnostic_picker='passthrough',
+                                 param_grid=[{**approximate_grid}],
+                                 cv_params={'n_jobs': -1})
+
+            # Model-agnostic concept selection (Random Forest)
             rf_picker = SelectFromModel(estimator=ExtraTreesClassifier(random_state=SEED))
             rf_grid = {'pick_agnostic__threshold': ['mean'],  # was always better than median
                        'pick_agnostic__estimator__n_estimators': [250],
@@ -141,23 +161,8 @@ def get_experiments(images_url: str):
                                  model_agnostic_picker=rf_picker,
                                  param_grid=[{**approximate_grid,
                                               **rf_grid}],
-                                 cv_params={'n_jobs': 62})
-
-            yield get_experiment(images_url=images_url,
-                                 num_train_obs=num_train_obs,
-                                 type2=no_type_2,
-                                 model_agnostic_picker='passthrough',
-                                 param_grid=[approximate_grid],
-                                 cv_params={'n_jobs': 62})
-
-            for type2 in get_type2_explainers(classifier, interpreter, layer=last_conv_layer):
-                yield get_experiment(images_url=images_url,
-                                     num_train_obs=num_train_obs,
-                                     type2=type2,
-                                     model_agnostic_picker='passthrough',
-                                     param_grid=[{**approximate_grid,
-                                                  **interpret_pick_grid}],
-                                     cv_params={'n_jobs': 4})
+                                 cv_params={'n_jobs': -1,
+                                            'pre_dispatch': 20})
 
 
 if __name__ == '__main__':
@@ -167,8 +172,6 @@ if __name__ == '__main__':
     parser.add_argument('--images_url')
     args = parser.parse_args()
 
-    run_experiments(name='2022-01-25-22:10:00 type2_vs_baselines-varying_train_obs',
-                    prepend_timestamp=False,
-                    # continue_previous_run=True,
+    run_experiments(name='type2_vs_baselines-5000_train_obs',
                     description=description,
                     experiments=get_experiments(images_url=args.images_url))
